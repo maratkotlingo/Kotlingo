@@ -1,0 +1,569 @@
+---
+title: "Условия"
+description: "Разбираем if и when как выражения, exhaustive when, ветки с ranges и type checks, guard-условия, smart casts внутри условий и замену вложенных проверок читаемыми конструкциями."
+order: 9
+category: "Базовый синтаксис"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем условиям отдельный урок
+
+Условия — это место, где код выбирает поведение. В Kotlin условия особенно важны, потому что `if` и `when` могут быть выражениями: они не только выполняют ветку, но и возвращают значение. Такой стиль помогает писать код без лишних изменяемых переменных.
+
+```kotlin
+fun lessonStatus(score: Int): String {
+    return if (score >= 70) {
+        "зачет"
+    } else {
+        "повторить"
+    }
+}
+```
+
+Здесь `if` возвращает строку. Это выражение типа `String`, а не просто инструкция.
+
+<CatTip title="Кошачий ориентир">
+Когда условие выбирает значение, чаще используй `if` или `when` как выражение. Когда условие запускает побочный эффект, например печать, запись или отправку события, обычная инструкция тоже уместна.
+</CatTip>
+
+## `if` как инструкция
+
+`if` может просто выполнить блок кода:
+
+```kotlin
+fun printWarningIfNeeded(score: Int) {
+    if (score < 70) {
+        println("Нужно повторить тему")
+    }
+}
+
+fun main() {
+    printWarningIfNeeded(58)
+}
+```
+
+Такой вариант подходит, когда нет значения, которое нужно вернуть или сохранить.
+
+## `if` как выражение
+
+`if` может вернуть значение:
+
+```kotlin
+fun difficultyLabel(minutes: Int): String {
+    return if (minutes <= 30) {
+        "короткий урок"
+    } else {
+        "полный урок"
+    }
+}
+
+fun main() {
+    println(difficultyLabel(25))
+    println(difficultyLabel(80))
+}
+```
+
+Если `if` используется как выражение, ветка `else` обязательна. Компилятор должен знать, какое значение вернуть во всех сценариях.
+
+Некорректно:
+
+```kotlin
+fun difficultyLabel(minutes: Int): String {
+    // Этот код не компилируется: нет значения для случая minutes > 30.
+    return if (minutes <= 30) {
+        "короткий урок"
+    }
+}
+```
+
+Правильно:
+
+```kotlin
+fun difficultyLabel(minutes: Int): String {
+    return if (minutes <= 30) {
+        "короткий урок"
+    } else {
+        "полный урок"
+    }
+}
+```
+
+## `else if`
+
+Для нескольких веток можно использовать `else if`:
+
+```kotlin
+fun scoreLabel(score: Int): String {
+    require(score in 0..100) {
+        "Балл должен быть от 0 до 100"
+    }
+
+    return if (score >= 90) {
+        "отлично"
+    } else if (score >= 70) {
+        "хорошо"
+    } else if (score >= 50) {
+        "нужно повторить слабые места"
+    } else {
+        "начать тему заново"
+    }
+}
+
+fun main() {
+    println(scoreLabel(92))
+    println(scoreLabel(68))
+}
+```
+
+Ветки проверяются сверху вниз. Поэтому порядок важен: `score >= 90` должен стоять раньше `score >= 70`, иначе отличные результаты попадут в более общую ветку.
+
+## Ранний выход вместо глубокой вложенности
+
+Плохой стиль с глубокой вложенностью:
+
+```kotlin
+fun openLesson(title: String?, hasAccess: Boolean) {
+    if (title != null) {
+        if (title.isNotBlank()) {
+            if (hasAccess) {
+                println("Открываем урок: ${title.trim()}")
+            } else {
+                println("Нет доступа")
+            }
+        } else {
+            println("Название пустое")
+        }
+    } else {
+        println("Название отсутствует")
+    }
+}
+```
+
+Лучше использовать ранний выход:
+
+```kotlin
+fun openLesson(title: String?, hasAccess: Boolean) {
+    if (title == null) {
+        println("Название отсутствует")
+        return
+    }
+
+    val normalizedTitle = title.trim()
+
+    if (normalizedTitle.isBlank()) {
+        println("Название пустое")
+        return
+    }
+
+    if (!hasAccess) {
+        println("Нет доступа")
+        return
+    }
+
+    println("Открываем урок: $normalizedTitle")
+}
+```
+
+Такой код легче читать: ошибочные сценарии быстро завершаются, основной сценарий остается внизу без лишних уровней.
+
+## `when` как замена цепочки условий
+
+`when` выбирает одну ветку из нескольких.
+
+```kotlin
+fun categoryLabel(category: String): String {
+    return when (category) {
+        "basics" -> "Основы"
+        "oop" -> "ООП"
+        "collections" -> "Коллекции"
+        "coroutines" -> "Корутины"
+        else -> "Неизвестный раздел"
+    }
+}
+
+fun main() {
+    println(categoryLabel("basics"))
+    println(categoryLabel("unknown"))
+}
+```
+
+Ветка `else` нужна, если компилятор не может доказать, что все варианты покрыты.
+
+## `when` без аргумента
+
+`when` может работать как читаемая замена сложному `if/else if`.
+
+```kotlin
+fun progressLabel(completed: Int, total: Int): String {
+    require(completed >= 0) {
+        "Количество пройденных уроков не может быть отрицательным"
+    }
+
+    require(total > 0) {
+        "Общее количество уроков должно быть положительным"
+    }
+
+    require(completed <= total) {
+        "Пройденных уроков не может быть больше общего количества"
+    }
+
+    val percent = completed.toDouble() / total.toDouble() * 100.0
+
+    return when {
+        percent == 100.0 -> "курс завершен"
+        percent >= 70.0 -> "почти на финише"
+        percent >= 30.0 -> "стабильный прогресс"
+        percent > 0.0 -> "начало положено"
+        else -> "пока нет прогресса"
+    }
+}
+
+fun main() {
+    println(progressLabel(completed = 5, total = 8))
+}
+```
+
+В `when` без аргумента каждая ветка содержит boolean-условие. Первая ветка с `true` выбирается.
+
+## Несколько значений в одной ветке
+
+Ветка `when` может содержать несколько значений через запятую:
+
+```kotlin
+fun commandGroup(command: String): String {
+    return when (command) {
+        "open", "show", "view" -> "открытие"
+        "complete", "finish", "done" -> "завершение"
+        "help", "?" -> "справка"
+        else -> "неизвестная команда"
+    }
+}
+
+fun main() {
+    println(commandGroup("view"))
+    println(commandGroup("done"))
+}
+```
+
+Это удобно, когда разные входные значения приводят к одному результату.
+
+## `when` с ranges
+
+```kotlin
+fun scoreDescription(score: Int): String {
+    return when (score) {
+        in 90..100 -> "отлично"
+        in 70..89 -> "хорошо"
+        in 50..69 -> "нужно закрепить"
+        in 0..49 -> "повторить тему"
+        else -> "балл вне допустимого диапазона"
+    }
+}
+
+fun main() {
+    println(scoreDescription(84))
+    println(scoreDescription(120))
+}
+```
+
+`in 90..100` внутри `when` проверяет принадлежность диапазону.
+
+## `when` с type checks
+
+`when` может проверять типы:
+
+```kotlin
+fun renderValue(value: Any): String {
+    return when (value) {
+        is String -> "Строка длиной ${value.length}"
+        is Int -> "Целое число: $value"
+        is Boolean -> "Логическое значение: $value"
+        else -> "Неизвестное значение: $value"
+    }
+}
+
+fun main() {
+    println(renderValue("Kotlin"))
+    println(renderValue(42))
+    println(renderValue(false))
+}
+```
+
+Внутри ветки `is String` компилятор делает smart cast: `value` доступен как `String`, поэтому можно вызвать `value.length`.
+
+## Exhaustive `when`
+
+`when` называется exhaustive, если покрывает все возможные варианты. Это особенно мощно с `enum class` и `sealed`-иерархиями.
+
+```kotlin
+enum class LessonDifficulty {
+    BASIC,
+    MIDDLE,
+    ADVANCED,
+    EXPERT
+}
+
+fun difficultyLabel(difficulty: LessonDifficulty): String {
+    return when (difficulty) {
+        LessonDifficulty.BASIC -> "Начальный"
+        LessonDifficulty.MIDDLE -> "Средний"
+        LessonDifficulty.ADVANCED -> "Продвинутый"
+        LessonDifficulty.EXPERT -> "Эксперт"
+    }
+}
+```
+
+Здесь `else` не нужен: компилятор знает все enum-варианты.
+
+С sealed interface:
+
+```kotlin
+sealed interface LessonState {
+    data object Locked : LessonState
+    data class Available(val title: String) : LessonState
+    data class Completed(val title: String, val score: Int) : LessonState
+}
+
+fun stateMessage(state: LessonState): String {
+    return when (state) {
+        LessonState.Locked -> "Урок закрыт"
+        is LessonState.Available -> "Можно начать: ${state.title}"
+        is LessonState.Completed -> "Пройдено: ${state.title}, балл ${state.score}"
+    }
+}
+```
+
+Если потом добавить новый вариант `LessonState`, компилятор подсветит места, где `when` больше не exhaustive. Это защищает код от забытых состояний.
+
+<CatTip title="Purr-fect модель состояний">
+Если у сущности есть закрытый набор состояний, лучше моделировать его через `enum class` или `sealed interface`, а не через произвольные строки. Тогда `when` сможет проверить полноту веток.
+</CatTip>
+
+## Guard-условия
+
+В современном Kotlin guard-условия в `when` позволяют уточнять ветку дополнительной проверкой. Синтаксис зависит от версии языка и может требовать включенной language feature в проекте.
+
+Идея guard-условия:
+
+```kotlin
+sealed interface AccessResult {
+    data class Allowed(val role: String) : AccessResult
+    data class Denied(val reason: String) : AccessResult
+}
+
+fun describeAccess(result: AccessResult): String {
+    return when (result) {
+        is AccessResult.Allowed if result.role == "mentor" -> "Доступ наставника"
+        is AccessResult.Allowed -> "Доступ открыт"
+        is AccessResult.Denied -> "Доступ закрыт: ${result.reason}"
+    }
+}
+```
+
+Если твоя версия Kotlin или настройки компилятора не поддерживают guard-условия, используй вложенный `if` внутри ветки:
+
+```kotlin
+fun describeAccessCompatible(result: AccessResult): String {
+    return when (result) {
+        is AccessResult.Allowed -> {
+            if (result.role == "mentor") {
+                "Доступ наставника"
+            } else {
+                "Доступ открыт"
+            }
+        }
+        is AccessResult.Denied -> "Доступ закрыт: ${result.reason}"
+    }
+}
+```
+
+<MouseTrap title="Мышеловка: experimental syntax в учебных примерах">
+Если команда не закрепила версию Kotlin и language flags, не спеши использовать новый синтаксис в production. Сначала проверь, что CI, IDE и Gradle одинаково понимают выбранную версию языка.
+</MouseTrap>
+
+## Smart casts внутри условий
+
+Kotlin может автоматически сузить тип после проверки.
+
+```kotlin
+fun printTitleLength(title: String?) {
+    if (title != null) {
+        println(title.length)
+    }
+}
+```
+
+После `title != null` внутри блока `title` считается `String`, а не `String?`.
+
+Smart cast работает и с `return`:
+
+```kotlin
+fun normalizedTitle(title: String?): String {
+    if (title == null) {
+        return "Без названия"
+    }
+
+    return title.trim()
+}
+```
+
+После раннего `return` компилятор знает, что ниже `title` не `null`.
+
+## `if` с `throw`
+
+`throw` в Kotlin — выражение типа `Nothing`, поэтому его можно использовать в условных выражениях.
+
+```kotlin
+fun requirePositiveMinutes(minutes: Int): Int {
+    return if (minutes > 0) {
+        minutes
+    } else {
+        throw IllegalArgumentException("Длительность должна быть положительной")
+    }
+}
+
+fun main() {
+    println(requirePositiveMinutes(45))
+}
+```
+
+На практике для аргументов чаще используют `require`:
+
+```kotlin
+fun requirePositiveMinutes(minutes: Int): Int {
+    require(minutes > 0) {
+        "Длительность должна быть положительной"
+    }
+
+    return minutes
+}
+```
+
+## Условная инициализация
+
+`if` как выражение помогает инициализировать `val` один раз:
+
+```kotlin
+fun main() {
+    val score = 86
+
+    val label = if (score >= 70) {
+        "урок засчитан"
+    } else {
+        "урок нужно повторить"
+    }
+
+    println(label)
+}
+```
+
+Это лучше, чем изменяемая переменная:
+
+```kotlin
+fun main() {
+    val score = 86
+    var label = ""
+
+    if (score >= 70) {
+        label = "урок засчитан"
+    } else {
+        label = "урок нужно повторить"
+    }
+
+    println(label)
+}
+```
+
+`var` здесь не нужен.
+
+## Практический пример: маршрутизация состояния урока
+
+```kotlin
+enum class UserRole {
+    STUDENT,
+    MENTOR,
+    ADMIN
+}
+
+sealed interface LessonGate {
+    data object Open : LessonGate
+    data class Locked(val reason: String) : LessonGate
+    data class RequiresQuiz(val quizTitle: String) : LessonGate
+}
+
+data class LessonAccessInput(
+    val role: UserRole,
+    val hasAccount: Boolean,
+    val completedIntro: Boolean,
+    val completedPreviousLesson: Boolean,
+    val passedPreviousQuiz: Boolean
+)
+
+fun resolveLessonGate(input: LessonAccessInput): LessonGate {
+    if (!input.hasAccount) {
+        return LessonGate.Locked("Нужен аккаунт")
+    }
+
+    return when (input.role) {
+        UserRole.ADMIN -> LessonGate.Open
+        UserRole.MENTOR -> LessonGate.Open
+        UserRole.STUDENT -> when {
+            !input.completedIntro -> LessonGate.Locked("Сначала пройди вводный урок")
+            !input.completedPreviousLesson -> LessonGate.Locked("Сначала пройди предыдущий урок")
+            !input.passedPreviousQuiz -> LessonGate.RequiresQuiz("Проверка предыдущей темы")
+            else -> LessonGate.Open
+        }
+    }
+}
+
+fun renderLessonGate(gate: LessonGate): String {
+    return when (gate) {
+        LessonGate.Open -> "Доступ открыт"
+        is LessonGate.Locked -> "Доступ закрыт: ${gate.reason}"
+        is LessonGate.RequiresQuiz -> "Нужно пройти тест: ${gate.quizTitle}"
+    }
+}
+
+fun main() {
+    val input = LessonAccessInput(
+        role = UserRole.STUDENT,
+        hasAccount = true,
+        completedIntro = true,
+        completedPreviousLesson = true,
+        passedPreviousQuiz = false
+    )
+
+    val gate = resolveLessonGate(input)
+
+    println(renderLessonGate(gate))
+}
+```
+
+Что здесь важно:
+
+- ранний `if` быстро обрабатывает отсутствие аккаунта;
+- `when` по `UserRole` exhaustive, потому что enum покрыт полностью;
+- вложенный `when` без аргумента читабельно описывает правила студента;
+- `LessonGate` моделирует результат как sealed hierarchy;
+- `renderLessonGate` exhaustive и не требует `else`;
+- ни одно состояние не кодируется строкой без проверки компилятора.
+
+## Итоги
+
+Условия в Kotlin лучше использовать как инструмент моделирования, а не как набор случайных веток:
+
+- `if` может быть инструкцией или выражением;
+- `if`-выражению нужен `else`;
+- порядок `else if` важен;
+- ранний выход уменьшает вложенность;
+- `when` заменяет цепочки условий и может возвращать значение;
+- `when` без аргумента удобен для сложных boolean-проверок;
+- ranges, несколько значений и type checks делают ветки выразительными;
+- exhaustive `when` особенно полезен с `enum class` и `sealed`;
+- smart casts внутри условий уменьшают ручные cast-операции;
+- `throw` может быть частью выражения;
+- сложные правила лучше разбивать на промежуточные значения и доменные типы.
+

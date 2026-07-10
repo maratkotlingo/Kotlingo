@@ -1,0 +1,486 @@
+---
+title: "JVM Performance Model"
+description: "Модель производительности Kotlin/JVM: allocation, escape analysis, boxing, primitive arrays, inline/value classes, collections overhead, sequences, lambdas, hot paths, JIT и измерения через benchmark."
+order: 76
+category: "Java и JVM interoperability"
+difficulty: "Эксперт"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Производительность начинается с модели
+
+Kotlin/JVM компилируется в JVM bytecode и работает под JIT, GC и memory model JVM. Поэтому performance Kotlin code зависит не только от синтаксиса Kotlin, но и от того, какие objects, calls, loops, boxing и allocations появляются в bytecode/runtime.
+
+```kotlin
+data class LessonStat(
+    val slug: String,
+    val views: Int
+)
+
+fun totalViews(stats: List<LessonStat>): Int {
+    return stats.sumOf { stat ->
+        stat.views
+    }
+}
+```
+
+Этот код выглядит компактно. В hot path важно понимать, создаются ли intermediate collections, boxing, lambdas, iterators и может ли JIT это оптимизировать.
+
+<CatTip>
+JVM performance похожа на кошачью охоту в темной комнате: сначала посмотри, где реально шуршит, потом прыгай. Без измерений легко атаковать не ту коробку.
+</CatTip>
+
+## Allocation
+
+Allocation — создание объекта в heap.
+
+```kotlin
+data class ProgressPoint(
+    val lessonSlug: String,
+    val percent: Int
+)
+
+fun buildPoints(slugs: List<String>): List<ProgressPoint> {
+    return slugs.map { slug ->
+        // Каждый element создает новый ProgressPoint.
+        ProgressPoint(lessonSlug = slug, percent = 0)
+    }
+}
+```
+
+Allocation сам по себе не всегда плох. JVM умеет быстро выделять short-lived objects, а GC хорошо справляется с многими временными объектами. Проблема появляется в hot paths, где allocations массовые и создают pressure на GC.
+
+Пример allocation в loop:
+
+```kotlin
+fun renderLabels(values: IntArray): List<String> {
+    val labels = ArrayList<String>(values.size)
+
+    for (value in values) {
+        // String создается для каждого значения.
+        labels.add("Прогресс: $value%")
+    }
+
+    return labels
+}
+```
+
+Если hot path только считает сумму, не создавай objects без необходимости.
+
+```kotlin
+fun sumPositive(values: IntArray): Int {
+    var sum = 0
+
+    for (value in values) {
+        if (value > 0) {
+            sum += value
+        }
+    }
+
+    return sum
+}
+```
+
+## Escape analysis
+
+JIT может оптимизировать некоторые allocations, если объект не "escapes" за пределы method/thread. Это называется escape analysis. Но нельзя строить API, рассчитывая, что JIT всегда уберет allocation.
+
+```kotlin
+data class PairInt(
+    val first: Int,
+    val second: Int
+)
+
+fun sumPair(a: Int, b: Int): Int {
+    val pair = PairInt(a, b)
+
+    // Объект используется локально; JIT может оптимизировать allocation, но это не контракт языка.
+    return pair.first + pair.second
+}
+```
+
+На hot path лучше писать очевидно cheap code, а не надеяться на оптимизацию, которую сложно гарантировать.
+
+## Boxing
+
+Boxing — упаковка primitive value в object wrapper. На JVM `Int` обычно может быть primitive `int`, но в generics становится boxed `Integer`.
+
+```kotlin
+val numbers: List<Int> = listOf(1, 2, 3)
+```
+
+Elements `List<Int>` на JVM boxed, потому что Java generics работают с references.
+
+Primitive arrays избегают boxing для elements.
+
+```kotlin
+val values: IntArray = intArrayOf(1, 2, 3)
+
+var sum = 0
+for (value in values) {
+    // value читается как primitive int.
+    sum += value
+}
+```
+
+Если обрабатываешь миллионы чисел в tight loop, `IntArray`, `LongArray`, `DoubleArray` часто важнее `List<Int>`.
+
+<MouseTrap>
+`Array<Int>` не равен `IntArray`. `Array<Int>` хранит boxed values, а `IntArray` хранит primitive ints.
+</MouseTrap>
+
+## Nullable primitives
+
+Nullable primitive type требует boxing, потому что `null` нужно представить как reference.
+
+```kotlin
+val maybePercent: Int? = 42
+```
+
+В hot data structures лучше отделять presence от value, если это критично.
+
+```kotlin
+data class PercentSlot(
+    val hasValue: Boolean,
+    val value: Int
+)
+```
+
+Но не усложняй код без измерений. Nullable `Int?` часто абсолютно нормален.
+
+## Inline/value classes
+
+Value class дает type safety вокруг одного value. На JVM она объявляется с `@JvmInline`.
+
+```kotlin
+@JvmInline
+value class LessonId(
+    val value: String
+)
+
+fun loadLesson(id: LessonId): String {
+    return "lesson:${id.value}"
+}
+```
+
+В некоторых contexts wrapper может быть represented без allocation. Но boxing все равно возможен:
+
+- when used as nullable;
+- when used as generic type;
+- when cast to interface;
+- when type erasure requires object representation.
+
+```kotlin
+val id = LessonId("01-introduction")
+val nullableId: LessonId? = id
+val ids: List<LessonId> = listOf(id)
+```
+
+Value class — не магическое "zero allocation everywhere". Это инструмент для strong types с потенциально меньшим overhead.
+
+## Lambdas и inline functions
+
+Higher-order functions могут создавать function objects и closures.
+
+```kotlin
+fun countMatching(values: IntArray, predicate: (Int) -> Boolean): Int {
+    var count = 0
+
+    for (value in values) {
+        if (predicate(value)) {
+            count += 1
+        }
+    }
+
+    return count
+}
+```
+
+Если lambda captures variable, ей нужно хранить captured state.
+
+```kotlin
+fun countAbove(values: IntArray, min: Int): Int {
+    return countMatching(values) { value ->
+        // Lambda захватывает min.
+        value > min
+    }
+}
+```
+
+Inline functions могут убрать часть overhead call/lambda.
+
+```kotlin
+inline fun countMatchingInline(values: IntArray, predicate: (Int) -> Boolean): Int {
+    var count = 0
+
+    for (value in values) {
+        if (predicate(value)) {
+            count += 1
+        }
+    }
+
+    return count
+}
+```
+
+Не делай каждую функцию inline. Inline увеличивает bytecode size и влияет на binary compatibility public API.
+
+## Collections overhead
+
+Collection pipelines читаются хорошо, но могут создавать intermediate collections.
+
+```kotlin
+val result = lessons
+    .filter { lesson ->
+        lesson.minutes > 10
+    }
+    .map { lesson ->
+        lesson.slug
+    }
+    .take(10)
+```
+
+Для `Iterable` каждый step обычно проходит stage-by-stage. На больших данных и hot path можно использовать sequence или manual loop.
+
+```kotlin
+val result = lessons
+    .asSequence()
+    .filter { lesson ->
+        lesson.minutes > 10
+    }
+    .map { lesson ->
+        lesson.slug
+    }
+    .take(10)
+    .toList()
+```
+
+Sequence убирает intermediate collections и дает lazy processing, но добавляет iterator/lambda overhead. Для маленьких lists обычная collection pipeline может быть быстрее и проще.
+
+Manual loop:
+
+```kotlin
+fun firstLongLessonSlugs(lessons: List<Lesson>, limit: Int): List<String> {
+    val result = ArrayList<String>(limit)
+
+    for (lesson in lessons) {
+        if (lesson.minutes <= 10) {
+            continue
+        }
+
+        result.add(lesson.slug)
+
+        if (result.size == limit) {
+            break
+        }
+    }
+
+    return result
+}
+```
+
+Пиши manual loop только там, где это реально hot path или существенно проще контролировать allocations.
+
+## `map` vs `sumOf`
+
+Не создавай list, если нужен aggregate.
+
+```kotlin
+val total = lessons
+    .map { lesson ->
+        lesson.minutes
+    }
+    .sum()
+```
+
+Лучше:
+
+```kotlin
+val totalDirect = lessons.sumOf { lesson ->
+    lesson.minutes
+}
+```
+
+`sumOf` выражает намерение и не требует intermediate `List<Int>`.
+
+## Strings
+
+String concatenation в loops может создавать много temporary strings.
+
+```kotlin
+fun joinSlow(values: List<String>): String {
+    var result = ""
+
+    for (value in values) {
+        // В цикле это может создавать много промежуточных строк.
+        result += value
+    }
+
+    return result
+}
+```
+
+Используй `StringBuilder` или `joinToString`.
+
+```kotlin
+fun joinFast(values: List<String>): String {
+    return buildString {
+        for (value in values) {
+            append(value)
+        }
+    }
+}
+```
+
+```kotlin
+val csv = values.joinToString(separator = ",")
+```
+
+## Hot paths and measuring
+
+Hot path — участок кода, который выполняется часто и влияет на latency/throughput/cpu/gc. Оптимизируй hot paths после измерения.
+
+Плохой процесс:
+
+- увидеть красивую micro-оптимизацию;
+- усложнить код;
+- не проверить effect.
+
+Хороший процесс:
+
+- определить metric: latency, allocations, CPU, throughput;
+- воспроизвести workload;
+- измерить baseline;
+- внести narrow change;
+- измерить снова;
+- оставить change только при реальном выигрыше.
+
+Для JVM microbenchmarks обычно используют JMH. Для приложения — profiler, metrics, allocation tracking, async-profiler, Java Flight Recorder.
+
+```kotlin
+class LessonStatsBenchmark {
+    private val values = IntArray(10_000) { index ->
+        index % 100
+    }
+
+    fun sumLoop(): Int {
+        var sum = 0
+
+        for (value in values) {
+            sum += value
+        }
+
+        return sum
+    }
+}
+```
+
+Этот snippet показывает workload shape, но сам по себе не является корректным benchmark harness. JVM JIT требует warmup, forks, dead-code protection.
+
+## Performance-friendly API design
+
+Не заставляй caller создавать collection, если достаточно sequence/iterator callback.
+
+```kotlin
+fun renderAll(lessons: Iterable<Lesson>): String {
+    return lessons.joinToString(separator = "\n") { lesson ->
+        lesson.title
+    }
+}
+```
+
+Для hot streaming API можно дать callback.
+
+```kotlin
+fun forEachPublishedLesson(
+    lessons: Iterable<Lesson>,
+    action: (Lesson) -> Unit
+) {
+    for (lesson in lessons) {
+        if (lesson.published) {
+            action(lesson)
+        }
+    }
+}
+```
+
+Если API library public, учитывай compatibility before changing return types from `List` to `Sequence` or vice versa.
+
+## Production-пример: оптимизация только hot участка
+
+```kotlin
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val minutes: Int,
+    val published: Boolean
+)
+
+class LessonIndex {
+    private val slugs = ArrayList<String>()
+    private val minutes = ArrayList<Int>()
+
+    fun rebuild(lessons: List<Lesson>) {
+        slugs.clear()
+        minutes.clear()
+
+        for (lesson in lessons) {
+            if (!lesson.published) {
+                continue
+            }
+
+            slugs.add(lesson.slug)
+            minutes.add(lesson.minutes)
+        }
+    }
+
+    fun totalMinutes(): Int {
+        var total = 0
+
+        for (value in minutes) {
+            total += value
+        }
+
+        return total
+    }
+}
+```
+
+Этот код менее декларативен, но может быть оправдан, если index rebuild и aggregate являются measured hot paths. В обычном UI/application code `filter`/`map`/`sumOf` чаще выигрывают по читаемости.
+
+## Практические правила
+
+Сначала пиши читаемый код.
+
+```kotlin
+val published = lessons.filter { lesson -> lesson.published }
+```
+
+Используй specialized arrays для числовых hot paths.
+
+```kotlin
+val values = IntArray(1_000)
+```
+
+Избегай intermediate collections в aggregates.
+
+```kotlin
+val total = lessons.sumOf { lesson -> lesson.minutes }
+```
+
+Используй value classes для type safety, но помни про boxing contexts.
+
+```kotlin
+@JvmInline
+value class Percent(val value: Int)
+```
+
+Измеряй JMH/profiler-ом, а не интуицией.
+
+<CatTip>
+Производительный Kotlin — это не отказ от красивого кода. Это умение знать, где красота бесплатна, а где hot path просит более простую механику.
+</CatTip>
+
+

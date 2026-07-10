@@ -1,0 +1,669 @@
+---
+title: "Coroutine Testing"
+description: "Тестирование coroutines: kotlinx-coroutines-test, runTest, TestScope, StandardTestDispatcher, UnconfinedTestDispatcher, virtual time, testing Flow, Main dispatcher и flaky tests."
+order: 89
+category: "Coroutines"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужен `kotlinx-coroutines-test`
+
+Coroutine code нельзя надежно тестировать обычным `Thread.sleep`.
+
+Нужны инструменты, которые:
+
+- запускают suspending test body;
+- управляют virtual time;
+- пропускают `delay` без реального ожидания;
+- дают test dispatchers;
+- собирают uncaught exceptions from child coroutines;
+- помогают проверять Flow;
+- позволяют заменять `Dispatchers.Main`.
+
+```kotlin
+dependencies {
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    testImplementation(kotlin("test"))
+}
+```
+
+Базовый тест:
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class LessonLoaderTest {
+    @Test
+    fun loadsTitle() = runTest {
+        val loader = LessonLoader()
+
+        val title = loader.loadTitle("89-coroutine-testing")
+
+        assertEquals("Урок 89-coroutine-testing", title)
+    }
+}
+
+class LessonLoader {
+    suspend fun loadTitle(slug: String): String {
+        delay(1_000)
+        return "Урок $slug"
+    }
+}
+```
+
+`runTest` skips `delay` using virtual time, so test не ждет реальную секунду.
+
+<CatTip>
+`runTest` — это кошачьи часы для coroutines: время двигается только тогда, когда тесту это нужно.
+</CatTip>
+
+## `runTest`
+
+`runTest` запускает test coroutine and waits for child coroutines.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class ConcurrentLoaderTest {
+    @Test
+    fun loadsTwoLessons() = runTest {
+        val first = async {
+            delay(1_000)
+            "Flow"
+        }
+
+        val second = async {
+            delay(1_000)
+            "Channels"
+        }
+
+        assertEquals("Flow", first.await())
+        assertEquals("Channels", second.await())
+    }
+}
+```
+
+Важные свойства:
+
+- test body is suspending;
+- `delay` controlled by test scheduler;
+- child failures are reported at test end;
+- test waits for structured children;
+- uncompleted coroutines can cause failure;
+- timeout protects test from hanging forever.
+
+<MouseTrap>
+Не используй `runBlocking` для тестов coroutine timing. Он блокирует thread and waits real time. Для coroutine code почти всегда нужен `runTest`.
+</MouseTrap>
+
+## Virtual time
+
+Virtual time позволяет управлять delayed tasks manually.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class VirtualTimeTest {
+    @Test
+    fun controlsCurrentTasks() = runTest {
+        val events = mutableListOf<String>()
+
+        launch {
+            events += "start"
+            delay(1_000)
+            events += "after-delay"
+        }
+
+        runCurrent()
+
+        assertEquals(listOf("start"), events)
+
+        testScheduler.advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf("start", "after-delay"), events)
+    }
+}
+```
+
+Основные tools:
+
+- `runCurrent()` — выполнить tasks scheduled на current virtual time;
+- `advanceTimeBy(duration)` — сдвинуть virtual time вперед;
+- `advanceUntilIdle()` — выполнять scheduled tasks, пока очередь не станет idle;
+- `currentTime` — текущий virtual timestamp scheduler-а.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class AdvanceUntilIdleTest {
+    @Test
+    fun completesAllScheduledWork() = runTest {
+        val events = mutableListOf<String>()
+
+        launch {
+            delay(100)
+            events += "first"
+            delay(100)
+            events += "second"
+        }
+
+        advanceUntilIdle()
+
+        assertEquals(listOf("first", "second"), events)
+    }
+}
+```
+
+## `StandardTestDispatcher`
+
+`StandardTestDispatcher` queues work until scheduler runs it.
+
+Он хорош для deterministic tests, где ты явно управляешь execution.
+
+```kotlin
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class LessonPresenterTest {
+    @Test
+    fun startsInLoadingState() {
+        val dispatcher = StandardTestDispatcher()
+        val scope = TestScope(dispatcher)
+        val presenter = LessonPresenter(scope, dispatcher)
+
+        presenter.open("89-coroutine-testing")
+
+        assertEquals(emptyList(), presenter.states)
+
+        scope.runCurrent()
+
+        assertEquals(listOf("loading"), presenter.states)
+    }
+}
+
+class LessonPresenter(
+    private val scope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher
+) {
+    val states = mutableListOf<String>()
+
+    fun open(slug: String) {
+        scope.launch(dispatcher) {
+            states += "loading"
+            states += "ready:$slug"
+        }
+    }
+}
+```
+
+В `runTest` default dispatcher is test-controlled. Для injected dispatchers важно использовать тот же scheduler.
+
+```kotlin
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+
+class SharedSchedulerTest {
+    @Test
+    fun usesSameScheduler() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+
+        val service = LessonTimingService(dispatcher)
+
+        service.start()
+
+        testScheduler.advanceUntilIdle()
+    }
+}
+
+class LessonTimingService(
+    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher
+) {
+    fun start() {
+        println("Dispatcher injected: $dispatcher")
+    }
+}
+```
+
+## `UnconfinedTestDispatcher`
+
+`UnconfinedTestDispatcher` starts tasks eagerly on current call stack, while still using test scheduler for time.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class UnconfinedDispatcherTest {
+    @Test
+    fun startsImmediately() {
+        val dispatcher = UnconfinedTestDispatcher()
+        val scope = TestScope(dispatcher)
+        val values = mutableListOf<String>()
+
+        scope.launch {
+            values += "started"
+        }
+
+        assertEquals(listOf("started"), values)
+    }
+}
+```
+
+Use cases:
+
+- simple state tests;
+- ViewModel-like tests where immediate start удобен;
+- tests without precise scheduling assertions.
+
+Do not use it when order/scheduling itself is the behavior under test.
+
+## Inject dispatchers
+
+Hardcoded `Dispatchers.IO` и `Dispatchers.Default` затрудняют testing.
+
+Плохо:
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class BadRepository {
+    suspend fun load(): String = withContext(Dispatchers.IO) {
+        "lesson"
+    }
+}
+```
+
+Лучше:
+
+```kotlin
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class LessonRepository(
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
+    suspend fun load(): String = withContext(ioDispatcher) {
+        "lesson"
+    }
+}
+```
+
+Тест:
+
+```kotlin
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class LessonRepositoryTest {
+    @Test
+    fun loadsLessonWithTestDispatcher() = runTest {
+        val repository = LessonRepository(
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        )
+
+        assertEquals("lesson", repository.load())
+    }
+}
+```
+
+## `Dispatchers.Main` в тестах
+
+Если код использует `Dispatchers.Main`, в JVM unit tests его нужно заменить test dispatcher-ом.
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.rules.TestWatcher
+import org.junit.runner.Description
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class MainDispatcherRule(
+    val testDispatcher: TestDispatcher = UnconfinedTestDispatcher()
+) : TestWatcher() {
+    override fun starting(description: Description) {
+        Dispatchers.setMain(testDispatcher)
+    }
+
+    override fun finished(description: Description) {
+        Dispatchers.resetMain()
+    }
+}
+```
+
+JUnit test:
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import org.junit.Rule
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class MainDispatcherUsageTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @Test
+    fun usesMainDispatcher() = runTest {
+        var called = false
+
+        launch(Dispatchers.Main) {
+            called = true
+        }
+
+        assertTrue(called)
+    }
+}
+```
+
+Для JUnit 5 обычно пишут extension вместо rule.
+
+<MouseTrap>
+`Dispatchers.setMain` меняет Main dispatcher globally for test process. Всегда вызывай `resetMain`, иначе соседние тесты получат чужой dispatcher.
+</MouseTrap>
+
+## Testing Flow
+
+Для finite flow можно использовать terminal operators.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class FlowTest {
+    @Test
+    fun collectsFiniteFlow() = runTest {
+        val states = lessonStates("89-coroutine-testing").toList()
+
+        assertEquals(
+            listOf("loading", "ready:89-coroutine-testing"),
+            states
+        )
+    }
+}
+
+fun lessonStates(slug: String): Flow<String> = flow {
+    emit("loading")
+    emit("ready:$slug")
+}
+```
+
+Для infinite/hot flow ограничивай collection.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class SharedFlowTest {
+    @Test
+    fun collectsFirstTwoEvents() = runTest {
+        val events = MutableSharedFlow<String>()
+        val collected = mutableListOf<String>()
+
+        val collector = launch {
+            events.take(2).toList(collected)
+        }
+
+        events.emit("opened")
+        events.emit("completed")
+
+        collector.join()
+
+        assertEquals(listOf("opened", "completed"), collected)
+    }
+}
+```
+
+Для Flow pipelines with debounce:
+
+```kotlin
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.time.Duration.Companion.milliseconds
+
+class DebounceFlowTest {
+    @OptIn(FlowPreview::class)
+    @Test
+    fun emitsAfterQuietPeriod() = runTest {
+        val queries = MutableSharedFlow<String>()
+        val debounced = queries.debounce(300.milliseconds)
+
+        var result: String? = null
+
+        val job = launch {
+            result = debounced.first()
+        }
+
+        queries.emit("f")
+        queries.emit("fl")
+        queries.emit("flow")
+
+        advanceTimeBy(300)
+        runCurrent()
+
+        assertEquals("flow", result)
+
+        job.cancel()
+    }
+}
+```
+
+## Avoiding flaky tests
+
+Flaky coroutine tests появляются из-за:
+
+- real delays;
+- real dispatchers;
+- unstructured background work;
+- hidden `GlobalScope`;
+- hardcoded `Dispatchers.IO`;
+- assertions before queued work ran;
+- infinite flows without `take`;
+- swallowed `CancellationException`;
+- leaked child coroutines.
+
+Плохой тест:
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class FlakyTest {
+    @Test
+    fun bad() = runBlocking {
+        var loaded = false
+
+        launch {
+            delay(100)
+            loaded = true
+        }
+
+        Thread.sleep(50)
+
+        assertTrue(loaded)
+    }
+}
+```
+
+Хороший тест:
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class StableTest {
+    @Test
+    fun good() = runTest {
+        var loaded = false
+
+        launch {
+            delay(100)
+            loaded = true
+        }
+
+        advanceUntilIdle()
+
+        assertTrue(loaded)
+    }
+}
+```
+
+## Production pattern: testable use case
+
+```kotlin
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+
+class OpenLessonUseCase(
+    private val lessons: LessonRepository,
+    private val progress: ProgressRepository,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
+) {
+    suspend fun open(userId: String, slug: String): LessonScreen =
+        withContext(dispatcher) {
+            coroutineScope {
+                val lesson = async { lessons.load(slug) }
+                val progress = async { progress.load(userId) }
+
+                LessonScreen(
+                    title = lesson.await().title,
+                    completedLessons = progress.await().completedLessons
+                )
+            }
+        }
+}
+
+data class LessonScreen(
+    val title: String,
+    val completedLessons: Int
+)
+
+data class Lesson(
+    val title: String
+)
+
+data class UserProgress(
+    val completedLessons: Int
+)
+
+class ProgressRepository {
+    suspend fun load(userId: String): UserProgress {
+        delay(1_000)
+        return UserProgress(completedLessons = userId.length)
+    }
+}
+```
+
+Test:
+
+```kotlin
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class OpenLessonUseCaseTest {
+    @Test
+    fun opensLesson() = runTest {
+        val useCase = OpenLessonUseCase(
+            lessons = LessonRepository(),
+            progress = ProgressRepository(),
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+
+        val deferred = kotlinx.coroutines.async {
+            useCase.open("user-42", "89-coroutine-testing")
+        }
+
+        advanceUntilIdle()
+
+        val screen = deferred.await()
+
+        assertEquals("Урок 89-coroutine-testing", screen.title)
+        assertEquals(7, screen.completedLessons)
+    }
+}
+```
+
+```kotlin
+class LessonRepository {
+    suspend fun load(slug: String): Lesson {
+        delay(1_000)
+        return Lesson(title = "Урок $slug")
+    }
+}
+```
+
+<CatTip>
+Тестируемый coroutine code почти всегда имеет три признака: structured scope, injected dispatcher и отсутствие реального времени в assertions.
+</CatTip>
+

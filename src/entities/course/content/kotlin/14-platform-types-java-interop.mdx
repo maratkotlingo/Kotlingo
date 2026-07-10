@@ -1,0 +1,563 @@
+---
+title: "Platform types и Java interop"
+description: "Разбираем Kotlin platform types, концепцию String!, Java nullability annotations, defensive Kotlin вокруг Java API, JSpecify, JetBrains annotations и Android annotations."
+order: 14
+category: "Null-safety"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему Java interop влияет на null-safety
+
+Kotlin создавался с сильной совместимостью с Java. Это огромное преимущество: можно использовать существующие JVM-библиотеки, Spring, Android SDK, JDBC, Java time, logging frameworks и внутренний Java-код компании. Но Java исторически не имела nullability в типовой системе. Поэтому Kotlin не всегда может точно знать, возвращает Java API `null` или нет.
+
+Для таких значений Kotlin использует platform types. В IDE они часто отображаются как `String!`, `User!`, `List<String!>!`. В исходном Kotlin-коде ты не пишешь `String!`; это диагностическое представление.
+
+```java
+public class JavaLessonApi {
+    public String findTitle(String code) {
+        // Java-сигнатура не говорит Kotlin, может ли здесь быть null.
+        return code.equals("basics-14") ? "Platform types" : null;
+    }
+}
+```
+
+Kotlin увидит результат как platform type. Его можно использовать и как `String`, и как `String?`, но ответственность за безопасность переходит к тебе.
+
+## Что такое platform type
+
+Platform type — тип из Java или другой платформы, для которого Kotlin не знает точную nullability. Например, Java метод:
+
+```java
+public String getTitle() {
+    return title;
+}
+```
+
+в Kotlin может восприниматься как `String!`.
+
+Ты можешь написать:
+
+```kotlin
+fun unsafe(api: JavaLessonApi) {
+    val title: String = api.findTitle("missing")
+
+    println(title.length)
+}
+```
+
+Если Java вернет `null`, будет runtime-падение.
+
+Безопаснее:
+
+```kotlin
+fun safe(api: JavaLessonApi) {
+    val title: String? = api.findTitle("missing")
+
+    println(title?.length ?: 0)
+}
+```
+
+<MouseTrap title="Мышеловка: `String!` не является типом для исходного кода">
+Если IDE показывает `String!`, не пытайся написать такой тип руками. Это способ показать platform type. В своем Kotlin-коде выбери явный контракт: `String` с проверкой или `String?` с обработкой отсутствия.
+</MouseTrap>
+
+## Почему platform types опасны
+
+Platform type отключает часть гарантий null-safety на границе interop.
+
+```kotlin
+fun printTitle(api: JavaLessonApi) {
+    val title = api.findTitle("unknown")
+
+    // Компилятор может разрешить прямой вызов, но Java могла вернуть null.
+    println(title.length)
+}
+```
+
+Такой код выглядит как обычный Kotlin, но безопасность зависит от Java-контракта, который может быть не выражен в типах.
+
+Правило: на границе с Java сразу превращай platform type в явный Kotlin-тип.
+
+```kotlin
+fun findTitleOrNull(api: JavaLessonApi, code: String): String? {
+    return api.findTitle(code)
+}
+
+fun requireTitle(api: JavaLessonApi, code: String): String {
+    return requireNotNull(api.findTitle(code)) {
+        "Java API вернул null для урока $code"
+    }
+}
+```
+
+## Java getters и properties
+
+Java getters видны в Kotlin как свойства.
+
+```java
+public class JavaLesson {
+    private final String title;
+
+    public JavaLesson(String title) {
+        this.title = title;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+}
+```
+
+Kotlin:
+
+```kotlin
+fun printJavaLesson(lesson: JavaLesson) {
+    val title: String? = lesson.title
+
+    println(title ?: "Без названия")
+}
+```
+
+Хотя синтаксис выглядит как Kotlin property, источник все еще Java getter. Если getter не аннотирован, nullability может быть platform.
+
+## Java setters и Kotlin assignment
+
+Java setter тоже может выглядеть как свойство.
+
+```java
+public class JavaLessonDraft {
+    private String title;
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+}
+```
+
+Kotlin:
+
+```kotlin
+fun configureDraft(draft: JavaLessonDraft) {
+    draft.title = "Platform types"
+
+    val title: String? = draft.title
+
+    println(title)
+}
+```
+
+Если Java setter не защищается от `null`, Kotlin может позволить передать `null` в зависимости от аннотаций и настроек. На границе API лучше явно проверять.
+
+## Nullability annotations
+
+Java может сообщать nullability через аннотации:
+
+- JetBrains annotations: `@NotNull`, `@Nullable`;
+- JSpecify: `@NonNull`, `@Nullable`, `@NullMarked`;
+- AndroidX annotations: `@NonNull`, `@Nullable`;
+- Checker Framework annotations;
+- JSR-305 annotations, например `javax.annotation.Nullable`.
+
+Пример с JetBrains annotations:
+
+```java
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+public class AnnotatedLessonApi {
+    public @NotNull String requireTitle(@NotNull String code) {
+        return "Annotated lesson";
+    }
+
+    public @Nullable String findTitle(@NotNull String code) {
+        return code.equals("basics-14") ? "Platform types" : null;
+    }
+}
+```
+
+Kotlin увидит более точные типы:
+
+```kotlin
+fun useAnnotatedApi(api: AnnotatedLessonApi) {
+    val requiredTitle: String = api.requireTitle("basics-14")
+    val optionalTitle: String? = api.findTitle("missing")
+
+    println(requiredTitle.length)
+    println(optionalTitle?.length ?: 0)
+}
+```
+
+Аннотации позволяют Kotlin вернуть строгую null-safety на Java-границе.
+
+## JSpecify
+
+JSpecify — современная инициатива для стандартной nullness-разметки Java API. Важные идеи:
+
+- `@Nullable` говорит, что значение может быть `null`;
+- `@NonNull` говорит, что значение не должно быть `null`;
+- `@NullMarked` задает default non-null для области;
+- аннотации могут влиять на generic-типы и type-use позиции.
+
+Пример:
+
+```java
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
+
+@NullMarked
+public class JSpecifyLessonApi {
+    public String requireTitle(String code) {
+        return "JSpecify lesson";
+    }
+
+    public @Nullable String findTitle(String code) {
+        return code.equals("basics-14") ? "Platform types" : null;
+    }
+}
+```
+
+Kotlin tooling продолжает развиваться вокруг JSpecify, поэтому в реальном проекте нужно проверять версию Kotlin, compiler flags и настройки сборки.
+
+<CatTip title="Кошачья проверка версии">
+Nullability interop зависит не только от кода, но и от версии Kotlin, зависимостей с аннотациями и настроек компилятора. Если поведение важно для публичного API, закрепи это тестами и CI.
+</CatTip>
+
+## Android annotations
+
+В Android-разработке часто встречаются:
+
+- `androidx.annotation.NonNull`;
+- `androidx.annotation.Nullable`;
+- старые support annotations.
+
+Пример:
+
+```java
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+public class AndroidLessonStore {
+    public @NonNull String defaultTitle() {
+        return "Android Kotlin";
+    }
+
+    public @Nullable String findCachedTitle(@NonNull String code) {
+        return null;
+    }
+}
+```
+
+Kotlin:
+
+```kotlin
+fun useAndroidStore(store: AndroidLessonStore) {
+    val defaultTitle: String = store.defaultTitle()
+    val cachedTitle: String? = store.findCachedTitle("android-01")
+
+    println(defaultTitle)
+    println(cachedTitle ?: "Кэш пуст")
+}
+```
+
+## Defensive Kotlin wrapper
+
+Лучший способ работать с сомнительным Java API — завернуть его в Kotlin-адаптер с явным контрактом.
+
+Java API:
+
+```java
+public class LegacyLessonClient {
+    public String getTitle(String code) {
+        // Старый API может вернуть null, хотя документация об этом молчит.
+        return null;
+    }
+
+    public Integer getMinutes(String code) {
+        // Старый API может вернуть null или отрицательное значение.
+        return -10;
+    }
+}
+```
+
+Kotlin wrapper:
+
+```kotlin
+data class LessonInfo(
+    val code: String,
+    val title: String,
+    val minutes: Int
+)
+
+class LessonClientAdapter(
+    private val client: LegacyLessonClient
+) {
+    fun findLesson(code: String): LessonInfo? {
+        val normalizedCode = code.trim()
+
+        require(normalizedCode.isNotBlank()) {
+            "Код урока не должен быть пустым"
+        }
+
+        val title = client.getTitle(normalizedCode)
+            ?.trim()
+            ?.takeIf { value -> value.isNotBlank() }
+            ?: return null
+
+        val minutes = client.getMinutes(normalizedCode)
+            ?.takeIf { value -> value > 0 }
+            ?: return null
+
+        return LessonInfo(
+            code = normalizedCode,
+            title = title,
+            minutes = minutes
+        )
+    }
+}
+```
+
+Теперь остальной Kotlin-код работает с `LessonInfo?`, а не с мутной смесью platform types.
+
+## Platform types и generics
+
+Java generic types тоже могут быть platform:
+
+```java
+import java.util.List;
+
+public class JavaLessonListApi {
+    public List<String> getTitles() {
+        return java.util.Arrays.asList("Java", null, "Kotlin");
+    }
+}
+```
+
+Kotlin может увидеть элементы как platform. Безопасная нормализация:
+
+```kotlin
+fun safeTitles(api: JavaLessonListApi): List<String> {
+    val rawTitles = api.titles ?: return emptyList()
+
+    return rawTitles
+        .mapNotNull { title ->
+            title
+                ?.trim()
+                ?.takeIf { value -> value.isNotBlank() }
+        }
+}
+```
+
+Если Java API возвращает mutable collection, не отдавай ее дальше напрямую:
+
+```kotlin
+fun copiedTitles(api: JavaLessonListApi): List<String> {
+    return safeTitles(api).toList()
+}
+```
+
+Копия защищает Kotlin-слой от неожиданных внешних мутаций.
+
+## SAM conversions и nullability callbacks
+
+Java functional interfaces часто принимаются из Kotlin как lambdas.
+
+```java
+public interface LessonCallback {
+    void onLesson(String title);
+}
+
+public class LessonNotifier {
+    public void notify(LessonCallback callback) {
+        callback.onLesson(null);
+    }
+}
+```
+
+Если Java не аннотирована, Kotlin lambda может получить platform type:
+
+```kotlin
+fun subscribe(notifier: LessonNotifier) {
+    notifier.notify { title ->
+        val safeTitle = title?.trim()
+
+        if (safeTitle.isNullOrBlank()) {
+            println("Java callback передал пустое название")
+            return@notify
+        }
+
+        println("Урок: $safeTitle")
+    }
+}
+```
+
+На callback-границах особенно важно не доверять platform value.
+
+## `@Throws` для Java callers
+
+Kotlin не требует checked exceptions, но если Kotlin-функцию вызывает Java, можно использовать `@Throws`.
+
+```kotlin
+class KotlinLessonParser {
+    @Throws(IllegalArgumentException::class)
+    fun parseMinutes(rawValue: String): Int {
+        val minutes = rawValue.trim().toIntOrNull()
+            ?: throw IllegalArgumentException("Длительность должна быть числом")
+
+        require(minutes > 0) {
+            "Длительность должна быть положительной"
+        }
+
+        return minutes
+    }
+}
+```
+
+Для Java это улучшит сигнатуру throws. Для Kotlin callers это не создаст checked exception.
+
+## `@JvmOverloads` и nullable defaults
+
+Если Kotlin API должен быть удобен из Java, default arguments сами по себе не превращаются в Java overloads. Можно использовать `@JvmOverloads`.
+
+```kotlin
+class LessonFactory {
+    @JvmOverloads
+    fun createLesson(
+        title: String,
+        category: String = "Основы",
+        description: String? = null
+    ): String {
+        val visibleDescription = description ?: "Описание пока не задано"
+
+        return "$category: $title. $visibleDescription"
+    }
+}
+```
+
+Nullability в Java-вызовах всё равно зависит от аннотаций, байткода и инструментов. Kotlin-код должен валидировать обязательные значения.
+
+## Практический пример: адаптер legacy Java API
+
+Допустим, есть Java API:
+
+```java
+import java.util.List;
+
+public class LegacyCourseApi {
+    public String findTitle(String code) {
+        return code.equals("basics-14") ? " Platform types " : null;
+    }
+
+    public Integer findMinutes(String code) {
+        return code.equals("basics-14") ? 90 : null;
+    }
+
+    public List<String> tags(String code) {
+        return java.util.Arrays.asList(" kotlin ", null, " interop ");
+    }
+}
+```
+
+Kotlin-слой:
+
+```kotlin
+data class CourseLesson(
+    val code: String,
+    val title: String,
+    val minutes: Int,
+    val tags: List<String>
+)
+
+sealed interface CourseLessonLookup {
+    data class Found(val lesson: CourseLesson) : CourseLessonLookup
+    data class Missing(val code: String) : CourseLessonLookup
+    data class Invalid(val reason: String) : CourseLessonLookup
+}
+
+class LegacyCourseAdapter(
+    private val api: LegacyCourseApi
+) {
+    fun findLesson(rawCode: String): CourseLessonLookup {
+        val code = rawCode.trim()
+
+        if (code.isBlank()) {
+            return CourseLessonLookup.Invalid("Код урока не должен быть пустым")
+        }
+
+        val title = api.findTitle(code)
+            ?.trim()
+            ?.takeIf { value -> value.isNotBlank() }
+            ?: return CourseLessonLookup.Missing(code)
+
+        val minutes = api.findMinutes(code)
+            ?.takeIf { value -> value in 1..240 }
+            ?: return CourseLessonLookup.Invalid("Java API вернул некорректную длительность")
+
+        val tags = api.tags(code)
+            ?.mapNotNull { tag ->
+                tag
+                    ?.trim()
+                    ?.takeIf { value -> value.isNotBlank() }
+            }
+            ?.distinct()
+            ?: emptyList()
+
+        return CourseLessonLookup.Found(
+            CourseLesson(
+                code = code,
+                title = title,
+                minutes = minutes,
+                tags = tags
+            )
+        )
+    }
+}
+
+fun renderLookup(lookup: CourseLessonLookup): String {
+    return when (lookup) {
+        is CourseLessonLookup.Found ->
+            "${lookup.lesson.title}: ${lookup.lesson.minutes} мин., теги ${lookup.lesson.tags}"
+        is CourseLessonLookup.Missing ->
+            "Урок ${lookup.code} не найден"
+        is CourseLessonLookup.Invalid ->
+            "Ошибка: ${lookup.reason}"
+    }
+}
+
+fun main() {
+    val adapter = LegacyCourseAdapter(LegacyCourseApi())
+
+    println(renderLookup(adapter.findLesson("basics-14")))
+    println(renderLookup(adapter.findLesson("missing")))
+}
+```
+
+Что здесь важно:
+
+- platform values сразу приводятся к `String?`, `Int?`, `List<String?>?`;
+- `trim()` и `takeIf` нормализуют Java-ответы;
+- неверная длительность не проходит в доменную модель;
+- Kotlin-слой возвращает sealed result вместо выбрасывания исключения для ожидаемого отсутствия;
+- остальной код приложения больше не зависит от неаннотированного Java-контракта.
+
+## Итоги
+
+Java interop мощный, но требует дисциплины:
+
+- platform type отображается в IDE как `String!`, но не пишется в исходном Kotlin;
+- platform value нужно сразу превращать в явный `T` или `T?`;
+- Java getters/setters выглядят как Kotlin properties, но nullability всё равно приходит из Java;
+- nullability annotations возвращают Kotlin-компилятору строгую информацию;
+- JetBrains annotations, JSpecify и Android annotations помогают описать контракт;
+- defensive Kotlin wrappers защищают доменный слой от legacy Java;
+- generic collections из Java могут содержать `null`, даже если сигнатура выглядит уверенно;
+- callbacks из Java тоже требуют проверки;
+- `@Throws`, `@JvmOverloads` и другие JVM-аннотации помогают Java callers, но не заменяют Kotlin-валидацию;
+- лучшая граница interop — маленький адаптер, который превращает сомнительный Java API в ясный Kotlin API.
+

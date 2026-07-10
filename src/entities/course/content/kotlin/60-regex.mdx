@@ -1,0 +1,499 @@
+---
+title: "Regex"
+description: "Регулярные выражения в Kotlin: Regex, toRegex, fromLiteral, matches, matchEntire, containsMatchIn, find, findAll, groups, named groups, replacement, split, options и платформенные нюансы."
+order: 60
+category: "Стандартная библиотека"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `Regex`
+
+`Regex` — стандартный класс Kotlin для compiled regular expression. Он хранит pattern и options, умеет проверять строки, искать совпадения, извлекать groups, заменять фрагменты и split-ить текст.
+
+```kotlin
+val slugRegex = Regex("""^[a-z0-9]+(?:-[a-z0-9]+)*$""")
+
+println(slugRegex.matches("01-introduction")) // true
+println(slugRegex.matches("01 Introduction")) // false
+```
+
+Regular expression не является частью синтаксиса языка Kotlin. Это API стандартной библиотеки, а pattern syntax зависит от платформы. На JVM underlying syntax близок к `java.util.regex.Pattern`, на JS — к JavaScript regular expressions.
+
+<CatTip>
+Regex — это не просто «поиск текста», а маленькая грамматика. Котлингвистическая лапка проверяет, подходит ли строка под форму, которую ты описал pattern-ом.
+</CatTip>
+
+## Создание `Regex`
+
+Через constructor:
+
+```kotlin
+val number = Regex("\\d+")
+
+println(number.containsMatchIn("Урок 42")) // true
+```
+
+Через raw string:
+
+```kotlin
+val numberRaw = Regex("""\d+""")
+```
+
+Raw string удобнее для regex, потому что backslash не нужно экранировать дважды.
+
+Через `toRegex`:
+
+```kotlin
+val word = """[А-Яа-яA-Za-z]+""".toRegex()
+```
+
+Через `Regex.fromLiteral`, если input нужно воспринимать как literal text, а не как pattern.
+
+```kotlin
+val userInput = "a.b"
+val literal = Regex.fromLiteral(userInput)
+
+println(literal.containsMatchIn("a.b")) // true
+println(literal.containsMatchIn("acb")) // false
+```
+
+Можно экранировать literal pieces через `Regex.escape`.
+
+```kotlin
+fun containsLiteral(text: String, query: String): Boolean {
+    val regex = Regex(Regex.escape(query))
+
+    return regex.containsMatchIn(text)
+}
+```
+
+<MouseTrap>
+Никогда не вставляй user input в regex pattern напрямую, если хочешь искать буквальный текст. Символы вроде `.`, `*`, `?`, `[` поменяют смысл pattern-а.
+</MouseTrap>
+
+## `pattern` и `options`
+
+У `Regex` есть property `pattern` — исходный pattern string.
+
+```kotlin
+val regex = Regex("""\d+""")
+
+println(regex.pattern) // \d+
+```
+
+Property `options` содержит set of `RegexOption`.
+
+```kotlin
+val caseInsensitive = Regex(
+    pattern = """kotlin""",
+    option = RegexOption.IGNORE_CASE
+)
+
+println(caseInsensitive.options) // [IGNORE_CASE]
+```
+
+## `RegexOption`
+
+Options меняют режим matching. Набор options может отличаться по платформам и расширяться, поэтому не стоит писать exhaustive `when` по enum values.
+
+Часто используемые options:
+
+- `IGNORE_CASE` — case-insensitive matching;
+- `MULTILINE` — меняет поведение anchors `^` и `$` для многострочного input;
+- `DOT_MATCHES_ALL` — позволяет `.` matching newline;
+- `COMMENTS` — разрешает пробелы и comments внутри pattern там, где платформа это поддерживает;
+- `LITERAL` — воспринимает pattern как literal string;
+- `UNIX_LINES` и `CANON_EQ` встречаются на JVM-ориентированных сценариях.
+
+```kotlin
+val titleRegex = Regex(
+    pattern = """^котлин$""",
+    options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
+)
+
+println(titleRegex.containsMatchIn("КОТЛИН")) // true
+```
+
+## `matches`
+
+`matches(input)` проверяет, соответствует ли весь input pattern-у.
+
+```kotlin
+val percentRegex = Regex("""\d{1,3}%""")
+
+println(percentRegex.matches("100%"))       // true
+println(percentRegex.matches("готово 100%")) // false
+```
+
+Это full-string check. Если нужно узнать, есть ли match где-то внутри строки, используй `containsMatchIn`.
+
+## `matchEntire`
+
+`matchEntire(input)` тоже пытается сопоставить весь input, но возвращает `MatchResult?`.
+
+```kotlin
+val lessonCode = Regex("""([A-Z]+)-(\d+)""")
+
+val match = lessonCode.matchEntire("KT-42")
+
+if (match != null) {
+    val prefix = match.groupValues[1]
+    val number = match.groupValues[2]
+
+    println("$prefix -> $number")
+}
+```
+
+Используй `matchEntire`, когда нужен не только `Boolean`, но и captured groups.
+
+## `containsMatchIn`
+
+`containsMatchIn(input)` проверяет, найдено ли хотя бы одно совпадение внутри input.
+
+```kotlin
+val errorRegex = Regex("""ERROR|WARN""")
+
+println(errorRegex.containsMatchIn("[INFO] ok"))  // false
+println(errorRegex.containsMatchIn("[WARN] slow")) // true
+```
+
+Для поиска в логах, validation hints и lightweight checks это самый прямой метод.
+
+## `find`
+
+`find(input, startIndex)` возвращает первый `MatchResult?`, начиная с `startIndex`.
+
+```kotlin
+val hashtag = Regex("""#[A-Za-z0-9_-]+""")
+val text = "Изучаем #kotlin и #collections"
+
+val first = hashtag.find(text)
+
+println(first?.value) // #kotlin
+println(first?.range) // 8..14
+```
+
+`startIndex` должен попадать в `0..input.length`.
+
+```kotlin
+fun findHashtagAfter(text: String, startIndex: Int): String? {
+    require(startIndex in 0..text.length) {
+        "startIndex должен быть внутри границ строки"
+    }
+
+    return Regex("""#[A-Za-z0-9_-]+""")
+        .find(text, startIndex)
+        ?.value
+}
+```
+
+## `findAll`
+
+`findAll(input, startIndex)` возвращает `Sequence<MatchResult>`.
+
+```kotlin
+val matches = hashtag.findAll(text)
+
+val tags = matches.map { match ->
+    // Убираем символ # из найденного значения.
+    match.value.removePrefix("#")
+}.toList()
+
+println(tags) // [kotlin, collections]
+```
+
+Так как результат — sequence, он lazy. Если нужно пройтись несколько раз, материализуй в list.
+
+```kotlin
+val allMatches = hashtag.findAll(text).toList()
+
+println(allMatches.size)
+println(allMatches.map { it.range })
+```
+
+## `MatchResult`
+
+`MatchResult` описывает одно совпадение.
+
+```kotlin
+val issueRegex = Regex("""([A-Z]+)-(\d+)""")
+val issue = issueRegex.find("См. KT-42 и KT-100")
+
+if (issue != null) {
+    println(issue.value)       // KT-42
+    println(issue.range)       // диапазон совпадения
+    println(issue.groupValues) // [KT-42, KT, 42]
+}
+```
+
+Главные members:
+
+- `value` — matched text целиком;
+- `range` — range indices совпадения в input;
+- `groups` — captured groups как `MatchGroupCollection`;
+- `groupValues` — list строк, где index `0` — весь match;
+- `destructured` — удобная destructuring-обертка для captured groups;
+- `next()` — следующий match после текущего или `null`.
+
+```kotlin
+var current = issue
+
+while (current != null) {
+    println(current.value)
+    current = current.next()
+}
+```
+
+## Capturing groups
+
+Parentheses создают group.
+
+```kotlin
+val dateRegex = Regex("""(\d{4})-(\d{2})-(\d{2})""")
+val dateMatch = dateRegex.matchEntire("2026-07-09")
+
+if (dateMatch != null) {
+    val year = dateMatch.groupValues[1]
+    val month = dateMatch.groupValues[2]
+    val day = dateMatch.groupValues[3]
+
+    println("Год: $year, месяц: $month, день: $day")
+}
+```
+
+`groupValues[0]` всегда содержит весь match.
+
+```kotlin
+println(dateMatch?.groupValues?.get(0)) // 2026-07-09
+```
+
+Если group optional и не matched, в `groupValues` обычно будет empty string. В `groups[index]` можно получить nullable `MatchGroup`.
+
+```kotlin
+val optionalPatch = Regex("""v(\d+)(?:\.(\d+))?""")
+val version = optionalPatch.matchEntire("v2")
+
+println(version?.groupValues) // [v2, 2, ]
+println(version?.groups?.get(2)?.value) // null
+```
+
+## Named groups
+
+Named groups дают группам имена. Синтаксис named groups зависит от regex engine, но на JVM широко используется `(?<name>...)`.
+
+```kotlin
+val namedDate = Regex("""(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})""")
+val namedMatch = namedDate.matchEntire("2026-07-09")
+
+if (namedMatch != null) {
+    val year = namedMatch.groups["year"]?.value
+    val month = namedMatch.groups["month"]?.value
+    val day = namedMatch.groups["day"]?.value
+
+    println("$day.$month.$year")
+}
+```
+
+Named access возвращает `MatchGroup?`, потому что group может отсутствовать.
+
+## `destructured`
+
+`destructured` позволяет удобно разобрать captured groups.
+
+```kotlin
+val parsed = dateRegex.matchEntire("2026-07-09")
+
+if (parsed != null) {
+    val (year, month, day) = parsed.destructured
+
+    println("$day.$month.$year")
+}
+```
+
+Destructuring берет только captured groups, а не full match.
+
+## `replace`
+
+`replace(input, replacement)` заменяет все совпадения.
+
+```kotlin
+val secret = Regex("""\b\d{4}\b""")
+
+val masked = secret.replace(
+    input = "Код 1234, запасной код 5678",
+    replacement = "****"
+)
+
+println(masked) // Код ****, запасной код ****
+```
+
+Replacement может ссылаться на groups.
+
+```kotlin
+val isoDate = Regex("""(\d{4})-(\d{2})-(\d{2})""")
+
+val ruDate = isoDate.replace("2026-07-09", "$3.$2.$1")
+
+println(ruDate) // 09.07.2026
+```
+
+Если replacement формируется из user input, экранируй его через `Regex.escapeReplacement`.
+
+```kotlin
+fun replaceWithLiteral(input: String, regex: Regex, replacement: String): String {
+    return regex.replace(
+        input = input,
+        replacement = Regex.escapeReplacement(replacement)
+    )
+}
+```
+
+Можно использовать transform lambda.
+
+```kotlin
+val incremented = Regex("""\d+""").replace("v1, v2, v10") { match ->
+    // Каждое число увеличиваем на единицу.
+    val value = match.value.toInt()
+    (value + 1).toString()
+}
+
+println(incremented) // v2, v3, v11
+```
+
+## `replaceFirst`
+
+`replaceFirst` заменяет только первое совпадение.
+
+```kotlin
+val textWithManySpaces = "кот   изучает   Kotlin"
+
+val normalizedOnce = Regex("""\s+""").replaceFirst(textWithManySpaces, " ")
+
+println(normalizedOnce) // кот изучает   Kotlin
+```
+
+Если нужно заменить все whitespace-runs, используй `replace`.
+
+## `split`
+
+`split(input, limit)` разбивает строку по regex.
+
+```kotlin
+val csvLike = "kotlin, collections; regex"
+
+val tokens = Regex("""[,;]\s*""").split(csvLike)
+
+println(tokens) // [kotlin, collections, regex]
+```
+
+`limit` ограничивает количество частей.
+
+```kotlin
+val parts = Regex(""":""").split("a:b:c", limit = 2)
+
+println(parts) // [a, b:c]
+```
+
+## Production-пример: parser учебного slug
+
+```kotlin
+data class LessonSlug(
+    val order: Int,
+    val topic: String
+)
+
+class LessonSlugParser {
+    private val slugRegex = Regex("""^(?<order>\d{2,3})-(?<topic>[a-z0-9]+(?:-[a-z0-9]+)*)$""")
+
+    fun parse(input: String): LessonSlug? {
+        val match = slugRegex.matchEntire(input.trim()) ?: return null
+
+        val order = match.groups["order"]
+            ?.value
+            ?.toIntOrNull()
+            ?: return null
+
+        val topic = match.groups["topic"]
+            ?.value
+            ?: return null
+
+        return LessonSlug(
+            order = order,
+            topic = topic
+        )
+    }
+}
+```
+
+Regex здесь не просто проверяет строку, а превращает ее в typed model.
+
+## Production-пример: безопасный поиск по тексту
+
+```kotlin
+data class SearchHit(
+    val value: String,
+    val start: Int,
+    val endInclusive: Int
+)
+
+fun findLiteralHits(text: String, query: String): List<SearchHit> {
+    val normalizedQuery = query.trim()
+
+    if (normalizedQuery.isEmpty()) {
+        return emptyList()
+    }
+
+    val regex = Regex(
+        pattern = Regex.escape(normalizedQuery),
+        option = RegexOption.IGNORE_CASE
+    )
+
+    return regex.findAll(text).map { match ->
+        SearchHit(
+            value = match.value,
+            start = match.range.first,
+            endInclusive = match.range.last
+        )
+    }.toList()
+}
+```
+
+Здесь user input экранируется, поэтому поиск ищет буквальный текст, а не выполняет случайно введенный pattern.
+
+## Практические правила
+
+Используй `matches` для full validation без groups.
+
+```kotlin
+val valid = slugRegex.matches("01-introduction")
+```
+
+Используй `matchEntire` для full validation с extraction.
+
+```kotlin
+val parsed = slugRegex.matchEntire("01-introduction")
+```
+
+Используй `containsMatchIn` для Boolean-поиска внутри строки.
+
+```kotlin
+val hasWarning = Regex("""WARN""").containsMatchIn(logLine)
+```
+
+Используй `find` для первого match, `findAll` для всех.
+
+```kotlin
+val firstNumber = Regex("""\d+""").find(text)
+val allNumbers = Regex("""\d+""").findAll(text).toList()
+```
+
+Используй raw strings для pattern-ов и `Regex.escape` для literal user input.
+
+<MouseTrap>
+Regex быстро становится нечитаемым. Если pattern начинает выражать полноценную грамматику с вложенными правилами, лучше написать parser или разбить задачу на несколько маленьких проверок.
+</MouseTrap>
+
+

@@ -1,0 +1,411 @@
+---
+title: "I/O на JVM"
+description: "Работа с файлами на JVM: java.io.File, java.nio.file.Path, kotlin.io extensions, kotlin.io.path, readText, writeText, useLines, forEachLine, use, streams, charsets и безопасное управление ресурсами."
+order: 65
+category: "Стандартная библиотека"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## JVM I/O: две основные модели
+
+На JVM Kotlin использует Java file APIs и добавляет удобные extensions.
+
+Основные типы:
+
+- `java.io.File` — старый, простой API для path-like file operations;
+- `java.nio.file.Path` — более современный API NIO.2;
+- streams/readers/writers — для потокового чтения и записи;
+- Kotlin extensions из `kotlin.io` и `kotlin.io.path` — короткие функции поверх JVM API.
+
+```kotlin
+import java.io.File
+
+val file = File("lessons.txt")
+```
+
+```kotlin
+import kotlin.io.path.Path
+
+val path = Path("lessons.txt")
+```
+
+<CatTip>
+`File` и `Path` — это адреса миски, а не сама еда. Само чтение или запись начинается только когда ты вызываешь операции вроде `readText`, `writeText`, stream или reader.
+</CatTip>
+
+## `java.io.File`
+
+`File` представляет path и дает базовые operations.
+
+```kotlin
+import java.io.File
+
+val file = File("data/lessons.txt")
+
+println(file.path)
+println(file.name)
+println(file.extension)
+println(file.nameWithoutExtension)
+```
+
+`File` может указывать на несуществующий path.
+
+```kotlin
+val missing = File("missing.txt")
+
+println(missing.exists()) // false
+```
+
+Проверяй состояние перед operations, если отсутствие файла является нормальным сценарием.
+
+```kotlin
+fun readOptionalFile(file: File): String? {
+    if (!file.exists() || !file.isFile) {
+        return null
+    }
+
+    return file.readText()
+}
+```
+
+## `readText` и `writeText`
+
+`readText` читает весь файл в `String`.
+
+```kotlin
+val text = file.readText(Charsets.UTF_8)
+```
+
+`writeText` перезаписывает файл.
+
+```kotlin
+file.parentFile?.mkdirs()
+file.writeText("Первый урок\n", Charsets.UTF_8)
+```
+
+`appendText` добавляет текст в конец.
+
+```kotlin
+file.appendText("Второй урок\n", Charsets.UTF_8)
+```
+
+<MouseTrap>
+`readText` и `readBytes` не подходят для огромных файлов. Они читают содержимое целиком в память. Для больших файлов используй line-by-line или streaming.
+</MouseTrap>
+
+## `readLines`, `forEachLine`, `useLines`
+
+`readLines` возвращает list строк и тоже загружает все в память.
+
+```kotlin
+val lines = file.readLines(Charsets.UTF_8)
+```
+
+`forEachLine` читает файл построчно и вызывает action.
+
+```kotlin
+file.forEachLine(Charsets.UTF_8) { line ->
+    // Обрабатываем строку без хранения всего файла в памяти.
+    println(line.trim())
+}
+```
+
+`useLines` дает `Sequence<String>` и закрывает reader после завершения block.
+
+```kotlin
+val lessonCount = file.useLines(Charsets.UTF_8) { linesSequence ->
+    linesSequence.count { line ->
+        line.isNotBlank()
+    }
+}
+```
+
+Не возвращай sequence наружу из `useLines`.
+
+```kotlin
+fun countPublishedLessons(file: File): Int {
+    return file.useLines { lines ->
+        lines.count { line ->
+            line.startsWith("published:")
+        }
+    }
+}
+```
+
+## `use`
+
+`use` закрывает `Closeable` после выполнения block, даже если block бросил exception.
+
+```kotlin
+import java.io.FileInputStream
+
+fun readHeader(file: File): ByteArray {
+    return FileInputStream(file).use { input ->
+        // Ресурс будет закрыт автоматически.
+        input.readNBytes(16)
+    }
+}
+```
+
+Это Kotlin-аналог try-with-resources.
+
+```kotlin
+fun copyFile(source: File, target: File) {
+    source.inputStream().use { input ->
+        target.outputStream().use { output ->
+            input.copyTo(output)
+        }
+    }
+}
+```
+
+## `Path`
+
+`Path` — современный тип для file paths из `java.nio.file`.
+
+```kotlin
+import kotlin.io.path.Path
+import kotlin.io.path.name
+import kotlin.io.path.nameWithoutExtension
+
+val path = Path("data", "lessons", "intro.md")
+
+println(path.name)
+println(path.nameWithoutExtension)
+```
+
+Path API лучше подходит для NIO operations, symbolic links, file systems, atomic options и modern Java APIs.
+
+## `kotlin.io.path` extensions
+
+Kotlin добавляет extensions для `Path`.
+
+```kotlin
+import kotlin.io.path.createDirectories
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
+
+val directory = Path("build", "reports")
+directory.createDirectories()
+
+val report = directory.resolve("summary.txt")
+report.writeText("Готово", Charsets.UTF_8)
+
+println(report.readText(Charsets.UTF_8))
+```
+
+Для directories:
+
+```kotlin
+import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.io.path.listDirectoryEntries
+
+if (directory.exists() && directory.isDirectory()) {
+    val entries = directory.listDirectoryEntries()
+    println(entries)
+}
+```
+
+Для large files используй path line operations.
+
+```kotlin
+import kotlin.io.path.useLines
+
+val warnings = report.useLines { lines ->
+    lines.count { line ->
+        line.contains("WARN")
+    }
+}
+```
+
+## Создание директорий и файлов
+
+`createDirectory` создает одну директорию и падает, если parent отсутствует.
+
+```kotlin
+import kotlin.io.path.createDirectory
+
+val one = Path("tmp-one")
+// one.createDirectory()
+```
+
+`createDirectories` создает parent directories при необходимости и не падает, если directory уже существует.
+
+```kotlin
+val nested = Path("tmp", "kotlingo", "reports")
+nested.createDirectories()
+```
+
+Для файлов:
+
+```kotlin
+import kotlin.io.path.createFile
+import kotlin.io.path.notExists
+
+val output = nested.resolve("lesson.txt")
+
+if (output.notExists()) {
+    output.createFile()
+}
+```
+
+## Charsets
+
+Kotlin I/O text functions по умолчанию часто используют UTF-8, но production-код лучше делает charset явным, если file format важен.
+
+```kotlin
+val text = file.readText(Charsets.UTF_8)
+file.writeText(text, Charsets.UTF_8)
+```
+
+Если работаешь с legacy data, укажи нужную charset.
+
+```kotlin
+val legacyText = file.readText(charset("Windows-1251"))
+```
+
+## Абсолютные и относительные paths
+
+Relative path зависит от working directory процесса.
+
+```kotlin
+val relative = File("data/lessons.txt")
+println(relative.absolutePath)
+```
+
+В серверном приложении лучше явно передавать base directory через config.
+
+```kotlin
+class LessonStorage(
+    private val baseDirectory: Path
+) {
+    fun lessonPath(slug: String): Path {
+        require(slug.matches(Regex("""[a-z0-9-]+"""))) {
+            "Slug содержит недопустимые символы"
+        }
+
+        return baseDirectory.resolve("$slug.md").normalize()
+    }
+}
+```
+
+## Path traversal защита
+
+Если path зависит от user input, проверяй, что итоговый path остается внутри base directory.
+
+```kotlin
+import kotlin.io.path.absolute
+
+class SafeLessonStorage(
+    baseDirectory: Path
+) {
+    private val root = baseDirectory.absolute().normalize()
+
+    fun resolveLesson(slug: String): Path {
+        require(slug.matches(Regex("""[a-z0-9-]+"""))) {
+            "Slug содержит недопустимые символы"
+        }
+
+        val candidate = root.resolve("$slug.md").normalize()
+
+        require(candidate.startsWith(root)) {
+            "Путь вышел за пределы директории уроков"
+        }
+
+        return candidate
+    }
+}
+```
+
+<MouseTrap>
+Никогда не делай `base.resolve(userInput)` без validation, если userInput может содержать `..`, separator или absolute path. Это классическая path traversal ошибка.
+</MouseTrap>
+
+## Production-пример: чтение manifest файла
+
+```kotlin
+import java.nio.file.Path
+import kotlin.io.path.exists
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.useLines
+
+data class LessonManifestEntry(
+    val slug: String,
+    val title: String
+)
+
+class LessonManifestReader {
+    fun read(path: Path): Result<List<LessonManifestEntry>> {
+        return runCatching {
+            require(path.exists() && path.isRegularFile()) {
+                "Manifest файл не найден: $path"
+            }
+
+            path.useLines(Charsets.UTF_8) { lines ->
+                lines
+                    .filter { line ->
+                        line.isNotBlank() && !line.startsWith("#")
+                    }
+                    .map { line ->
+                        parseLine(line)
+                    }
+                    .toList()
+            }
+        }
+    }
+
+    private fun parseLine(line: String): LessonManifestEntry {
+        val parts = line.split("|", limit = 2)
+
+        require(parts.size == 2) {
+            "Строка manifest должна иметь формат slug|title"
+        }
+
+        val slug = parts[0].trim()
+        val title = parts[1].trim()
+
+        require(slug.isNotEmpty()) {
+            "Slug не должен быть пустым"
+        }
+        require(title.isNotEmpty()) {
+            "Title не должен быть пустым"
+        }
+
+        return LessonManifestEntry(slug = slug, title = title)
+    }
+}
+```
+
+Здесь `useLines` закрывает ресурс, а `Result` фиксирует границу failure.
+
+## `File` или `Path`
+
+Выбирай `Path`, если:
+
+- пишешь новый JVM-код;
+- используешь NIO APIs;
+- нужны file attributes, links, options, modern Java interop;
+- важна normalize/resolve логика.
+
+Выбирай `File`, если:
+
+- работаешь с legacy API;
+- нужна простая операция в маленьком скрипте;
+- библиотека ожидает именно `File`.
+
+Можно конвертировать.
+
+```kotlin
+val asPath: Path = file.toPath()
+val asFile: File = path.toFile()
+```
+
+<CatTip>
+Файловый I/O всегда пахнет внешним миром: files disappear, permissions fail, charset surprises happen. Держи ошибки явными, ресурсы закрытыми, а paths проверенными.
+</CatTip>
+
+

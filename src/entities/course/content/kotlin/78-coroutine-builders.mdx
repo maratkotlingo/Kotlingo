@@ -1,0 +1,735 @@
+---
+title: "Coroutine Builders"
+description: "Coroutine builders: runBlocking, launch, async, coroutineScope, supervisorScope, Job, Deferred, await/join, failure propagation и безопасный bridge между blocking и suspending кодом."
+order: 78
+category: "Coroutines"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое coroutine builder
+
+Coroutine builder — функция, которая создает coroutine, связывает ее с `CoroutineScope`, назначает ей `CoroutineContext` и определяет, как caller будет ждать результат.
+
+В Kotlin coroutines важно различать две вещи:
+
+- suspending function описывает operation, которую можно приостановить;
+- builder реально запускает coroutine или создает child scope для запуска нескольких child coroutines.
+
+```kotlin
+import kotlinx.coroutines.delay
+
+suspend fun loadTitle(slug: String): String {
+    // Это suspending function. Она сама не стартует новую coroutine.
+    delay(100)
+
+    return "Урок $slug"
+}
+```
+
+Чтобы выполнить такой код из обычной `main`, теста, server entry point или существующего callback API, нужен builder.
+
+```kotlin
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    // runBlocking создает coroutine scope и позволяет вызвать suspend function.
+    val title = loadTitle("78-coroutine-builders")
+
+    println(title)
+}
+```
+
+<CatTip>
+Builder похож на кошачью дверцу: через него обычный blocking мир аккуратно входит в suspending мир, а child coroutines получают понятного хозяина — scope.
+</CatTip>
+
+## Минимальная зависимость
+
+Coroutines живут не в стандартной библиотеке Kotlin, а в библиотеке `kotlinx.coroutines`.
+
+```kotlin
+dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+}
+```
+
+В production-проекте версию лучше фиксировать через version catalog.
+
+```toml
+[versions]
+kotlinx-coroutines = "1.11.0"
+
+[libraries]
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+```
+
+```kotlin
+dependencies {
+    implementation(libs.kotlinx.coroutines.core)
+}
+```
+
+## `runBlocking`
+
+`runBlocking` запускает coroutine и блокирует current thread, пока block и все его children не завершатся.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+
+fun main() {
+    println("До runBlocking")
+
+    runBlocking {
+        // Этот block выполняется внутри coroutine.
+        delay(100)
+        println("Внутри coroutine")
+    }
+
+    println("После runBlocking")
+}
+```
+
+Главное свойство `runBlocking`: он не просто приостанавливает coroutine, а именно blocks thread. Поэтому он полезен как bridge:
+
+- в `fun main`, если entry point не объявлен как `suspend main`;
+- в маленьких CLI utilities;
+- в unit tests, если не используется `runTest`;
+- на границе legacy blocking API, где caller физически не может быть suspending.
+
+```kotlin
+import kotlinx.coroutines.runBlocking
+
+class LessonCli(
+    private val repository: LessonRepository
+) {
+    fun printLesson(slug: String) {
+        // CLI entry point blocking по природе: пользователь ждет результат в terminal.
+        val lesson = runBlocking {
+            repository.loadLesson(slug)
+        }
+
+        println(lesson.title)
+        println(lesson.body)
+    }
+}
+
+data class Lesson(
+    val title: String,
+    val body: String
+)
+
+class LessonRepository {
+    suspend fun loadLesson(slug: String): Lesson {
+        // В реальном коде здесь может быть database, HTTP client или filesystem.
+        return Lesson(
+            title = "Coroutine builders",
+            body = "Материал урока $slug"
+        )
+    }
+}
+```
+
+<MouseTrap>
+Не вызывай `runBlocking` внутри `suspend fun`. Это блокирует thread и разрушает смысл non-blocking coroutine code. В suspending code используй `coroutineScope`, `withContext`, `launch` или `async`.
+</MouseTrap>
+
+Плохой пример:
+
+```kotlin
+import kotlinx.coroutines.runBlocking
+
+suspend fun loadAndFormatBad(repository: LessonRepository, slug: String): String {
+    // Ошибка дизайна: suspend function уже находится в coroutine context.
+    val lesson = runBlocking {
+        repository.loadLesson(slug)
+    }
+
+    return lesson.title.uppercase()
+}
+```
+
+Хороший вариант:
+
+```kotlin
+suspend fun loadAndFormat(repository: LessonRepository, slug: String): String {
+    val lesson = repository.loadLesson(slug)
+
+    return lesson.title.uppercase()
+}
+```
+
+## `launch`
+
+`launch` запускает child coroutine и возвращает `Job`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+fun CoroutineScope.startProgressPrinter(): kotlinx.coroutines.Job = launch {
+    repeat(3) { index ->
+        delay(250)
+        println("Шаг ${index + 1}")
+    }
+}
+```
+
+`launch` используют, когда нужен side effect, но не нужен typed result:
+
+- отправить notification;
+- записать audit event;
+- обновить cache;
+- стартовать background loop внутри owner scope;
+- выполнить несколько child operations и дождаться их через `join`.
+
+```kotlin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+
+suspend fun warmUpLessonCache(
+    slugs: List<String>,
+    cache: LessonCache
+) = coroutineScope {
+    val jobs = slugs.map { slug ->
+        launch {
+            // Каждая child coroutine связана с текущим coroutineScope.
+            val lesson = LessonRepository().loadLesson(slug)
+            cache.put(slug, lesson)
+        }
+    }
+
+    // joinAll ждет завершения всех jobs.
+    jobs.joinAll()
+}
+
+class LessonCache {
+    private val lessons = mutableMapOf<String, Lesson>()
+
+    fun put(slug: String, lesson: Lesson) {
+        lessons[slug] = lesson
+    }
+}
+```
+
+`Job` не содержит typed value. Его задача — lifecycle:
+
+```kotlin
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    val job: Job = launch {
+        while (true) {
+            delay(100)
+            println("Печатаю heartbeat")
+        }
+    }
+
+    delay(350)
+
+    // cancelAndJoin сначала просит coroutine остановиться, затем ждет завершения cleanup.
+    job.cancelAndJoin()
+
+    println("Heartbeat остановлен")
+}
+```
+
+Если `launch` падает с exception, exception считается uncaught для этой coroutine. В обычном parent-child tree это приводит к cancellation parent scope.
+
+```kotlin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+suspend fun failFastExample() = coroutineScope {
+    launch {
+        delay(100)
+        error("Не удалось загрузить метаданные")
+    }
+
+    launch {
+        try {
+            repeat(10) { index ->
+                delay(100)
+                println("Загружаю chunk $index")
+            }
+        } finally {
+            // Этот блок выполнится, когда sibling failure отменит scope.
+            println("Освобождаю ресурсы загрузчика")
+        }
+    }
+}
+```
+
+## `async`
+
+`async` запускает child coroutine и возвращает `Deferred<T>`.
+
+`Deferred<T>` — это `Job` с результатом. Его результат получают через `await`.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+
+suspend fun loadLessonCard(slug: String): LessonCard = coroutineScope {
+    val titleDeferred = async {
+        loadTitle(slug)
+    }
+
+    val statsDeferred = async {
+        loadStats(slug)
+    }
+
+    // await приостанавливает текущую coroutine до готовности результата.
+    LessonCard(
+        title = titleDeferred.await(),
+        views = statsDeferred.await().views
+    )
+}
+
+data class LessonCard(
+    val title: String,
+    val views: Int
+)
+
+data class LessonStats(
+    val views: Int
+)
+
+suspend fun loadStats(slug: String): LessonStats {
+    delay(100)
+    return LessonStats(views = slug.length * 100)
+}
+```
+
+`async` стоит использовать для concurrent computations, которые нужны caller-у как values.
+
+Последовательный вариант:
+
+```kotlin
+suspend fun loadLessonCardSequential(slug: String): LessonCard {
+    val title = loadTitle(slug)
+    val stats = loadStats(slug)
+
+    return LessonCard(
+        title = title,
+        views = stats.views
+    )
+}
+```
+
+Concurrent вариант:
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
+suspend fun loadLessonCardConcurrent(slug: String): LessonCard = coroutineScope {
+    val title = async { loadTitle(slug) }
+    val stats = async { loadStats(slug) }
+
+    LessonCard(
+        title = title.await(),
+        views = stats.await().views
+    )
+}
+```
+
+Если `async` child fails, parent scope все равно будет cancelled. То, что exception обычно читают через `await`, не делает child изолированным.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+
+suspend fun asyncFailureStillCancelsScope() = coroutineScope {
+    val first = async {
+        delay(100)
+        error("Первый запрос упал")
+    }
+
+    val second = async {
+        try {
+            delay(1_000)
+            "Готово"
+        } finally {
+            println("Второй запрос отменен вместе со scope")
+        }
+    }
+
+    // Exception будет выброшен здесь, но cancellation scope начнется из-за failed child.
+    first.await() + second.await()
+}
+```
+
+<MouseTrap>
+Не используй `async`, если результат никому не нужен. Для side effects подходит `launch`; для value-producing parallel work подходит `async`.
+</MouseTrap>
+
+## `coroutineScope`
+
+`coroutineScope` создает child scope внутри suspending function и ждет, пока завершатся block и все child coroutines.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
+suspend fun renderLesson(slug: String): RenderedLesson = coroutineScope {
+    val content = async { loadLessonContent(slug) }
+    val author = async { loadAuthor(slug) }
+    val recommendations = async { loadRecommendations(slug) }
+
+    RenderedLesson(
+        content = content.await(),
+        author = author.await(),
+        recommendations = recommendations.await()
+    )
+}
+
+data class RenderedLesson(
+    val content: String,
+    val author: String,
+    val recommendations: List<String>
+)
+
+suspend fun loadLessonContent(slug: String): String {
+    delay(100)
+    return "Контент урока $slug"
+}
+
+suspend fun loadAuthor(slug: String): String {
+    delay(80)
+    return "Команда kotlingo"
+}
+
+suspend fun loadRecommendations(slug: String): List<String> {
+    delay(60)
+    return listOf("79-coroutine-context", "80-structured-concurrency")
+}
+```
+
+`coroutineScope` не blocks thread. Он suspends текущую coroutine. Caller не продолжит работу, пока child jobs не завершатся.
+
+Важные свойства:
+
+- возвращает result последнего expression из block;
+- наследует context parent coroutine;
+- создает новый `Job`, который становится parent для children внутри block;
+- при failure одного child отменяет остальные children;
+- если parent отменен, все children внутри scope тоже отменяются.
+
+```kotlin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+
+suspend fun importLessons(slugs: List<String>) = coroutineScope {
+    slugs.forEach { slug ->
+        launch {
+            val lesson = LessonRepository().loadLesson(slug)
+            println("Импортирован ${lesson.title}")
+        }
+    }
+
+    // Явный join здесь не нужен: coroutineScope дождется child coroutines.
+}
+```
+
+<CatTip>
+`coroutineScope` — уютная корзинка: все child coroutines либо возвращаются в нее, либо вся корзинка аккуратно отменяется вместе.
+</CatTip>
+
+## `supervisorScope`
+
+`supervisorScope` тоже создает child scope и waits for children, но failure одного child не отменяет siblings.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
+
+suspend fun loadOptionalWidgets(slug: String): List<Widget> = supervisorScope {
+    val widgets = listOf(
+        async { loadCommentsWidget(slug) },
+        async { loadProgressWidget(slug) },
+        async { loadRecommendationsWidget(slug) }
+    )
+
+    widgets.mapNotNull { deferred ->
+        runCatching {
+            deferred.await()
+        }.getOrNull()
+    }
+}
+
+data class Widget(
+    val name: String,
+    val html: String
+)
+
+suspend fun loadCommentsWidget(slug: String): Widget {
+    delay(60)
+    return Widget("comments", "<section>Комментарии для $slug</section>")
+}
+
+suspend fun loadProgressWidget(slug: String): Widget {
+    delay(40)
+    return Widget("progress", "<section>Прогресс</section>")
+}
+
+suspend fun loadRecommendationsWidget(slug: String): Widget {
+    delay(50)
+    error("Сервис рекомендаций временно недоступен")
+}
+```
+
+`supervisorScope` нужен, когда child tasks независимы и partial success допустим.
+
+Примеры:
+
+- optional widgets на странице;
+- независимые notification channels;
+- best-effort cache warming;
+- analytics events, которые не должны ломать основной request.
+
+```kotlin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+
+suspend fun notifyLessonCompleted(
+    userId: String,
+    slug: String,
+    channels: NotificationChannels
+) = supervisorScope {
+    launch {
+        channels.email(userId, slug)
+    }
+
+    launch {
+        channels.push(userId, slug)
+    }
+
+    launch {
+        channels.analytics(userId, slug)
+    }
+
+    // supervisorScope дождется всех launch children.
+    // Ошибка одного channel не отменит другие channels.
+}
+
+class NotificationChannels {
+    suspend fun email(userId: String, slug: String) {
+        delay(50)
+        println("Email для $userId: $slug")
+    }
+
+    suspend fun push(userId: String, slug: String) {
+        delay(50)
+        println("Push для $userId: $slug")
+    }
+
+    suspend fun analytics(userId: String, slug: String) {
+        delay(50)
+        error("Analytics временно недоступна")
+    }
+}
+```
+
+<MouseTrap>
+`supervisorScope` не означает «ошибки исчезают». Он меняет propagation между children, но ошибку все равно нужно обработать там, где она ожидаема: через `try/catch`, `runCatching`, `await` или `CoroutineExceptionHandler` на верхней границе.
+</MouseTrap>
+
+## `join`, `await`, `cancel`, `cancelAndJoin`
+
+У builder-ов разные способы ожидания.
+
+`Job.join()` waits for completion без value:
+
+```kotlin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun joinExample() = runBlocking {
+    val job = launch {
+        delay(100)
+        println("Side effect завершен")
+    }
+
+    job.join()
+
+    println("Теперь side effect точно выполнен")
+}
+```
+
+`Deferred.await()` waits for result:
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+
+fun awaitExample() = runBlocking {
+    val deferred = async {
+        delay(100)
+        42
+    }
+
+    val answer = deferred.await()
+
+    println("Ответ: $answer")
+}
+```
+
+`Job.cancel()` requests cancellation:
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun cancelExample() = runBlocking {
+    val job = launch {
+        while (true) {
+            delay(100)
+            println("Работаю")
+        }
+    }
+
+    delay(250)
+    job.cancel()
+}
+```
+
+`cancelAndJoin()` requests cancellation and waits for cleanup:
+
+```kotlin
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun cancelAndJoinExample() = runBlocking {
+    val job = launch {
+        try {
+            while (true) {
+                delay(100)
+                println("Работаю")
+            }
+        } finally {
+            println("Закрываю ресурсы")
+        }
+    }
+
+    delay(250)
+    job.cancelAndJoin()
+
+    println("Ресурсы закрыты, можно завершаться")
+}
+```
+
+## Производственный пример: page assembler
+
+Ниже пример сервиса, который загружает обязательные данные fail-fast, а optional widgets — в supervised section.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
+
+class LessonPageAssembler(
+    private val lessons: LessonRepository,
+    private val authors: AuthorRepository,
+    private val widgets: WidgetRepository
+) {
+    suspend fun assemble(slug: String): LessonPage = coroutineScope {
+        val lesson = async {
+            lessons.loadLesson(slug)
+        }
+
+        val author = async {
+            authors.loadAuthor(slug)
+        }
+
+        val optionalWidgets = async {
+            loadOptionalWidgetsSafely(slug)
+        }
+
+        LessonPage(
+            lesson = lesson.await(),
+            author = author.await(),
+            widgets = optionalWidgets.await()
+        )
+    }
+
+    private suspend fun loadOptionalWidgetsSafely(slug: String): List<Widget> = supervisorScope {
+        val comments = async {
+            widgets.comments(slug)
+        }
+
+        val recommendations = async {
+            widgets.recommendations(slug)
+        }
+
+        listOfNotNull(
+            runCatching { comments.await() }.getOrNull(),
+            runCatching { recommendations.await() }.getOrNull()
+        )
+    }
+}
+
+data class LessonPage(
+    val lesson: Lesson,
+    val author: Author,
+    val widgets: List<Widget>
+)
+
+data class Author(
+    val name: String
+)
+
+class AuthorRepository {
+    suspend fun loadAuthor(slug: String): Author {
+        delay(80)
+        return Author(name = "Автор урока $slug")
+    }
+}
+
+class WidgetRepository {
+    suspend fun comments(slug: String): Widget {
+        delay(60)
+        return Widget("comments", "<section>Комментарии $slug</section>")
+    }
+
+    suspend fun recommendations(slug: String): Widget {
+        delay(60)
+        error("Рекомендации недоступны")
+    }
+}
+```
+
+Здесь `coroutineScope` вокруг обязательных данных означает: если lesson или author не загрузились, вся page assembly fails. Внутри optional block `supervisorScope` означает: один broken widget не должен ломать всю страницу.
+
+## Как выбирать builder
+
+Используй `runBlocking`, когда нужно войти из blocking world в suspending world и ты осознанно блокируешь thread.
+
+Используй `launch`, когда нужна concurrent child coroutine без typed result.
+
+Используй `async`, когда нужна concurrent child coroutine с typed result и caller будет делать `await`.
+
+Используй `coroutineScope`, когда внутри `suspend fun` нужно запустить children и дождаться их с обычным fail-fast поведением.
+
+Используй `supervisorScope`, когда children независимы, partial success допустим, и failures должны обрабатываться на уровне каждого child.
+
+<CatTip>
+Если сомневаешься, начни с обычного sequential suspend code. Добавляй `async` только когда операции реально независимы и измеримая latency важнее простоты.
+</CatTip>
+

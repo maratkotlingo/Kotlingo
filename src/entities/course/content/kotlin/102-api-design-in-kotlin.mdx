@@ -1,0 +1,418 @@
+---
+title: "API Design In Kotlin"
+description: "API design in Kotlin: nullability as contract, sealed results, immutability by default, extension API boundaries, binary compatibility, explicit API mode, naming и evolution-friendly design."
+order: 102
+category: "Architecture"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## API — это обещание
+
+API is any boundary used by other code:
+
+- public library classes;
+- module interfaces;
+- service methods;
+- DTOs;
+- extension functions;
+- sealed results;
+- Gradle module exports;
+- Java-facing Kotlin classes;
+- multiplatform common declarations.
+
+Good Kotlin API makes invalid states harder to express and expected states easy to handle.
+
+```kotlin
+class LessonService {
+    fun find(slug: LessonSlug): Lesson? {
+        return if (slug.value == "102-api-design-in-kotlin") {
+            Lesson(slug, "API Design In Kotlin")
+        } else {
+            null
+        }
+    }
+}
+
+@JvmInline
+value class LessonSlug(
+    val value: String
+) {
+    init {
+        require(value.isNotBlank()) { "Slug не должен быть пустым" }
+    }
+}
+
+data class Lesson(
+    val slug: LessonSlug,
+    val title: String
+)
+```
+
+<CatTip>
+Хороший Kotlin API похож на аккуратную кошачью дверцу: внутрь проходят только допустимые значения, а caller сразу понимает, что может случиться.
+</CatTip>
+
+## Nullability as contract
+
+In Kotlin, nullability is part of type system and API contract.
+
+```kotlin
+interface LessonRepository {
+    suspend fun find(slug: LessonSlug): Lesson?
+
+    suspend fun get(slug: LessonSlug): Lesson
+}
+```
+
+Here:
+
+- `find` says absence is normal;
+- `get` says absence is exceptional.
+
+Implementation:
+
+```kotlin
+class InMemoryLessonRepository(
+    lessons: List<Lesson>
+) : LessonRepository {
+    private val lessonsBySlug = lessons.associateBy { lesson -> lesson.slug }
+
+    override suspend fun find(slug: LessonSlug): Lesson? {
+        return lessonsBySlug[slug]
+    }
+
+    override suspend fun get(slug: LessonSlug): Lesson {
+        return lessonsBySlug[slug] ?: throw LessonNotFoundException(slug)
+    }
+}
+
+class LessonNotFoundException(
+    slug: LessonSlug
+) : RuntimeException("Урок не найден: ${slug.value}")
+```
+
+Avoid nullable return when absence is not part of business model. Avoid exception when absence is a common branch.
+
+<MouseTrap>
+`String?` is not documentation. If null has meaning, name method and type so that caller knows whether null means «not found», «not loaded», «not allowed» or «unknown».
+</MouseTrap>
+
+## Do not return nullable collections
+
+Prefer empty collection over nullable collection.
+
+```kotlin
+interface RecommendationService {
+    suspend fun recommendationsFor(slug: LessonSlug): List<LessonSlug>
+}
+```
+
+Bad:
+
+```kotlin
+interface BadRecommendationService {
+    suspend fun recommendationsFor(slug: LessonSlug): List<LessonSlug>?
+}
+```
+
+If there is a difference between not loaded and loaded empty, model it explicitly.
+
+```kotlin
+sealed interface RecommendationState {
+    data object NotLoaded : RecommendationState
+
+    data class Ready(
+        val slugs: List<LessonSlug>
+    ) : RecommendationState
+
+    data class Failed(
+        val reason: String
+    ) : RecommendationState
+}
+```
+
+## Sealed results
+
+Use sealed result types when caller must handle several domain outcomes.
+
+```kotlin
+sealed interface OpenLessonResult {
+    data class Ready(
+        val lesson: Lesson
+    ) : OpenLessonResult
+
+    data class NotFound(
+        val slug: LessonSlug
+    ) : OpenLessonResult
+
+    data class AccessDenied(
+        val slug: LessonSlug
+    ) : OpenLessonResult
+}
+
+class OpenLessonUseCase(
+    private val repository: LessonRepository,
+    private val accessPolicy: AccessPolicy
+) {
+    suspend fun open(user: User, slug: LessonSlug): OpenLessonResult {
+        val lesson = repository.find(slug)
+            ?: return OpenLessonResult.NotFound(slug)
+
+        if (!accessPolicy.canOpen(user, lesson)) {
+            return OpenLessonResult.AccessDenied(slug)
+        }
+
+        return OpenLessonResult.Ready(lesson)
+    }
+}
+
+data class User(
+    val id: String,
+    val premium: Boolean
+)
+
+class AccessPolicy {
+    fun canOpen(user: User, lesson: Lesson): Boolean {
+        return user.premium || !lesson.title.contains("Advanced")
+    }
+}
+```
+
+Caller:
+
+```kotlin
+fun render(result: OpenLessonResult): String {
+    return when (result) {
+        is OpenLessonResult.Ready -> result.lesson.title
+        is OpenLessonResult.NotFound -> "Урок не найден"
+        is OpenLessonResult.AccessDenied -> "Нет доступа"
+    }
+}
+```
+
+Sealed result makes branching exhaustive.
+
+## `Result`
+
+Kotlin `Result` is useful for generic success/failure pipelines, but domain-specific sealed type is often clearer.
+
+```kotlin
+suspend fun loadTitle(slug: LessonSlug): Result<String> {
+    return runCatching {
+        "Урок ${slug.value}"
+    }
+}
+```
+
+Use `Result` when:
+
+- failure is technical and generic;
+- you are composing operations;
+- caller will map/recover/log generically.
+
+Use sealed type when:
+
+- outcomes are business states;
+- UI needs distinct handling;
+- result is part of public domain API;
+- you want exhaustive `when` with named cases.
+
+## Immutability by default
+
+Prefer immutable data and read-only collections in public API.
+
+```kotlin
+data class Course(
+    val slug: String,
+    val lessons: List<Lesson>
+)
+```
+
+Avoid exposing mutable collections:
+
+```kotlin
+class BadCourse {
+    val lessons: MutableList<Lesson> = mutableListOf()
+}
+```
+
+Safer mutable internals:
+
+```kotlin
+class CourseBuilder {
+    private val lessons = mutableListOf<Lesson>()
+
+    fun add(lesson: Lesson): CourseBuilder {
+        lessons += lesson
+        return this
+    }
+
+    fun build(): Course {
+        return Course(
+            slug = "kotlin",
+            lessons = lessons.toList()
+        )
+    }
+}
+```
+
+Read-only `List` does not guarantee deep immutability, but it prevents caller from mutating through that API.
+
+## Value classes for concepts
+
+Use value classes to prevent primitive obsession.
+
+```kotlin
+@JvmInline
+value class UserId(
+    val value: String
+) {
+    init {
+        require(value.isNotBlank()) { "UserId не должен быть пустым" }
+    }
+}
+
+@JvmInline
+value class Percent(
+    val value: Int
+) {
+    init {
+        require(value in 0..100) { "Percent должен быть в диапазоне 0..100" }
+    }
+}
+```
+
+Without value classes, API can mix two strings by accident.
+
+```kotlin
+fun markCompleted(userId: UserId, slug: LessonSlug) {
+    println("${userId.value} completed ${slug.value}")
+}
+```
+
+## Extension API boundaries
+
+Extension functions are static functions with receiver syntax. They do not really add members to a class.
+
+Good extension:
+
+```kotlin
+fun String.toLessonSlug(): LessonSlug {
+    return LessonSlug(
+        trim()
+            .lowercase()
+            .replace(Regex("\\s+"), "-")
+    )
+}
+```
+
+Risky extension:
+
+```kotlin
+fun LessonRepository.deleteEverything() {
+    // Плохо: опасная operation выглядит как natural member чужого API.
+}
+```
+
+Use extensions for:
+
+- formatting;
+- mapping;
+- small domain conversions;
+- convenience around stable types;
+- DSL-like APIs where discoverability is desired.
+
+Avoid extensions for:
+
+- operations requiring hidden dependencies;
+- side effects that look harmless;
+- overriding-like behavior;
+- public API where Java callers are primary users.
+
+## Binary compatibility
+
+For published JVM libraries, source-compatible change can still be binary-breaking.
+
+Risky changes:
+
+- removing public class/function/property;
+- changing function signature;
+- changing return type;
+- changing constructor parameters;
+- adding abstract member to interface;
+- changing data class primary constructor;
+- changing inline public function body that references internal details incorrectly;
+- moving declarations between packages.
+
+Use explicit API mode:
+
+```kotlin
+kotlin {
+    explicitApi()
+}
+```
+
+Then public declarations need explicit visibility and return types.
+
+```kotlin
+public class LessonApi {
+    public fun title(slug: String): String {
+        return "Урок $slug"
+    }
+}
+```
+
+<CatTip>
+For library APIs, explicit return types are like таблички на кошачьих дверцах: caller and compiler see exactly what contract is promised.
+</CatTip>
+
+## Java-facing API
+
+If Java users consume Kotlin API, design for Java too.
+
+```kotlin
+class LessonFacade(
+    private val service: LessonService
+) {
+    @JvmOverloads
+    fun title(slug: String, fallback: String = "Без названия"): String {
+        return service.findTitle(slug) ?: fallback
+    }
+}
+
+class LessonService {
+    fun findTitle(slug: String): String? {
+        return if (slug.isBlank()) null else "Урок $slug"
+    }
+}
+```
+
+Consider:
+
+- `@JvmOverloads` for default parameters;
+- `@JvmStatic` for companion functions used from Java;
+- `@JvmName` for overload/name collisions;
+- `@Throws` for checked exception expectations;
+- avoiding Kotlin-only types in Java-heavy APIs.
+
+## Production checklist
+
+For Kotlin API design:
+
+- nullability communicates real contract;
+- collections are empty, not nullable, unless state needs explicit modeling;
+- domain outcomes use sealed types;
+- public data is immutable by default;
+- value classes protect domain concepts;
+- extension functions do not hide dangerous side effects;
+- public APIs have explicit return types;
+- Java-facing APIs are tested from Java when Java consumers matter;
+- binary compatibility is checked before publishing.
+
+<MouseTrap>
+API design debt is expensive because callers build habits around it. A confusing nullable, mutable or over-public API becomes architecture by accident.
+</MouseTrap>
+

@@ -1,0 +1,487 @@
+---
+title: "Kotlin API for Java"
+description: "Проектирование Kotlin API для Java: @JvmName, @file:JvmName, @JvmStatic, @JvmField, const val, @JvmOverloads, @Throws, @JvmSynthetic, @JvmWildcard, @JvmSuppressWildcards и удобные фасады."
+order: 74
+category: "Java и JVM interoperability"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Kotlin API не всегда выглядит идеально из Java
+
+Kotlin features часто компилируются в JVM bytecode, который Java видит иначе: top-level functions становятся static methods в synthetic class, properties становятся getters/setters, default parameters не становятся Java overloads сами по себе.
+
+```kotlin
+package com.example.lessons
+
+fun normalizeSlug(slug: String): String {
+    return slug.trim().lowercase()
+}
+```
+
+Java увидит примерно:
+
+```java
+String slug = LessonsKt.normalizeSlug("  Intro  ");
+```
+
+Аннотации `kotlin.jvm.*` помогают сделать API удобнее для Java callers.
+
+<CatTip>
+Kotlin пишет красивую дверь для Kotlin-кода, но Java подходит с другой стороны дома. JVM annotations помогают поставить ручку там, где Java ее ожидает.
+</CatTip>
+
+## `@file:JvmName`
+
+`@file:JvmName` меняет имя generated class для top-level declarations файла.
+
+```kotlin
+@file:JvmName("LessonUtils")
+
+package com.example.lessons
+
+fun normalizeSlug(slug: String): String {
+    return slug.trim().lowercase()
+}
+```
+
+Java:
+
+```java
+String slug = LessonUtils.normalizeSlug("  Intro  ");
+```
+
+File annotations должны быть в начале файла до package/imports.
+
+## `@JvmName`
+
+`@JvmName` меняет JVM name declaration.
+
+```kotlin
+@JvmName("normalizeLessonSlug")
+fun normalizeSlug(slug: String): String {
+    return slug.trim().lowercase()
+}
+```
+
+Java:
+
+```java
+String slug = LessonUtils.normalizeLessonSlug("  Intro  ");
+```
+
+Частый случай — signature clash из-за type erasure.
+
+```kotlin
+fun List<String>.joinForLog(): String {
+    return joinToString()
+}
+
+@JvmName("joinIntsForLog")
+fun List<Int>.joinForLog(): String {
+    return joinToString()
+}
+```
+
+В Kotlin обе функции называются `joinForLog`, а на JVM имеют разные names.
+
+Для property accessors можно использовать use-site targets.
+
+```kotlin
+var lessonTitle: String = ""
+    @get:JvmName("title")
+    get
+    @set:JvmName("changeTitle")
+    set
+```
+
+## `@JvmStatic`
+
+Kotlin companion object method из Java обычно вызывается через `Companion`.
+
+```kotlin
+class LessonIds {
+    companion object {
+        fun normalize(slug: String): String {
+            return slug.trim().lowercase()
+        }
+    }
+}
+```
+
+Java:
+
+```java
+String slug = LessonIds.Companion.normalize(" Intro ");
+```
+
+`@JvmStatic` генерирует дополнительный static method.
+
+```kotlin
+class BetterLessonIds {
+    companion object {
+        @JvmStatic
+        fun normalize(slug: String): String {
+            return slug.trim().lowercase()
+        }
+    }
+}
+```
+
+Java:
+
+```java
+String slug = BetterLessonIds.normalize(" Intro ");
+```
+
+Instance method в companion остается, поэтому Kotlin usage не ломается.
+
+`@JvmStatic` работает и в `object`.
+
+```kotlin
+object LessonRegistry {
+    @JvmStatic
+    fun defaultSlug(): String {
+        return "01-introduction"
+    }
+}
+```
+
+## `@JvmField`
+
+Kotlin property обычно видна Java как getter.
+
+```kotlin
+class LessonConfig {
+    val defaultLimit: Int = 20
+}
+```
+
+Java:
+
+```java
+int limit = config.getDefaultLimit();
+```
+
+`@JvmField` expose-ит backing field напрямую.
+
+```kotlin
+class JavaFriendlyConfig {
+    @JvmField
+    val defaultLimit: Int = 20
+}
+```
+
+Java:
+
+```java
+int limit = config.defaultLimit;
+```
+
+Ограничения: property должна иметь backing field, не быть private, open, override, const или delegated.
+
+Для constants обычно лучше `const val`.
+
+```kotlin
+object LessonConstants {
+    const val DEFAULT_LIMIT: Int = 20
+}
+```
+
+Java:
+
+```java
+int limit = LessonConstants.DEFAULT_LIMIT;
+```
+
+## `@JvmOverloads`
+
+Kotlin default parameters из Java не превращаются автоматически в удобные overloads.
+
+```kotlin
+class LessonClient {
+    fun load(slug: String, refresh: Boolean = false, retries: Int = 3): String {
+        return "$slug refresh=$refresh retries=$retries"
+    }
+}
+```
+
+Java без `@JvmOverloads` должна передать все parameters.
+
+```java
+client.load("01-introduction", false, 3);
+```
+
+`@JvmOverloads` генерирует overloads, удаляя parameters с default values справа налево.
+
+```kotlin
+class JavaFriendlyLessonClient {
+    @JvmOverloads
+    fun load(slug: String, refresh: Boolean = false, retries: Int = 3): String {
+        return "$slug refresh=$refresh retries=$retries"
+    }
+}
+```
+
+Java:
+
+```java
+client.load("01-introduction");
+client.load("01-introduction", true);
+client.load("01-introduction", true, 5);
+```
+
+<MouseTrap>
+`@JvmOverloads` может раздуть API большим числом overloads. Используй его на Java-facing methods, а не на каждом Kotlin function с default parameters.
+</MouseTrap>
+
+## `@Throws`
+
+Kotlin не имеет checked exceptions, поэтому Java signature не объявляет `throws` без `@Throws`.
+
+```kotlin
+import java.io.IOException
+
+fun readLesson(): String {
+    throw IOException("Нет файла")
+}
+```
+
+Java не сможет catch `IOException` как declared checked exception.
+
+Добавь `@Throws`.
+
+```kotlin
+@Throws(IOException::class)
+fun readLessonForJava(): String {
+    throw IOException("Нет файла")
+}
+```
+
+Java:
+
+```java
+try {
+    readLessonForJava();
+} catch (IOException exception) {
+    // Java compiler видит checked exception.
+}
+```
+
+## `@JvmSynthetic`
+
+`@JvmSynthetic` скрывает declaration от Java source callers, но оставляет в bytecode.
+
+```kotlin
+class LessonApi {
+    fun load(slug: String): String {
+        return "Урок $slug"
+    }
+
+    @JvmSynthetic
+    fun loadInternal(slug: String, trace: Boolean): String {
+        return "trace=$trace slug=$slug"
+    }
+}
+```
+
+Это полезно, когда Kotlin API имеет helper, который не должен быть частью Java-facing surface.
+
+## `@JvmWildcard` и `@JvmSuppressWildcards`
+
+Kotlin variance превращается в Java wildcards по правилам compiler-а. Иногда Java API становится неудобным.
+
+```kotlin
+interface LessonSink {
+    fun accept(items: List<Lesson>)
+}
+```
+
+Если Java caller жалуется на wildcard shape, можно точечно управлять.
+
+```kotlin
+fun acceptFlexible(items: List<@JvmWildcard Lesson>) {
+    println(items.size)
+}
+
+fun acceptWithoutWildcards(items: List<@JvmSuppressWildcards Lesson>) {
+    println(items.size)
+}
+```
+
+Используй эти annotations только после проверки Java signature, а не заранее.
+
+## Nullability для Java callers
+
+Kotlin non-null types компилируются с metadata и runtime checks, но Java все равно может передать `null`.
+
+```kotlin
+class LessonWriter {
+    fun write(title: String) {
+        // Если Java передаст null, Kotlin сгенерирует runtime-check для public API.
+        println(title.length)
+    }
+}
+```
+
+Для Java users полезно писать clear docs и использовать annotations/IDE metadata. На границе можно добавить defensive checks с доменным сообщением.
+
+```kotlin
+class DefensiveLessonWriter {
+    fun write(title: String) {
+        require(title.isNotBlank()) {
+            "title должен быть непустым"
+        }
+
+        println(title)
+    }
+}
+```
+
+## Java-friendly facade
+
+Иногда лучше создать отдельный Java facade, чем пытаться сделать весь Kotlin DSL Java-friendly.
+
+Kotlin-first API:
+
+```kotlin
+fun lesson(init: LessonBuilder.() -> Unit): Lesson {
+    val builder = LessonBuilder()
+    builder.init()
+    return builder.build()
+}
+```
+
+Java facade:
+
+```kotlin
+class LessonFactories {
+    companion object {
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            slug: String,
+            title: String,
+            minutes: Int = 10
+        ): Lesson {
+            return Lesson(
+                slug = slug,
+                title = title,
+                minutes = minutes
+            )
+        }
+    }
+}
+```
+
+Java:
+
+```java
+Lesson lesson = LessonFactories.create("01-introduction", "Введение");
+```
+
+Так ты сохраняешь idiomatic Kotlin DSL и даешь Java callers простой API.
+
+## Production-пример: библиотечный API
+
+```kotlin
+@file:JvmName("KotlingoLessons")
+
+package com.example.kotlingo
+
+import java.io.IOException
+
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val minutes: Int
+)
+
+class LessonRepository {
+    @Throws(IOException::class)
+    fun load(slug: String): Lesson {
+        if (slug.isBlank()) {
+            throw IOException("Slug пустой")
+        }
+
+        return Lesson(
+            slug = slug,
+            title = "Введение",
+            minutes = 14
+        )
+    }
+}
+
+object LessonUtils {
+    const val DEFAULT_MINUTES: Int = 10
+
+    @JvmStatic
+    @JvmOverloads
+    fun create(
+        slug: String,
+        title: String,
+        minutes: Int = DEFAULT_MINUTES
+    ): Lesson {
+        require(slug.isNotBlank()) {
+            "slug должен быть непустым"
+        }
+
+        return Lesson(
+            slug = slug,
+            title = title,
+            minutes = minutes
+        )
+    }
+}
+
+@JvmName("normalizeLessonSlug")
+fun normalizeSlug(slug: String): String {
+    return slug.trim().lowercase()
+}
+```
+
+Java usage:
+
+```java
+Lesson lesson = LessonUtils.create("01-introduction", "Введение");
+String slug = KotlingoLessons.normalizeLessonSlug(" Intro ");
+```
+
+## Практические правила
+
+Для top-level APIs задай `@file:JvmName`.
+
+```kotlin
+@file:JvmName("LessonUtils")
+```
+
+Для companion/object static-like methods добавляй `@JvmStatic`.
+
+```kotlin
+@JvmStatic
+fun create(): Lesson = Lesson(...)
+```
+
+Для default parameters на Java-facing methods используй `@JvmOverloads` точечно.
+
+```kotlin
+@JvmOverloads
+fun load(slug: String, refresh: Boolean = false)
+```
+
+Для checked exceptions, которые Java должна ловить, используй `@Throws`.
+
+```kotlin
+@Throws(IOException::class)
+fun read(): String
+```
+
+Для Java callers не экспортируй сложный Kotlin DSL как единственный путь. Дай facade.
+
+<CatTip>
+Лучший Kotlin API для Java не обязан выглядеть как Kotlin. Он должен быть предсказуемым для Java-разработчика: static там, где ожидают static, overloads там, где нет default parameters, и checked exceptions там, где Java compiler их требует.
+</CatTip>
+
+

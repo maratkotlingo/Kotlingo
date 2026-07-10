@@ -1,0 +1,452 @@
+---
+title: "Sequences"
+description: "Sequence в Kotlin: lazy evaluation, asSequence, sequenceOf, generateSequence, sequence builder, yield, yieldAll, intermediate и terminal operations, single-use sequences и performance tradeoffs."
+order: 58
+category: "Коллекции"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `Sequence`
+
+`Sequence` — это источник элементов, который производит values во время iteration. В отличие от обычной collection, sequence не обязана хранить все элементы в памяти.
+
+```kotlin
+val words = listOf("кот", "kotlin", "код", "коллекции")
+
+val result = words
+    .asSequence()
+    .filter { word ->
+        // Этот predicate выполнится только после terminal operation.
+        word.length > 3
+    }
+    .map { word ->
+        // Transformation тоже откладывается до запроса результата.
+        word.uppercase()
+    }
+    .toList()
+
+println(result) // [KOTLIN, КОЛЛЕКЦИИ]
+```
+
+Главное отличие: `Iterable` operations чаще eager, а `Sequence` operations lazy where possible.
+
+<CatTip>
+Sequence похожа на ленивого, но организованного кота: он не несет сразу все игрушки, а приносит следующую только тогда, когда ее действительно попросили.
+</CatTip>
+
+## Eager pipeline у `Iterable`
+
+Обычный list pipeline строит intermediate collections между шагами.
+
+```kotlin
+val lengths = words
+    .filter { word ->
+        println("filter: $word")
+        word.length > 3
+    }
+    .map { word ->
+        println("map: $word")
+        word.length
+    }
+    .take(1)
+
+println(lengths)
+```
+
+Для `List` сначала полностью выполнится `filter`, затем полностью `map`, затем `take`.
+
+## Lazy pipeline у `Sequence`
+
+Sequence обрабатывает pipeline element-by-element.
+
+```kotlin
+val lazyLengths = words
+    .asSequence()
+    .filter { word ->
+        println("filter: $word")
+        word.length > 3
+    }
+    .map { word ->
+        println("map: $word")
+        word.length
+    }
+    .take(1)
+    .toList()
+
+println(lazyLengths)
+```
+
+Здесь processing может остановиться после первого подходящего result, потому что `take(1)` ограничивает terminal output.
+
+## Intermediate и terminal operations
+
+Intermediate operation возвращает новую `Sequence` и обычно не запускает вычисления.
+
+```kotlin
+val pipeline = words
+    .asSequence()
+    .filter { word ->
+        // Пока pipeline только объявлен, этот код не выполняется.
+        word.startsWith("к")
+    }
+    .map { word ->
+        word.length
+    }
+```
+
+Terminal operation запрашивает результат и запускает traversal.
+
+```kotlin
+val list = pipeline.toList()
+val count = pipeline.count()
+val first = pipeline.firstOrNull()
+```
+
+Типичные intermediate operations:
+
+- `map`, `mapNotNull`, `flatMap`;
+- `filter`, `filterNot`, `filterIsInstance`, `filterNotNull`;
+- `take`, `drop`, `takeWhile`, `dropWhile`;
+- `distinct`, `sorted`, `sortedBy`;
+- `plus`, `zip`, `windowed`, `chunked` в sequence-ориентированных overloads.
+
+Типичные terminal operations:
+
+- `toList`, `toSet`, `toMap`;
+- `first`, `firstOrNull`, `single`, `singleOrNull`, `last`;
+- `count`, `sum`, `sumOf`, `average`;
+- `fold`, `reduce`, `any`, `all`, `none`;
+- `forEach`, `joinToString`.
+
+<MouseTrap>
+Если ты написал sequence pipeline, но не вызвал terminal operation, вычислений не будет. Такой код часто выглядит «правильным», но ничего не делает.
+</MouseTrap>
+
+## `asSequence`
+
+`asSequence` превращает `Iterable` в sequence.
+
+```kotlin
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val tags: Set<String>,
+    val minutes: Int
+)
+
+fun findShortCollectionLessons(lessons: List<Lesson>): List<Lesson> {
+    return lessons
+        .asSequence()
+        .filter { lesson ->
+            // Фильтруем по тегу.
+            "collections" in lesson.tags
+        }
+        .filter { lesson ->
+            // Ограничиваем длительность.
+            lesson.minutes <= 20
+        }
+        .take(5)
+        .toList()
+}
+```
+
+`asSequence` не копирует list. Он создает sequence-view над source. Если source mutable и меняется до terminal operation, sequence увидит актуальное состояние source.
+
+```kotlin
+val mutable = mutableListOf("a", "bb")
+val pipeline = mutable.asSequence().filter { value -> value.length > 1 }
+
+mutable.add("ccc")
+
+println(pipeline.toList()) // [bb, ccc]
+```
+
+## `sequenceOf`
+
+`sequenceOf` создает sequence из перечисленных elements.
+
+```kotlin
+val fallbackSlugs = sequenceOf(
+    "01-introduction",
+    "02-types",
+    "03-null-safety"
+)
+
+println(fallbackSlugs.first()) // 01-introduction
+```
+
+Это удобно для small hardcoded streams, особенно если дальше pipeline ожидает `Sequence`.
+
+## `generateSequence`
+
+`generateSequence` строит sequence по правилу получения next value.
+
+```kotlin
+val powersOfTwo = generateSequence(1) { previous ->
+    // Следующее значение вычисляется из предыдущего.
+    previous * 2
+}
+
+println(powersOfTwo.take(6).toList()) // [1, 2, 4, 8, 16, 32]
+```
+
+Если генератор возвращает `null`, sequence заканчивается.
+
+```kotlin
+val countdown = generateSequence(5) { previous ->
+    if (previous > 1) {
+        previous - 1
+    } else {
+        null
+    }
+}
+
+println(countdown.toList()) // [5, 4, 3, 2, 1]
+```
+
+Infinite sequences требуют ограничителей вроде `take`, `first`, `any`.
+
+```kotlin
+val firstLargePower = powersOfTwo.first { value ->
+    value > 1_000
+}
+
+println(firstLargePower)
+```
+
+<MouseTrap>
+Не вызывай `count()`, `toList()` или `last()` на бесконечной sequence без ограничителя. Такой код не завершится.
+</MouseTrap>
+
+## `sequence` builder
+
+`sequence { ... }` позволяет писать generator-style код с `yield` и `yieldAll`.
+
+```kotlin
+val lessonStream = sequence {
+    yield("01-introduction")
+    yield("02-types")
+    yieldAll(listOf("03-null-safety", "04-functions"))
+}
+
+println(lessonStream.toList())
+```
+
+`yield` отдает один element consumer-у и приостанавливает builder до следующего запроса.
+
+```kotlin
+fun pages(start: Int, last: Int): Sequence<Int> = sequence {
+    var current = start
+
+    while (current <= last) {
+        // Отдаем текущую страницу и продолжаем только когда consumer попросит следующую.
+        yield(current)
+        current += 1
+    }
+}
+
+println(pages(1, 3).toList()) // [1, 2, 3]
+```
+
+`yieldAll` отдает все elements из `Iterable`, `Iterator` или другой `Sequence`.
+
+```kotlin
+fun moduleSlugs(): Sequence<String> = sequence {
+    yieldAll(listOf("01-introduction", "02-types"))
+    yieldAll(generateSequence(3) { previous ->
+        if (previous < 5) previous + 1 else null
+    }.map { number ->
+        // Превращаем номера в технические slug.
+        "generated-$number"
+    })
+}
+```
+
+`sequence` builder не делает код asynchronous. Это lazy synchronous generator из стандартной библиотеки.
+
+## Stateless и stateful operations
+
+Stateless operation обрабатывает element независимо от остальных.
+
+```kotlin
+val normalized = words
+    .asSequence()
+    .filter { word ->
+        word.isNotBlank()
+    }
+    .map { word ->
+        word.trim().lowercase()
+    }
+```
+
+Stateful operation хранит существенное состояние.
+
+```kotlin
+val uniqueSorted = words
+    .asSequence()
+    .distinct()
+    .sorted()
+    .toList()
+```
+
+`distinct` должен помнить уже встреченные values. `sorted` должен увидеть все values, прежде чем отдать первый sorted result. Поэтому laziness не всегда означает constant memory.
+
+## Sequence не memoized
+
+Обычная sequence не запоминает результаты между iterations.
+
+```kotlin
+val logged = sequenceOf("a", "bb", "ccc").map { value ->
+    println("map: $value")
+    value.length
+}
+
+println(logged.toList())
+println(logged.toList())
+```
+
+`map` выполнится два раза: один раз на каждую terminal operation.
+
+Если результат нужен несколько раз, материализуй его.
+
+```kotlin
+val lengths = logged.toList()
+
+println(lengths.sum())
+println(lengths.max())
+```
+
+Некоторые sequences constrained to one iteration, например построенные из iterator.
+
+```kotlin
+val iterator = listOf("a", "b").iterator()
+val once = iterator.asSequence()
+
+println(once.toList())
+// Повторная итерация такой sequence может быть недопустима.
+```
+
+## Side effects откладываются
+
+Side effects внутри sequence pipeline выполняются только при terminal operation и повторяются при повторной iteration.
+
+```kotlin
+val events = mutableListOf<String>()
+
+val pipeline = words.asSequence().map { word ->
+    events.add("processed:$word")
+    word.uppercase()
+}
+
+println(events) // []
+
+pipeline.toList()
+
+println(events) // [processed:кот, processed:kotlin, processed:код, processed:коллекции]
+```
+
+Лучше не прятать business side effects внутри `map`/`filter`. Для effects используй явный terminal step.
+
+```kotlin
+val emails = users
+    .asSequence()
+    .mapNotNull { user ->
+        // На этом шаге только извлекаем данные.
+        user.email
+    }
+    .toList()
+
+emails.forEach { email ->
+    // Отправка письма вынесена в явный side-effect step.
+    mailer.send(email)
+}
+```
+
+## Performance tradeoffs
+
+Sequence может быть быстрее, когда:
+
+- collection большая;
+- pipeline состоит из нескольких steps;
+- есть early termination через `take`, `first`, `any`, `none`;
+- intermediate collections дороги по памяти;
+- source потенциально infinite.
+
+Sequence может быть медленнее, когда:
+
+- collection маленькая;
+- steps мало;
+- все равно нужен full materialized result;
+- operations stateful, например `sorted`;
+- overhead lambda/iterator важнее экономии allocations.
+
+```kotlin
+fun topValidLessons(lessons: List<Lesson>): List<Lesson> {
+    return lessons
+        .asSequence()
+        .filter { lesson ->
+            lesson.slug.isNotBlank()
+        }
+        .filter { lesson ->
+            lesson.minutes > 0
+        }
+        .take(20)
+        .toList()
+}
+```
+
+Для маленьких списков такой код можно оставить как `List` pipeline, если он читается проще.
+
+## Production-пример: чтение страниц API лениво
+
+```kotlin
+data class Page<T>(
+    val items: List<T>,
+    val nextPageToken: String?
+)
+
+interface LessonApi {
+    fun loadPage(pageToken: String?): Page<String>
+}
+
+fun LessonApi.lessonSlugs(): Sequence<String> = sequence {
+    var token: String? = null
+
+    while (true) {
+        val page = loadPage(token)
+
+        // Отдаем элементы текущей страницы consumer-у.
+        yieldAll(page.items)
+
+        token = page.nextPageToken
+
+        if (token == null) {
+            break
+        }
+    }
+}
+
+fun loadFirstMatching(api: LessonApi): List<String> {
+    return api.lessonSlugs()
+        .filter { slug ->
+            slug.startsWith("collections-")
+        }
+        .take(10)
+        .toList()
+}
+```
+
+Здесь sequence может не загрузить все страницы, если нужные десять elements найдены раньше.
+
+## Практическое правило
+
+Начинай с обычных collection operations. Переходи на sequence, когда видишь длинный pipeline, большие данные, expensive intermediate collections или early termination. После перехода проверь, что terminal operation есть, а side effects не спрятаны в lazy chain.
+
+<CatTip>
+Sequence — не «ускоритель всего», а инструмент управления порядком вычислений. Используй его там, где ленивость действительно меняет стоимость или ясность кода.
+</CatTip>
+
+

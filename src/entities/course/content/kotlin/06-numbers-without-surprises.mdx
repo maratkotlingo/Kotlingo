@@ -1,0 +1,739 @@
+---
+title: "Числа без сюрпризов"
+description: "Учимся работать с числовыми литералами, явными преобразованиями, делением, остатком, переполнением, IEEE 754, NaN, Infinity и битовыми операциями Kotlin."
+order: 6
+category: "Базовый синтаксис"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему числам нужен отдельный урок
+
+Числа выглядят просто, пока код не сталкивается с границами диапазона, делением целых чисел, потерей точности, `NaN`, unsigned-представлением или битовыми масками. Kotlin старается быть явным: он не делает автоматическое расширение `Int` в `Long`, не превращает `Double` в `Int` без твоего решения и не скрывает nullable boxing.
+
+Цель урока — научиться видеть числовую семантику до запуска программы:
+
+- какой тип получит литерал;
+- где нужна явная конверсия;
+- что происходит при делении;
+- когда возможна потеря точности;
+- почему `0.1 + 0.2` может не быть ровно `0.3`;
+- как работают `NaN` и бесконечности;
+- как читать битовые операции.
+
+```kotlin
+fun main() {
+    val completedLessons = 5
+    val totalLessons = 8
+
+    val percent = completedLessons.toDouble() / totalLessons.toDouble() * 100.0
+
+    println("Прогресс: $percent%")
+}
+```
+
+Если убрать `toDouble()`, получится целочисленное деление и результат будет другим. Это типичный источник багов.
+
+## Числовые литералы
+
+Литерал — значение, написанное прямо в коде.
+
+```kotlin
+fun main() {
+    val decimal = 42
+    val longValue = 42L
+    val doubleValue = 42.0
+    val floatValue = 42.0f
+    val hex = 0x2A
+    val binary = 0b101010
+
+    println(decimal)
+    println(longValue)
+    println(doubleValue)
+    println(floatValue)
+    println(hex)
+    println(binary)
+}
+```
+
+Kotlin поддерживает:
+
+- десятичные целые литералы: `42`;
+- long-литералы с `L`: `42L`;
+- дробные литералы: `42.0`;
+- float-литералы с `f` или `F`: `42.0f`;
+- hexadecimal literals: `0x2A`;
+- binary literals: `0b101010`;
+- unsigned literals с `u`, `U`, `uL`, `UL`.
+
+Kotlin не поддерживает octal literals в стиле `0123`. Это хорошо: ведущий ноль в числах часто приводит к путанице.
+
+## Подчеркивания в числах
+
+Underscore можно использовать для группировки разрядов:
+
+```kotlin
+fun main() {
+    val million = 1_000_000
+    val fileSize = 10_485_760L
+    val binaryMask = 0b1111_0000
+    val hexColor = 0xFF_AA_00
+
+    println(million)
+    println(fileSize)
+    println(binaryMask)
+    println(hexColor)
+}
+```
+
+Подчеркивание не меняет значение. Оно только улучшает читаемость.
+
+Хорошие случаи:
+
+- большие десятичные числа;
+- binary masks;
+- hex colors;
+- timestamps;
+- размеры в байтах;
+- технические идентификаторы.
+
+Плохие случаи:
+
+```kotlin
+fun main() {
+    // Слишком дробная группировка ухудшает чтение.
+    val noisy = 1_0_0_0_0_0
+
+    println(noisy)
+}
+```
+
+## Тип литерала и ожидаемый тип
+
+Если ожидаемый тип указан, компилятор учитывает его:
+
+```kotlin
+fun main() {
+    val byteValue: Byte = 12
+    val shortValue: Short = 300
+    val intValue: Int = 42
+    val longValue: Long = 42
+
+    println(byteValue)
+    println(shortValue)
+    println(intValue)
+    println(longValue)
+}
+```
+
+Литерал `42` может быть использован как `Long`, потому что он известен на этапе компиляции и помещается в диапазон. Но переменная `Int` не передается туда, где нужен `Long`, без явного преобразования.
+
+```kotlin
+fun printLong(value: Long) {
+    println(value)
+}
+
+fun main() {
+    val value = 42
+
+    // Нужно явно показать намерение.
+    printLong(value.toLong())
+}
+```
+
+<MouseTrap title="Мышеловка: литерал и переменная ведут себя не одинаково">
+`val x: Long = 42` компилируется, потому что `42` — compile-time constant. Но `val i = 42; val x: Long = i` не компилируется без `i.toLong()`. Kotlin избегает неявных числовых преобразований между переменными.
+</MouseTrap>
+
+## Суффиксы
+
+### `L` для `Long`
+
+```kotlin
+fun main() {
+    val id = 9_000_000_000L
+
+    println(id)
+}
+```
+
+Лучше писать большую букву `L`, а не маленькую `l`, потому что маленькая похожа на `1`.
+
+### `f` или `F` для `Float`
+
+```kotlin
+fun main() {
+    val opacity = 0.85f
+
+    println(opacity)
+}
+```
+
+Без `f` дробный литерал обычно будет `Double`.
+
+### `u`, `U`, `uL`, `UL` для unsigned
+
+```kotlin
+fun main() {
+    val mask: UInt = 0b1111_0000u
+    val counter: ULong = 1_000_000uL
+
+    println(mask)
+    println(counter)
+}
+```
+
+Unsigned-литералы нужно использовать осознанно: они помогают в низкоуровневых задачах, но усложняют interop с обычными числовыми API.
+
+## Явные преобразования
+
+Kotlin требует явно вызывать conversion-функции.
+
+Основные преобразования:
+
+- `toByte()`;
+- `toShort()`;
+- `toInt()`;
+- `toLong()`;
+- `toFloat()`;
+- `toDouble()`;
+- `toChar()`;
+- `toUByte()`;
+- `toUShort()`;
+- `toUInt()`;
+- `toULong()`.
+
+```kotlin
+fun main() {
+    val lessonCount = 8
+    val lessonCountAsLong = lessonCount.toLong()
+    val lessonCountAsDouble = lessonCount.toDouble()
+    val lessonCountAsUInt = lessonCount.toUInt()
+
+    println(lessonCountAsLong)
+    println(lessonCountAsDouble)
+    println(lessonCountAsUInt)
+}
+```
+
+Преобразование может потерять информацию:
+
+```kotlin
+fun main() {
+    val largeValue = 300
+    val byteValue = largeValue.toByte()
+
+    println(byteValue)
+}
+```
+
+`Byte` не может хранить `300`, поэтому результат будет не `300`. Это не bug компилятора, а последствие сужения диапазона.
+
+Безопасный подход — проверять диапазон:
+
+```kotlin
+fun Int.toByteOrNull(): Byte? {
+    if (this !in Byte.MIN_VALUE..Byte.MAX_VALUE) {
+        return null
+    }
+
+    return toByte()
+}
+
+fun main() {
+    val rawValue = 300
+    val byteValue = rawValue.toByteOrNull()
+
+    if (byteValue == null) {
+        println("Значение $rawValue не помещается в Byte")
+        return
+    }
+
+    println(byteValue)
+}
+```
+
+## Преобразование строк в числа
+
+Строки часто приходят из CLI, форм, файлов и сетевых запросов.
+
+Опасные функции бросают исключение:
+
+- `toInt()`;
+- `toLong()`;
+- `toDouble()`;
+- `toUInt()`.
+
+Безопасные варианты возвращают `null`:
+
+- `toIntOrNull()`;
+- `toLongOrNull()`;
+- `toDoubleOrNull()`;
+- `toUIntOrNull()`.
+
+```kotlin
+fun parsePositiveMinutes(rawValue: String): Int? {
+    val minutes = rawValue.trim().toIntOrNull()
+
+    if (minutes == null) {
+        return null
+    }
+
+    if (minutes <= 0) {
+        return null
+    }
+
+    return minutes
+}
+
+fun main() {
+    val input = " 45 "
+    val minutes = parsePositiveMinutes(input)
+
+    println(minutes ?: "Некорректная длительность")
+}
+```
+
+## Целочисленное деление
+
+Если оба операнда целые, результат деления тоже целый:
+
+```kotlin
+fun main() {
+    val completed = 5
+    val total = 8
+
+    val ratio = completed / total
+
+    println(ratio)
+}
+```
+
+Результат будет `0`, потому что дробная часть отбрасывается.
+
+Правильно для процента:
+
+```kotlin
+fun main() {
+    val completed = 5
+    val total = 8
+
+    val ratio = completed.toDouble() / total.toDouble()
+    val percent = ratio * 100.0
+
+    println(percent)
+}
+```
+
+Проверяй деление на ноль:
+
+```kotlin
+fun completionPercent(completed: Int, total: Int): Double {
+    require(completed >= 0) {
+        "Количество пройденных уроков не может быть отрицательным"
+    }
+
+    require(total > 0) {
+        "Общее количество уроков должно быть положительным"
+    }
+
+    require(completed <= total) {
+        "Пройденных уроков не может быть больше общего количества"
+    }
+
+    return completed.toDouble() / total.toDouble() * 100.0
+}
+
+fun main() {
+    println(completionPercent(completed = 5, total = 8))
+}
+```
+
+## Остаток от деления
+
+Оператор `%` возвращает remainder, то есть остаток после деления.
+
+```kotlin
+fun main() {
+    val lessonNumber = 7
+    val isOdd = lessonNumber % 2 != 0
+
+    println("Нечетный номер: $isOdd")
+}
+```
+
+С отрицательными числами знак результата следует делимому:
+
+```kotlin
+fun main() {
+    println(7 % 3)
+    println(-7 % 3)
+    println(7 % -3)
+}
+```
+
+Для циклических индексов лучше явно нормализовать:
+
+```kotlin
+fun normalizedIndex(index: Int, size: Int): Int {
+    require(size > 0) {
+        "Размер должен быть положительным"
+    }
+
+    return ((index % size) + size) % size
+}
+
+fun main() {
+    println(normalizedIndex(index = -1, size = 3))
+    println(normalizedIndex(index = 4, size = 3))
+}
+```
+
+## Переполнение
+
+Целые типы имеют фиксированный диапазон. При арифметике может произойти overflow.
+
+```kotlin
+fun main() {
+    val max = Int.MAX_VALUE
+    val overflowed = max + 1
+
+    println(max)
+    println(overflowed)
+}
+```
+
+На JVM обычное целочисленное переполнение не бросает исключение. Значение "переворачивается" по правилам двоичного представления.
+
+Для критичных расчетов используй проверки:
+
+```kotlin
+fun addLessonMinutesSafely(current: Int, added: Int): Int {
+    require(current >= 0) {
+        "Текущая длительность не может быть отрицательной"
+    }
+
+    require(added >= 0) {
+        "Добавляемая длительность не может быть отрицательной"
+    }
+
+    require(current <= Int.MAX_VALUE - added) {
+        "Сумма длительностей не помещается в Int"
+    }
+
+    return current + added
+}
+
+fun main() {
+    println(addLessonMinutesSafely(current = 120, added = 45))
+}
+```
+
+Для больших точных целых значений на JVM можно использовать `java.math.BigInteger`.
+
+## IEEE 754, `NaN` и бесконечности
+
+`Float` и `Double` следуют floating-point модели IEEE 754. Это дает специальные значения:
+
+- `NaN` — not a number;
+- `POSITIVE_INFINITY`;
+- `NEGATIVE_INFINITY`;
+- positive zero;
+- negative zero.
+
+```kotlin
+fun main() {
+    val positiveInfinity = 1.0 / 0.0
+    val negativeInfinity = -1.0 / 0.0
+    val notNumber = 0.0 / 0.0
+
+    println(positiveInfinity)
+    println(negativeInfinity)
+    println(notNumber)
+    println(notNumber.isNaN())
+}
+```
+
+`NaN` не равен даже самому себе при floating-point сравнении:
+
+```kotlin
+fun main() {
+    val value = Double.NaN
+
+    println(value == value)
+    println(value.isNaN())
+}
+```
+
+Для проверки используй `isNaN()`, а не `== Double.NaN`.
+
+Бесконечности проверяются так:
+
+```kotlin
+fun main() {
+    val value = Double.POSITIVE_INFINITY
+
+    println(value.isInfinite())
+    println(value.isFinite())
+}
+```
+
+## Сравнение дробных чисел
+
+Floating-point числа часто нельзя сравнивать на точное равенство после вычислений:
+
+```kotlin
+fun main() {
+    val value = 0.1 + 0.2
+
+    println(value)
+    println(value == 0.3)
+}
+```
+
+Обычно сравнивают с tolerance:
+
+```kotlin
+import kotlin.math.abs
+
+fun almostEquals(left: Double, right: Double, tolerance: Double = 0.000_001): Boolean {
+    require(tolerance >= 0.0) {
+        "Допуск не может быть отрицательным"
+    }
+
+    return abs(left - right) <= tolerance
+}
+
+fun main() {
+    val value = 0.1 + 0.2
+
+    println(almostEquals(value, 0.3))
+}
+```
+
+Для денег и юридически значимых расчетов tolerance может быть неправильной моделью. Там нужны десятичные типы и явные правила округления.
+
+## Округление
+
+Из `kotlin.math` часто используют:
+
+- `round(value)`;
+- `roundToInt()`;
+- `roundToLong()`;
+- `floor(value)`;
+- `ceil(value)`;
+- `truncate(value)`;
+- `abs(value)`;
+- `min(a, b)`;
+- `max(a, b)`.
+
+```kotlin
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.roundToInt
+
+fun main() {
+    val average = 42.6
+
+    println(floor(average))
+    println(ceil(average))
+    println(average.roundToInt())
+}
+```
+
+Когда округление влияет на пользователя, правило должно быть частью доменной логики, а не случайной функцией в конце вычисления.
+
+## Ограничение диапазона
+
+`coerceAtLeast`, `coerceAtMost` и `coerceIn` помогают ограничивать значение.
+
+```kotlin
+fun normalizePercent(rawPercent: Int): Int {
+    return rawPercent.coerceIn(0, 100)
+}
+
+fun main() {
+    println(normalizePercent(-10))
+    println(normalizePercent(55))
+    println(normalizePercent(130))
+}
+```
+
+Методы:
+
+- `coerceAtLeast(minimumValue)` возвращает не меньше минимума;
+- `coerceAtMost(maximumValue)` возвращает не больше максимума;
+- `coerceIn(minimumValue, maximumValue)` зажимает значение в диапазон.
+
+## Битовые операции
+
+В Kotlin битовые операции для целых чисел выглядят как функции, а не как операторы `<<` и `&`.
+
+Основные операции:
+
+- `shl(bitCount)` — signed shift left;
+- `shr(bitCount)` — signed shift right;
+- `ushr(bitCount)` — unsigned shift right;
+- `and(other)` — bitwise and;
+- `or(other)` — bitwise or;
+- `xor(other)` — bitwise xor;
+- `inv()` — bitwise inversion.
+
+```kotlin
+fun main() {
+    val readPermission = 0b0001
+    val writePermission = 0b0010
+    val executePermission = 0b0100
+
+    val userPermissions = readPermission or writePermission
+
+    val canRead = userPermissions and readPermission != 0
+    val canWrite = userPermissions and writePermission != 0
+    val canExecute = userPermissions and executePermission != 0
+
+    println("Чтение: $canRead")
+    println("Запись: $canWrite")
+    println("Выполнение: $canExecute")
+}
+```
+
+Для читаемости можно оформить флаги:
+
+```kotlin
+object LessonPermission {
+    const val READ = 1 shl 0
+    const val WRITE = 1 shl 1
+    const val REVIEW = 1 shl 2
+}
+
+fun hasPermission(mask: Int, permission: Int): Boolean {
+    return mask and permission != 0
+}
+
+fun main() {
+    val mentorMask = LessonPermission.READ or LessonPermission.REVIEW
+
+    println(hasPermission(mentorMask, LessonPermission.READ))
+    println(hasPermission(mentorMask, LessonPermission.WRITE))
+    println(hasPermission(mentorMask, LessonPermission.REVIEW))
+}
+```
+
+`shl` часто используется для создания флага в определенной позиции. `1 shl 2` означает число, у которого установлен третий бит, если считать с нуля.
+
+<CatTip title="Кошачий фонарик для битов">
+Битовые маски хороши для низкоуровневых флагов, compact storage и protocol flags. Для обычных доменных состояний чаще понятнее `enum class`, `sealed interface` или набор явных `Boolean`-полей.
+</CatTip>
+
+## Практический пример: безопасная статистика уроков
+
+```kotlin
+import kotlin.math.roundToInt
+
+data class LessonResult(
+    val title: String,
+    val earnedPoints: Int,
+    val maxPoints: Int,
+    val spentMinutes: Int
+)
+
+data class LessonStatistics(
+    val title: String,
+    val percent: Int,
+    val minutes: Int,
+    val passed: Boolean
+)
+
+fun calculateStatistics(result: LessonResult): LessonStatistics {
+    require(result.title.isNotBlank()) {
+        "Название урока не должно быть пустым"
+    }
+
+    require(result.earnedPoints >= 0) {
+        "Набранные баллы не могут быть отрицательными"
+    }
+
+    require(result.maxPoints > 0) {
+        "Максимальный балл должен быть положительным"
+    }
+
+    require(result.earnedPoints <= result.maxPoints) {
+        "Набранные баллы не могут превышать максимум"
+    }
+
+    require(result.spentMinutes >= 0) {
+        "Потраченное время не может быть отрицательным"
+    }
+
+    val ratio = result.earnedPoints.toDouble() / result.maxPoints.toDouble()
+    val percent = (ratio * 100.0)
+        .roundToInt()
+        .coerceIn(0, 100)
+
+    return LessonStatistics(
+        title = result.title.trim(),
+        percent = percent,
+        minutes = result.spentMinutes,
+        passed = percent >= 70
+    )
+}
+
+fun formatStatistics(statistics: LessonStatistics): String {
+    val status = if (statistics.passed) {
+        "зачет"
+    } else {
+        "повторить"
+    }
+
+    return "${statistics.title}: ${statistics.percent}%, ${statistics.minutes} мин., $status"
+}
+
+fun main() {
+    val results = listOf(
+        LessonResult(
+            title = "Числа без сюрпризов",
+            earnedPoints = 87,
+            maxPoints = 100,
+            spentMinutes = 64
+        ),
+        LessonResult(
+            title = "Битовые операции",
+            earnedPoints = 18,
+            maxPoints = 30,
+            spentMinutes = 24
+        )
+    )
+
+    results
+        .map { result -> calculateStatistics(result) }
+        .forEach { statistics -> println(formatStatistics(statistics)) }
+}
+```
+
+Что здесь важно:
+
+- `maxPoints > 0` защищает от деления на ноль;
+- `toDouble()` предотвращает целочисленное деление;
+- `roundToInt()` явно задает правило округления;
+- `coerceIn(0, 100)` фиксирует внешний диапазон;
+- `require` превращает скрытые ошибки данных в раннюю диагностику;
+- `passed` хранится как `Boolean`, потому что это логическое состояние.
+
+## Итоги
+
+После этого урока у тебя должна быть числовая дисциплина:
+
+- выбирай `Int` по умолчанию для обычных целых чисел;
+- выбирай `Long`, когда диапазона `Int` недостаточно;
+- используй unsigned-типы только при настоящей unsigned-семантике;
+- помни, что Kotlin требует явные преобразования между числовыми типами;
+- перед делением целых чисел решай, нужен ли `Double`;
+- проверяй деление на ноль и доменные границы;
+- не игнорируй overflow в критичных вычислениях;
+- сравнивай floating-point результаты через tolerance, если это математически допустимо;
+- проверяй `NaN` через `isNaN()`;
+- используй `coerceIn` для видимых процентов, прогресса и UI-диапазонов;
+- применяй битовые операции там, где они действительно выражают флаги или низкоуровневые данные.
+

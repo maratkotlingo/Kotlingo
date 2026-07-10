@@ -1,0 +1,440 @@
+---
+title: "Packages, Modules and Binary Compatibility"
+description: "Пакеты, модули и совместимость Kotlin API: package/import, Kotlin module, internal, public API, ABI, source/binary/behavioral compatibility, @PublishedApi, inline public API risks и эволюция библиотек."
+order: 75
+category: "Java и JVM interoperability"
+difficulty: "Эксперт"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Package организует имена
+
+Package — это namespace для Kotlin declarations. Он не обязан совпадать с директориями физически, но в реальных проектах директории обычно повторяют package, чтобы код было проще искать.
+
+```kotlin
+package com.kotlingo.lessons
+
+class Lesson(
+    val slug: String,
+    val title: String
+)
+
+fun normalizeSlug(slug: String): String {
+    return slug.trim().lowercase()
+}
+```
+
+Другой файл использует import:
+
+```kotlin
+package com.kotlingo.app
+
+import com.kotlingo.lessons.Lesson
+import com.kotlingo.lessons.normalizeSlug
+
+fun main() {
+    val lesson = Lesson(
+        slug = normalizeSlug("  01-Introduction  "),
+        title = "Введение"
+    )
+
+    println(lesson)
+}
+```
+
+<CatTip>
+Package — это кошачья полка для имен. Если положить всё в одну коробку, быстро станет непонятно, где искать нужную игрушку.
+</CatTip>
+
+## Imports и конфликт имен
+
+Можно импортировать конкретное имя.
+
+```kotlin
+import com.kotlingo.lessons.Lesson
+```
+
+Можно импортировать все declarations package через star import.
+
+```kotlin
+import com.kotlingo.lessons.*
+```
+
+Для публичного API библиотек explicit imports обычно предпочтительнее: они читаются точнее и уменьшают риск случайного конфликта.
+
+Если два declarations имеют одинаковое short name, используй alias.
+
+```kotlin
+import com.kotlingo.lessons.Lesson as CourseLesson
+import com.kotlingo.search.Lesson as SearchLesson
+
+fun render(courseLesson: CourseLesson, searchLesson: SearchLesson) {
+    println(courseLesson.title)
+    println(searchLesson.toString())
+}
+```
+
+Alias полезен на границах модулей, где одинаковые доменные слова встречаются в разных contexts.
+
+## Kotlin module
+
+Kotlin module — это набор Kotlin files, которые компилируются вместе. В обычной разработке module часто соответствует:
+
+- Gradle source set;
+- Maven project;
+- IntelliJ IDEA module;
+- compilation unit в multiplatform project.
+
+Это важно для `internal`.
+
+```kotlin
+internal class LessonDraftStore {
+    fun saveDraft(slug: String) {
+        println("Сохраняем черновик $slug")
+    }
+}
+```
+
+`internal` виден в пределах того же module, но не должен быть частью public API для внешних consumers.
+
+Особенность тестов: в Gradle test source set обычно может видеть `internal` declarations main source set. Это удобно для тестирования без раскрытия API наружу.
+
+## Visibility и API surface
+
+Top-level declarations:
+
+```kotlin
+package com.kotlingo.api
+
+private fun localNormalize(value: String): String {
+    // Видно только внутри этого файла.
+    return value.trim()
+}
+
+internal fun normalizeForModule(value: String): String {
+    // Видно внутри module.
+    return localNormalize(value).lowercase()
+}
+
+public fun normalizeForUsers(value: String): String {
+    // public можно не писать явно, потому что это default.
+    return normalizeForModule(value)
+}
+```
+
+Class members:
+
+```kotlin
+open class LessonService {
+    private fun validateInternal(slug: String) {
+        require(slug.isNotBlank()) {
+            "Slug не должен быть пустым"
+        }
+    }
+
+    protected open fun beforePublish(slug: String) {
+        // Видно subclasses.
+        println("Готовим публикацию $slug")
+    }
+
+    internal fun recalculateIndex() {
+        // Видно внутри module.
+        println("Перестраиваем индекс")
+    }
+
+    fun publish(slug: String) {
+        validateInternal(slug)
+        beforePublish(slug)
+    }
+}
+```
+
+Чем меньше public surface, тем проще поддерживать совместимость.
+
+## Что такое API и ABI
+
+Public API — то, что может использовать consumer source code: public classes, functions, properties, constructors, annotations, typealiases, signatures, documented behavior.
+
+ABI, application binary interface, — binary-level shape compiled artifacts: method descriptors, class names, field names, constructors, generic signatures, metadata. На JVM это то, против чего уже скомпилированный client code вызывает library bytecode.
+
+Совместимость бывает разной:
+
+- binary compatibility: старый compiled client продолжает работать с новой library без recompilation;
+- source compatibility: source client компилируется с новой library без правок;
+- behavioral compatibility: behavior не меняется неожиданно для существующих scenarios.
+
+```kotlin
+// Version 1
+fun lessonCount(): Number {
+    return 42
+}
+
+// Version 2
+fun lessonCount(): Int {
+    return 42
+}
+```
+
+Source может продолжить компилироваться, но JVM binary signature изменилась с return type `Number` на `Int`. Уже compiled client может получить `NoSuchMethodError`.
+
+<MouseTrap>
+Совместимость — это не только «код компилируется у меня». Для библиотек важно, продолжит ли работать код пользователя, который уже был скомпилирован против старой версии.
+</MouseTrap>
+
+## Явные return types в public API
+
+Не полагайся на inferred return type в public API.
+
+```kotlin
+// Плохо для published API: return type выводится из implementation.
+fun defaultLessons() = listOf("intro", "types")
+```
+
+Если implementation изменится, inferred type может стать другим и сломать ABI.
+
+```kotlin
+// Лучше: public contract закреплен явно.
+fun defaultLessons(): List<String> {
+    return listOf("intro", "types")
+}
+```
+
+Для properties тоже лучше явно писать type.
+
+```kotlin
+val defaultLessonLimit: Int = 20
+```
+
+Explicit API mode в library projects помогает compiler-ом требовать explicit visibility и types.
+
+## ABI-sensitive changes
+
+Добавление non-default parameter ломает source и binary compatibility.
+
+```kotlin
+// Version 1
+fun loadLesson(slug: String): Lesson
+
+// Version 2
+fun loadLesson(slug: String, refresh: Boolean): Lesson
+```
+
+Добавление parameter с default value сохраняет source compatibility после recompilation, но на JVM может ломать binary compatibility для already compiled callers.
+
+```kotlin
+// Version 2
+fun loadLesson(slug: String, refresh: Boolean = false): Lesson
+```
+
+Без сохранения старой overload old bytecode пытается вызвать method с прежней signature.
+
+Безопаснее добавить overload.
+
+```kotlin
+fun loadLesson(slug: String): Lesson {
+    return loadLesson(slug, refresh = false)
+}
+
+fun loadLesson(slug: String, refresh: Boolean): Lesson {
+    return Lesson(slug = slug, title = "Введение")
+}
+```
+
+Другие risky changes:
+
+- изменить package или class name;
+- удалить public declaration;
+- изменить return type;
+- изменить type parameter bounds;
+- изменить property на function или наоборот;
+- изменить primary constructor public class;
+- добавить abstract member в public interface/class;
+- изменить targets published annotation;
+- изменить order constructor properties data class, если users destructuring-ят values.
+
+## Data classes в public API
+
+Data class удобен внутри приложения, но рискован в published library API.
+
+```kotlin
+data class User(
+    val name: String,
+    val email: String
+)
+```
+
+Если добавить property, меняются constructor, `copy`, `componentN`.
+
+```kotlin
+data class User(
+    val name: String,
+    val email: String,
+    val active: Boolean = true
+)
+```
+
+Это может сломать binary compatibility. Для library API иногда лучше обычный class с carefully designed constructors и methods.
+
+```kotlin
+class PublicUser(
+    val name: String,
+    val email: String
+) {
+    fun withEmail(newEmail: String): PublicUser {
+        return PublicUser(name = name, email = newEmail)
+    }
+}
+```
+
+## `internal` не значит secret binary API
+
+На JVM `internal` скрывается на уровне Kotlin visibility, но bytecode все равно должен иметь JVM representation. Не рассматривай `internal` как security boundary.
+
+```kotlin
+internal fun rebuildIndex() {
+    println("Перестраиваем индекс")
+}
+```
+
+Java/reflection/bytecode tools могут увидеть больше, чем Kotlin source code. `internal` — инструмент modular API design, а не механизм защиты.
+
+## `@PublishedApi`
+
+Public inline function не может обращаться к non-public declarations, потому что ее body встраивается в client module. Если inline body ссылается на `internal` declaration, этот declaration фактически становится частью compiled client expectations.
+
+```kotlin
+@PublishedApi
+internal fun normalizeSlugPublished(slug: String): String {
+    return slug.trim().lowercase()
+}
+
+public inline fun <T> withNormalizedSlug(
+    slug: String,
+    block: (String) -> T
+): T {
+    val normalized = normalizeSlugPublished(slug)
+
+    return block(normalized)
+}
+```
+
+`@PublishedApi` делает internal declaration usable from public inline API. Но с точки зрения совместимости его нужно вести почти как public API: не удалять и не менять signature без migration strategy.
+
+<MouseTrap>
+`@PublishedApi` не прячет риск, а честно переносит internal helper в ABI-facing зону. После публикации относись к нему осторожно.
+</MouseTrap>
+
+## Inline public API risks
+
+Inline functions копируются в call site compiled clients.
+
+```kotlin
+public inline fun requireValidSlug(slug: String) {
+    require(slug.matches(Regex("""[a-z0-9]+(?:-[a-z0-9]+)*"""))) {
+        "Некорректный slug"
+    }
+}
+```
+
+Если library обновит body, old compiled clients продолжат использовать старый inlined body, пока их не перекомпилируют.
+
+Это может ломать behavioral expectations. Inline public API должен быть маленьким, стабильным и хорошо документированным.
+
+## Deprecation cycle
+
+Удаление public API лучше делать через deprecation cycle.
+
+```kotlin
+@Deprecated(
+    message = "Используй loadLessonBySlug",
+    replaceWith = ReplaceWith("loadLessonBySlug(slug)")
+)
+fun loadLesson(slug: String): Lesson {
+    return loadLessonBySlug(slug)
+}
+
+fun loadLessonBySlug(slug: String): Lesson {
+    return Lesson(slug = slug, title = "Введение")
+}
+```
+
+Потом можно повысить уровень:
+
+```kotlin
+@Deprecated(
+    message = "Метод будет удален в следующей major версии",
+    replaceWith = ReplaceWith("loadLessonBySlug(slug)"),
+    level = DeprecationLevel.ERROR
+)
+fun oldLoadLesson(slug: String): Lesson {
+    return loadLessonBySlug(slug)
+}
+```
+
+Только после migration window declaration удаляют.
+
+## Binary compatibility validator
+
+Для библиотек полезно автоматически проверять API changes. JetBrains поддерживает Binary compatibility validation в Kotlin Gradle plugin и отдельные validator workflows.
+
+Идея процесса:
+
+- `apiDump` сохраняет text representation public ABI;
+- `apiCheck` сравнивает текущую сборку с сохраненным ABI;
+- build падает при несовместимом change;
+- разработчик явно принимает breaking change или правит API.
+
+```kotlin
+plugins {
+    kotlin("jvm") version "2.4.0"
+}
+
+kotlin {
+    explicitApi()
+}
+```
+
+`explicitApi()` не заменяет binary validator, но заставляет аккуратнее оформлять public declarations.
+
+## Production checklist для library API
+
+```kotlin
+package com.kotlingo.publicapi
+
+public class LessonClient(
+    private val transport: LessonTransport
+) {
+    public fun loadLesson(slug: String): LessonDto {
+        return transport.load(slug)
+    }
+}
+
+public interface LessonTransport {
+    public fun load(slug: String): LessonDto
+}
+
+public class LessonDto(
+    public val slug: String,
+    public val title: String
+)
+```
+
+Практические правила:
+
+- явно указывай `public` и types в published APIs;
+- не раскрывай data classes без понимания generated members;
+- не меняй signatures без migration plan;
+- для новых optional parameters добавляй overloads;
+- не используй `internal` helper в public inline без `@PublishedApi`;
+- считай `@PublishedApi` фактически published;
+- документируй behavioral contract;
+- используй deprecation cycle;
+- подключай ABI checks для библиотек.
+
+<CatTip>
+Библиотечный API — это обещание. Чем шире аудитория, тем аккуратнее нужно двигать миски: даже маленький сдвиг может перевернуть чей-то уже собранный проект.
+</CatTip>
+
+

@@ -1,0 +1,500 @@
+---
+title: "Any, Unit и Nothing"
+description: "Подробно разбираем верхние и нижние типы Kotlin, отсутствие полезного результата, never-returning функции и влияние Nothing на вывод типов."
+order: 15
+category: "Null-safety"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны специальные типы
+
+`Any`, `Unit` и `Nothing` описывают не предметную область, а границы типовой системы Kotlin:
+
+- `Any` — общий предок всех **non-null** типов;
+- `Any?` — общий надтип вообще для любого Kotlin-значения, включая `null`;
+- `Unit` — тип результата операции, которая успешно завершилась, но не возвращает полезных данных;
+- `Nothing` — нижний тип: у него нет ни одного значения, поэтому функция с таким результатом никогда не завершается обычным `return`;
+- `Nothing?` — тип, единственным возможным значением которого является `null`.
+
+Эти типы участвуют в перегрузке, generic-коде, выводе общего типа веток `if` и `when`, моделировании ошибок и проектировании API.
+
+## `Any`: корень non-null иерархии
+
+Каждый non-null тип Kotlin является подтипом `Any`. Это относится к классам, интерфейсам, enum-классам, object-объектам, функциям и встроенным типам вроде `Int`.
+
+```kotlin
+fun describe(value: Any): String {
+    return "${value::class.simpleName}: $value"
+}
+
+fun main() {
+    println(describe(42))
+    println(describe("котлин"))
+    println(describe(listOf(1, 2, 3)))
+}
+```
+
+`Int` на JVM может быть представлен примитивом `int`, но на уровне типовой системы Kotlin он всё равно имеет общий контракт `Any`. Представление в байткоде и отношения между типами — разные вопросы.
+
+### Методы `Any`
+
+`Any` объявляет три метода, доступных каждому non-null значению:
+
+- `equals(other: Any?): Boolean` определяет логическое равенство;
+- `hashCode(): Int` возвращает хеш-код, согласованный с `equals`;
+- `toString(): String` создаёт текстовое представление объекта.
+
+```kotlin
+data class LessonId(val value: String)
+
+fun inspect(first: Any, second: Any) {
+    println("Равны: ${first == second}")
+    println("Хеш первого: ${first.hashCode()}")
+    println("Текст первого: $first")
+}
+
+fun main() {
+    inspect(LessonId("types"), LessonId("types"))
+}
+```
+
+Оператор `==` вызывает безопасную форму `equals`: выражение `a == b` компилируется по смыслу как `a?.equals(b) ?: (b == null)`. Оператор `===` сравнивает идентичность ссылок и не является методом `Any`.
+
+<CatTip title="Котосовет: принимай Any только при реальной неоднородности">
+`Any` уместен для логирования, сериализации, диагностических payload и API, которые действительно принимают значения разных типов. В предметной логике точный интерфейс или sealed-иерархия сохраняют больше гарантий и уменьшают количество проверок `is`.
+</CatTip>
+
+## `Any` и `Any?`
+
+Переменная типа `Any` не может содержать `null`. Для произвольного значения, которое может отсутствовать, нужен `Any?`.
+
+```kotlin
+fun renderPayload(payload: Any?): String {
+    return when (payload) {
+        null -> "данные отсутствуют"
+        is String -> "строка длиной ${payload.length}"
+        is Number -> "число $payload"
+        else -> "${payload::class.simpleName}: $payload"
+    }
+}
+```
+
+После ветки `null` остальные ветки работают с non-null значением. `Any?` не предоставляет прямого доступа к методам `Any`, пока nullability не обработана:
+
+```kotlin
+fun safeText(value: Any?): String {
+    return value?.toString() ?: "null"
+}
+```
+
+### Приведение из `Any`
+
+`Any` не стирает реальный runtime-тип объекта, но статически скрывает его специализированный API.
+
+```kotlin
+fun normalize(value: Any): String {
+    return when (value) {
+        is String -> value.trim()
+        is Int -> value.toString()
+        is Iterable<*> -> value.joinToString()
+        else -> value.toString()
+    }
+}
+```
+
+`Iterable<*>` использует star projection, потому что проверить аргумент generic-типа во время выполнения обычно нельзя.
+
+<MouseTrap title="Мышеловка: Any не равен Object во всех деталях">
+На JVM `Any` обычно отображается на `java.lang.Object`, но Kotlin добавляет собственную nullability и правила отображения платформенных типов. В общем Kotlin-коде ориентируйся на контракт `Any`, а не на детали JVM-класса `Object`.
+</MouseTrap>
+
+## Общий тип разных выражений
+
+Когда ветки возвращают разные типы, компилятор ищет их ближайший общий надтип — least upper bound, или LUB.
+
+```kotlin
+fun valueFor(preview: Boolean) = if (preview) {
+    "Предпросмотр"
+} else {
+    200
+}
+```
+
+У результата будет общий тип, достаточный для `String` и `Int`; часто это `Any`, но компилятор может вывести более точное пересечение доступных контрактов. Для публичного API лучше не оставлять такой контракт неявным:
+
+```kotlin
+sealed interface LoadResult {
+    data class Preview(val text: String) : LoadResult
+    data class Status(val code: Int) : LoadResult
+}
+
+fun loadResult(preview: Boolean): LoadResult =
+    if (preview) LoadResult.Preview("Предпросмотр")
+    else LoadResult.Status(200)
+```
+
+Sealed-тип документирует варианты и позволяет исчерпывающий `when`.
+
+## `Unit`: успешное завершение без данных
+
+`Unit` — полноценный тип с единственным значением `Unit`. Он соответствует ситуации, когда действие завершилось, но вычисленного результата для вызывающего кода нет.
+
+```kotlin
+fun markLessonCompleted(lessonId: String): Unit {
+    require(lessonId.isNotBlank()) { "Идентификатор не должен быть пустым" }
+    println("Урок $lessonId завершён")
+}
+```
+
+Возвращаемый тип `Unit` можно не писать:
+
+```kotlin
+fun markLessonCompleted(lessonId: String) {
+    require(lessonId.isNotBlank()) { "Идентификатор не должен быть пустым" }
+    println("Урок $lessonId завершён")
+}
+```
+
+Обе функции имеют один и тот же контракт результата.
+
+### Явное значение `Unit`
+
+В конце block-body функции компилятор неявно возвращает `Unit`. Его можно вернуть явно, хотя обычно это избыточно.
+
+```kotlin
+fun log(message: String): Unit {
+    println(message)
+    return Unit
+}
+```
+
+`return` без выражения в `Unit`-функции означает то же самое:
+
+```kotlin
+fun printIfNotBlank(message: String) {
+    if (message.isBlank()) return
+
+    println(message)
+}
+```
+
+### `Unit` как generic-аргумент
+
+В generic API значение результата должно иметь конкретный тип. `Unit` позволяет выразить операцию без payload, не создавая отдельный класс-заглушку.
+
+```kotlin
+sealed interface OperationResult<out T> {
+    data class Success<T>(val value: T) : OperationResult<T>
+    data class Failure(val message: String) : OperationResult<Nothing>
+}
+
+fun saveProgress(percent: Int): OperationResult<Unit> {
+    if (percent !in 0..100) {
+        return OperationResult.Failure("Прогресс должен быть от 0 до 100")
+    }
+
+    println("Сохранён прогресс: $percent%")
+    return OperationResult.Success(Unit)
+}
+```
+
+В `Success(Unit)` успех существует как значение, но не несёт дополнительных данных.
+
+### `Unit` в функциональных типах
+
+Callback для действия обычно имеет тип `() -> Unit` или `(T) -> Unit`.
+
+```kotlin
+fun repeatLesson(times: Int, action: (Int) -> Unit) {
+    require(times >= 0) { "Количество повторов не может быть отрицательным" }
+
+    for (index in 1..times) {
+        action(index)
+    }
+}
+
+fun main() {
+    repeatLesson(3) { attempt ->
+        println("Попытка $attempt")
+    }
+}
+```
+
+Лямбда печатает текст и возвращает `Unit`. В Kotlin есть специальное правило: когда ожидается функциональный тип с результатом `Unit`, возвращаемое значение переданной функции может быть проигнорировано.
+
+```kotlin
+fun consume(action: () -> Unit) {
+    action()
+}
+
+fun calculateScore(): Int = 100
+
+fun main() {
+    consume(::calculateScore)
+}
+```
+
+`calculateScore` вычисляет `Int`, но callback-контракт сознательно отбрасывает результат.
+
+<MouseTrap title="Мышеловка: Unit — не null и не отсутствие объекта">
+`Unit` — настоящее значение настоящего типа. `null` означает отсутствие значения nullable-типа, а `Unit` означает нормальное завершение операции без полезного payload. Не используй `Unit?`: такой тип почти всегда создаёт лишнее третье состояние.
+</MouseTrap>
+
+## `Unit` и Java `void`
+
+Они решают похожую задачу, но устроены по-разному. Java `void` означает отсутствие типа результата. Kotlin `Unit` является типом и значением, поэтому может участвовать в generic-контрактах и функциональных типах.
+
+При JVM interop компилятор обычно отображает обычную Kotlin-функцию, возвращающую `Unit`, в Java-метод `void`. Но функция, где `Unit` используется как generic-значение или объект, может приводить к `kotlin.Unit` в байткоде. Это важно при проектировании Java-friendly API.
+
+## `Nothing`: тип без значений
+
+У `Nothing` нет экземпляров. Если функция объявляет результат `Nothing`, она не может нормально закончиться и передать управление следующей строке. Она обязана:
+
+- выбросить исключение;
+- выполнять бесконечный цикл;
+- завершить процесс или поток управления платформенным способом;
+- вызвать другую функцию, возвращающую `Nothing`.
+
+```kotlin
+fun failConfiguration(message: String): Nothing {
+    throw IllegalStateException(message)
+}
+
+fun requireEnvironment(name: String, value: String?): String {
+    return value ?: failConfiguration("Переменная $name не задана")
+}
+```
+
+В правой ветке Elvis тип `Nothing`, поэтому общий тип выражения остаётся `String`.
+
+### `throw` — выражение типа `Nothing`
+
+`throw` в Kotlin является выражением. Его можно использовать там, где ожидается значение.
+
+```kotlin
+fun parseDifficulty(raw: String): Int = when (raw.lowercase()) {
+    "начальный" -> 1
+    "средний" -> 2
+    "продвинутый" -> 3
+    else -> throw IllegalArgumentException("Неизвестная сложность: $raw")
+}
+```
+
+Первые ветки имеют тип `Int`, а последняя не производит значения. Общий результат остаётся `Int`, а не `Any`.
+
+### Бесконечная функция
+
+```kotlin
+fun runWorkerForever(): Nothing {
+    while (true) {
+        println("Проверяем очередь заданий")
+        Thread.sleep(1_000)
+    }
+}
+```
+
+Компилятор видит бесконечный цикл. На практике цикл может быть прерван исключением или завершением процесса, но обычного возврата значения нет.
+
+### `TODO()` и `error()`
+
+Стандартная библиотека содержит функции, возвращающие `Nothing`:
+
+- `error(message)` выбрасывает `IllegalStateException`;
+- `TODO()` и `TODO(reason)` выбрасывают `NotImplementedError`.
+
+`TODO()` полезен только как временный инструмент разработки. В учебных и production-примерах kotlingo он не используется как пропуск реализации.
+
+```kotlin
+fun unsupportedFormat(format: String): Nothing {
+    error("Формат $format не поддерживается")
+}
+```
+
+<CatTip title="Котосовет: дай Nothing-функции предметное имя">
+`failConfiguration`, `unreachableState` или `unsupportedFormat` сообщают контекст лучше, чем повторяющийся `throw`. Возвращаемый тип `Nothing` дополнительно объясняет компилятору, что после вызова выполнение не продолжится.
+</CatTip>
+
+## `Nothing` как нижний тип
+
+`Nothing` является подтипом любого типа. Это не значит, что объект `Nothing` можно подставить вместо объекта любого класса: таких объектов не существует. Это означает, что выражение, которое никогда не создаёт результат, допустимо в любом контексте результата.
+
+```kotlin
+val title: String = throw IllegalStateException("Название недоступно")
+val score: Int = error("Оценка не рассчитана")
+```
+
+Обе строки компилируются по типам, хотя присваивание никогда не завершится.
+
+### `Nothing` и ковариантные generic-типы
+
+Стандартный пустой список можно рассматривать как `List<Nothing>`. Поскольку `List` ковариантен по элементу (`List<out T>`), пустой список подходит для `List<String>`, `List<Int>` и любого другого типа элементов.
+
+```kotlin
+val noTitles: List<String> = emptyList()
+val noScores: List<Int> = emptyList()
+```
+
+Пустой список не содержит элемента, который нарушил бы требуемый тип.
+
+В собственной sealed-иерархии этот принцип позволяет одной ошибке подходить для результата с любым payload:
+
+```kotlin
+sealed interface Result<out T> {
+    data class Success<T>(val value: T) : Result<T>
+    data class Failure(val reason: String) : Result<Nothing>
+}
+
+fun loadTitle(found: Boolean): Result<String> {
+    return if (found) {
+        Result.Success("Специальные типы")
+    } else {
+        Result.Failure("Урок не найден")
+    }
+}
+```
+
+`Result<Nothing>` совместим с `Result<String>` благодаря `out T`.
+
+## `Nothing?`: только `null`
+
+Литерал `null` имеет тип `Nothing?`. Этот тип является подтипом любого nullable-типа.
+
+```kotlin
+val title: String? = null
+val score: Int? = null
+val lesson: List<String>? = null
+```
+
+Это возможно, потому что `Nothing?` совместим с `String?`, `Int?` и `List<String>?`.
+
+Если компилятору не хватает контекста, `null` может привести к слишком узкому выводу:
+
+```kotlin
+val missing = null
+```
+
+Тип `missing` — `Nothing?`; присвоить ему строку позже нельзя, к тому же это `val`. Для изменяемого состояния явно объявляй ожидаемый тип:
+
+```kotlin
+var selectedLesson: String? = null
+selectedLesson = "functions"
+```
+
+<MouseTrap title="Мышеловка: Nothing? не означает любой nullable-тип">
+Переменная типа `Nothing?` способна хранить только `null`. Это нижняя граница nullable-иерархии, а не динамический контейнер. Для неоднородного nullable-значения нужен `Any?`.
+</MouseTrap>
+
+## Недостижимый код и flow analysis
+
+После вызова функции с результатом `Nothing` следующая инструкция недостижима.
+
+```kotlin
+fun invalidState(state: String): Nothing {
+    throw IllegalStateException("Недопустимое состояние: $state")
+}
+
+fun statusText(state: String): String {
+    if (state == "ready") return "Готово"
+    if (state == "loading") return "Загрузка"
+
+    invalidState(state)
+}
+```
+
+Дополнительный `return` не нужен: компилятор знает, что `invalidState` не вернётся.
+
+`Nothing` также помогает smart cast:
+
+```kotlin
+fun lengthOf(value: String?): Int {
+    if (value == null) {
+        error("Ожидалась строка")
+    }
+
+    return value.length
+}
+```
+
+После `error` остаётся только ветка, где `value` не равен `null`.
+
+## Практический пример: типизированный результат команды
+
+```kotlin
+sealed interface CommandResult<out T> {
+    data class Success<T>(
+        val value: T,
+        val message: String
+    ) : CommandResult<T>
+
+    data class Rejected(
+        val reason: String
+    ) : CommandResult<Nothing>
+}
+
+data class Lesson(
+    val id: String,
+    val title: String,
+    val completed: Boolean
+)
+
+fun reject(reason: String): CommandResult<Nothing> {
+    return CommandResult.Rejected(reason)
+}
+
+fun completeLesson(lesson: Lesson?): CommandResult<Lesson> {
+    val existing = lesson ?: return reject("Урок не найден")
+
+    if (existing.completed) {
+        return reject("Урок уже был завершён")
+    }
+
+    val updated = existing.copy(completed = true)
+    return CommandResult.Success(
+        value = updated,
+        message = "Прогресс сохранён"
+    )
+}
+
+fun audit(result: CommandResult<Any>): Unit {
+    when (result) {
+        is CommandResult.Success -> {
+            println("Успех: ${result.message}; payload=${result.value}")
+        }
+
+        is CommandResult.Rejected -> {
+            println("Отказ: ${result.reason}")
+        }
+    }
+}
+
+fun main() {
+    val lesson = Lesson("15", "Any, Unit и Nothing", completed = false)
+    val result: CommandResult<Lesson> = completeLesson(lesson)
+
+    audit(result)
+}
+```
+
+Здесь специальные типы работают вместе:
+
+- `CommandResult<Nothing>` представляет отказ без успешного payload;
+- ковариантность `out T` позволяет использовать отказ как `CommandResult<Lesson>`;
+- `Any` позволяет функции аудита принимать успешный payload любого non-null типа;
+- `Unit` явно показывает, что аудит выполняет побочный эффект и не возвращает данные;
+- ранний `return reject(...)` сужает nullable `lesson` до non-null значения.
+
+## Итоги
+
+- `Any` — общий надтип всех non-null типов и владелец контрактов `equals`, `hashCode`, `toString`;
+- `Any?` включает и non-null значения, и `null`;
+- `Unit` — тип с единственным значением, обозначающий нормальное завершение без полезного результата;
+- `Unit` особенно важен в callbacks и generic-контрактах;
+- `Nothing` не имеет значений и описывает вычисление, которое не возвращается нормально;
+- `throw`, `error` и бесконечные функции имеют тип `Nothing`;
+- `Nothing` как нижний тип не ухудшает тип остальных веток выражения;
+- `Nothing?` имеет единственное значение `null` и является подтипом любого nullable-типа;
+- специальные типы помогают строить точные API без фиктивных значений и небезопасных приведений.
+

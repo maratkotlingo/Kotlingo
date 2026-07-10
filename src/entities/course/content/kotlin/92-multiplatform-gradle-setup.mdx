@@ -1,0 +1,637 @@
+---
+title: "Multiplatform Gradle Setup"
+description: "Gradle setup для Kotlin Multiplatform: plugin, targets, sourceSets, common and platform dependencies, compiler options, Android target, JS/Wasm basics, native targets, publication basics и проектные практики."
+order: 92
+category: "Kotlin Multiplatform"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Минимальная Gradle-конфигурация
+
+Kotlin Multiplatform project использует Gradle plugin `org.jetbrains.kotlin.multiplatform`.
+
+```kotlin
+// build.gradle.kts
+plugins {
+    kotlin("multiplatform") version "2.4.0"
+}
+
+kotlin {
+    jvm()
+}
+```
+
+The same plugin can declare many targets.
+
+```kotlin
+plugins {
+    kotlin("multiplatform") version "2.4.0"
+}
+
+kotlin {
+    jvm()
+
+    js {
+        browser()
+        nodejs()
+    }
+
+    iosArm64()
+    iosSimulatorArm64()
+}
+```
+
+<CatTip>
+Gradle setup в KMP — это карта кошачьего дома: targets говорят, где будут комнаты, source sets говорят, какие вещи лежат в каждой комнате.
+</CatTip>
+
+## `settings.gradle.kts`
+
+Project repositories and plugin repositories belong in settings.
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "kotlingo-shared"
+```
+
+Use `google()` only if project uses Android or artifacts from Google Maven.
+
+## Targets
+
+Target declaration controls what platform binaries can be built.
+
+JVM:
+
+```kotlin
+kotlin {
+    jvm {
+        testRuns["test"].executionTask.configure {
+            useJUnitPlatform()
+        }
+    }
+}
+```
+
+Android:
+
+```kotlin
+plugins {
+    kotlin("multiplatform") version "2.4.0"
+    id("com.android.library") version "9.0.0"
+}
+
+kotlin {
+    androidTarget()
+}
+
+android {
+    namespace = "dev.kotlingo.shared"
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 24
+    }
+}
+```
+
+JS:
+
+```kotlin
+kotlin {
+    js {
+        browser()
+        nodejs()
+        binaries.executable()
+    }
+}
+```
+
+Wasm JS:
+
+```kotlin
+kotlin {
+    wasmJs {
+        browser()
+        binaries.executable()
+    }
+}
+```
+
+Native iOS:
+
+```kotlin
+kotlin {
+    iosArm64()
+    iosSimulatorArm64()
+}
+```
+
+Choose targets deliberately. Every extra target increases build matrix, dependency constraints and test surface.
+
+<MouseTrap>
+Не добавляй target «на всякий случай». Если project не тестируется на этой platform, target быстро превращается в красный build после очередного common dependency.
+</MouseTrap>
+
+## Source sets block
+
+`sourceSets` configures common and platform source sets.
+
+```kotlin
+kotlin {
+    jvm()
+    js {
+        browser()
+    }
+    iosArm64()
+    iosSimulatorArm64()
+
+    sourceSets {
+        commonMain {
+            dependencies {
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+            }
+        }
+
+        commonTest {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
+
+        jvmMain {
+            dependencies {
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
+            }
+        }
+
+        jsMain {
+            dependencies {
+                implementation(npm("uuid", "12.0.0"))
+            }
+        }
+    }
+}
+```
+
+Common dependencies are visible to all dependent source sets.
+
+Platform dependencies are visible only in that platform source set and its children.
+
+## Version catalog
+
+Production builds should centralize versions in `libs.versions.toml`.
+
+```toml
+# gradle/libs.versions.toml
+[versions]
+kotlin = "2.4.0"
+kotlinx-coroutines = "1.11.0"
+android-gradle-plugin = "9.0.0"
+
+[libraries]
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+
+[plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+android-library = { id = "com.android.library", version.ref = "android-gradle-plugin" }
+```
+
+Build script:
+
+```kotlin
+plugins {
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+}
+
+kotlin {
+    androidTarget()
+    jvm()
+
+    sourceSets {
+        commonMain.dependencies {
+            implementation(libs.kotlinx.coroutines.core)
+        }
+
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
+        }
+    }
+}
+```
+
+This avoids version drift across modules.
+
+## Common dependencies
+
+Common source set can depend only on common-compatible libraries.
+
+```kotlin
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+            implementation("io.ktor:ktor-client-core:3.3.0")
+        }
+    }
+}
+```
+
+Common dependency should publish multiplatform metadata. If library is JVM-only, it cannot be used in `commonMain`.
+
+Wrong:
+
+```kotlin
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            // Плохо: Guava is JVM library, not common multiplatform API.
+            implementation("com.google.guava:guava:33.5.0-jre")
+        }
+    }
+}
+```
+
+Correct:
+
+```kotlin
+kotlin {
+    sourceSets {
+        jvmMain.dependencies {
+            implementation("com.google.guava:guava:33.5.0-jre")
+        }
+    }
+}
+```
+
+## Platform dependencies
+
+JVM dependency:
+
+```kotlin
+kotlin {
+    sourceSets {
+        jvmMain.dependencies {
+            implementation("org.slf4j:slf4j-api:2.1.0")
+        }
+
+        jvmTest.dependencies {
+            implementation("org.junit.jupiter:junit-jupiter:6.0.0")
+        }
+    }
+}
+```
+
+Android dependency:
+
+```kotlin
+kotlin {
+    sourceSets {
+        androidMain.dependencies {
+            implementation("androidx.datastore:datastore-preferences:1.2.0")
+        }
+    }
+}
+```
+
+iOS dependency from a multiplatform library:
+
+```kotlin
+kotlin {
+    sourceSets {
+        iosMain.dependencies {
+            implementation("app.cash.sqldelight:native-driver:2.3.2")
+        }
+    }
+}
+```
+
+JS npm dependency:
+
+```kotlin
+kotlin {
+    sourceSets {
+        jsMain.dependencies {
+            implementation(npm("uuid", "12.0.0"))
+        }
+    }
+}
+```
+
+Rule: dependency should be declared at the highest source set where it is valid and needed.
+
+## Intermediate source sets
+
+Sometimes default hierarchy is enough. Sometimes you need custom sharing.
+
+Example: share code only between JVM and JS.
+
+```kotlin
+kotlin {
+    jvm()
+    js {
+        browser()
+    }
+    linuxX64()
+
+    sourceSets {
+        val commonMain by getting
+        val jvmMain by getting
+        val jsMain by getting
+
+        val webAndJvmMain by creating {
+            dependsOn(commonMain)
+
+            dependencies {
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+            }
+        }
+
+        jvmMain.dependsOn(webAndJvmMain)
+        jsMain.dependsOn(webAndJvmMain)
+    }
+}
+```
+
+Use custom intermediate source sets only when sharing pattern is real. Otherwise the build graph becomes hard to reason about.
+
+## Compiler options
+
+Modern Gradle setup should configure compiler options explicitly.
+
+```kotlin
+kotlin {
+    compilerOptions {
+        allWarningsAsErrors.set(false)
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
+    jvm {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+        }
+    }
+}
+```
+
+Use target-specific compiler options when platform requires them.
+
+```kotlin
+kotlin {
+    js {
+        compilerOptions {
+            sourceMap.set(true)
+        }
+    }
+}
+```
+
+Do not scatter compiler flags across subprojects without documentation. Flags are part of build contract.
+
+## Android target details
+
+For Android library:
+
+```kotlin
+plugins {
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+}
+
+kotlin {
+    androidTarget {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+        }
+    }
+
+    sourceSets {
+        androidMain.dependencies {
+            implementation("androidx.core:core-ktx:1.18.0")
+        }
+
+        androidUnitTest.dependencies {
+            implementation(kotlin("test"))
+        }
+    }
+}
+
+android {
+    namespace = "dev.kotlingo.shared"
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 24
+    }
+}
+```
+
+Android source sets are connected to Android Gradle Plugin concepts. Keep Android framework usage out of `commonMain`.
+
+## Native framework basics
+
+For iOS integration, you often create framework binaries.
+
+```kotlin
+kotlin {
+    iosArm64()
+    iosSimulatorArm64()
+
+    targets.withType<org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget>().configureEach {
+        binaries.framework {
+            baseName = "KotlingoShared"
+            isStatic = true
+        }
+    }
+}
+```
+
+This creates framework artifacts for native targets. Apple integration details will be covered in later platform-specific lessons.
+
+## Publication basics
+
+Kotlin Multiplatform publication is not one artifact.
+
+It usually includes:
+
+- target-specific publications, например JVM artifact;
+- platform-specific Native artifacts;
+- metadata artifacts;
+- root `kotlinMultiplatform` publication that points consumers to target-specific artifacts.
+
+Minimal Maven publish setup:
+
+```kotlin
+plugins {
+    kotlin("multiplatform") version "2.4.0"
+    `maven-publish`
+}
+
+group = "dev.kotlingo"
+version = "1.0.0"
+
+kotlin {
+    jvm()
+    iosArm64()
+    iosSimulatorArm64()
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "localKotlingo"
+            url = layout.buildDirectory.dir("repo").get().asFile.toURI()
+        }
+    }
+}
+```
+
+Consumers should depend on root coordinates from common source set, and Gradle resolves target artifacts.
+
+```kotlin
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("dev.kotlingo:kotlingo-shared:1.0.0")
+        }
+    }
+}
+```
+
+Publication requires careful metadata, signing and repository configuration for public repositories. Do not publish half-configured target sets.
+
+<MouseTrap>
+В KMP library publishing важно публиковать весь набор artifacts consistently. Если root publication указывает на target artifact, которого нет в repository, consumers получат странные dependency resolution failures.
+</MouseTrap>
+
+## Full production-style sample
+
+```kotlin
+// build.gradle.kts
+plugins {
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+    `maven-publish`
+}
+
+group = "dev.kotlingo"
+version = "0.1.0"
+
+kotlin {
+    explicitApi()
+
+    androidTarget {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+        }
+    }
+
+    jvm {
+        testRuns["test"].executionTask.configure {
+            useJUnitPlatform()
+        }
+    }
+
+    js {
+        browser()
+        nodejs()
+    }
+
+    iosArm64()
+    iosSimulatorArm64()
+
+    sourceSets {
+        commonMain.dependencies {
+            implementation(libs.kotlinx.coroutines.core)
+        }
+
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
+        }
+
+        androidMain.dependencies {
+            implementation("androidx.datastore:datastore-preferences:1.2.0")
+        }
+
+        jvmMain.dependencies {
+            implementation("org.slf4j:slf4j-api:2.1.0")
+        }
+
+        jsMain.dependencies {
+            implementation(npm("uuid", "12.0.0"))
+        }
+    }
+}
+
+android {
+    namespace = "dev.kotlingo.shared"
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 24
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "localKotlingo"
+            url = layout.buildDirectory.dir("repo").get().asFile.toURI()
+        }
+    }
+}
+```
+
+Почему это production-style:
+
+- versions centralized через catalog;
+- targets declared explicitly;
+- dependencies live in correct source sets;
+- `explicitApi` protects library API;
+- tests have common coroutine test dependency;
+- Android configuration isolated in `android` block;
+- publication configured intentionally.
+
+## Setup checklist
+
+Перед тем как считать KMP Gradle setup готовым, проверь:
+
+- targets correspond to real supported platforms;
+- common dependencies are truly multiplatform;
+- platform dependencies are not leaking into `commonMain`;
+- tests exist in `commonTest` and platform tests where needed;
+- source set hierarchy matches real sharing;
+- Android namespace and SDK configured;
+- JS/Wasm executable/browser/node settings match product;
+- Native binaries configured only where needed;
+- publication includes all target artifacts you promise;
+- CI runs tasks for every supported target.
+
+<CatTip>
+Хороший KMP build script скучно предсказуем: targets сверху, source sets ясно разделены, dependencies лежат там, где им место, а publication не обещает лишнего.
+</CatTip>
+

@@ -1,0 +1,506 @@
+---
+title: "Multiplatform Mental Model"
+description: "Ментальная модель Kotlin Multiplatform: common code, platform code, targets, compilations, source sets, commonMain, platform source sets, hierarchical source sets и границы API."
+order: 90
+category: "Kotlin Multiplatform"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое Kotlin Multiplatform
+
+Kotlin Multiplatform позволяет писать часть кода один раз и компилировать ее под несколько platforms.
+
+Обычно так разделяют:
+
+- domain logic;
+- validation;
+- algorithms;
+- networking contracts;
+- serialization models;
+- database abstractions;
+- business rules;
+- state machines;
+- shared ViewModel-like logic;
+- tests for shared behavior.
+
+Platform-specific остаются:
+
+- UI toolkit;
+- filesystem details;
+- platform permissions;
+- sensors;
+- platform lifecycle;
+- Java, Android, iOS, JS, Wasm, Native APIs;
+- dependency injection integration;
+- platform-specific logging;
+- build packaging.
+
+```kotlin
+// commonMain/kotlin/lesson/Lesson.kt
+package lesson
+
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val body: String
+) {
+    fun shortTitle(maxLength: Int): String {
+        require(maxLength > 0) { "maxLength должен быть положительным" }
+
+        return if (title.length <= maxLength) {
+            title
+        } else {
+            title.take(maxLength - 1) + "…"
+        }
+    }
+}
+```
+
+Этот код не зависит от JVM, Android или iOS, поэтому ему место в `commonMain`.
+
+<CatTip>
+Kotlin Multiplatform — это не «один бинарник для всего», а аккуратная кошачья полка: общая логика лежит по центру, platform-specific миски стоят по краям.
+</CatTip>
+
+## Target
+
+Target — build destination, под который Kotlin компилирует код.
+
+Примеры targets:
+
+- `jvm`;
+- `androidTarget`;
+- `js`;
+- `wasmJs`;
+- `linuxX64`;
+- `macosArm64`;
+- `iosArm64`;
+- `iosSimulatorArm64`.
+
+```kotlin
+plugins {
+    kotlin("multiplatform") version "2.4.0"
+}
+
+kotlin {
+    jvm()
+    js {
+        browser()
+    }
+    iosArm64()
+    iosSimulatorArm64()
+}
+```
+
+Каждый target создает platform-specific compilation and source sets. Если target не объявлен, code не компилируется под эту platform.
+
+## Source set
+
+Source set — набор source files, resources, dependencies и compiler options, которые компилируются для определенного набора targets.
+
+Типичная структура:
+
+```text
+src/
+  commonMain/
+    kotlin/
+      lesson/
+        Lesson.kt
+  commonTest/
+    kotlin/
+      lesson/
+        LessonTest.kt
+  jvmMain/
+    kotlin/
+      lesson/
+        JvmLessonFileReader.kt
+  jvmTest/
+    kotlin/
+      lesson/
+        JvmLessonFileReaderTest.kt
+  iosMain/
+    kotlin/
+      lesson/
+        IosPlatformClock.kt
+```
+
+`commonMain` compiles to all declared targets.
+
+`jvmMain` compiles only to JVM target.
+
+`iosMain` compiles to iOS targets that depend on it, например `iosArm64` and `iosSimulatorArm64`.
+
+```kotlin
+// commonMain/kotlin/lesson/Slug.kt
+package lesson
+
+@JvmInline
+value class Slug(
+    val value: String
+) {
+    init {
+        require(value.isNotBlank()) { "Slug не должен быть пустым" }
+        require(value == value.lowercase()) { "Slug должен быть в lower case" }
+    }
+}
+```
+
+Common source set не может использовать platform-specific APIs.
+
+```kotlin
+// commonMain/kotlin/lesson/WrongCommonCode.kt
+package lesson
+
+fun wrong() {
+    // Этот код не скомпилируется в commonMain:
+    // java.io.File("lesson.md").readText()
+    //
+    // Причина: java.io доступен на JVM, но не является общим API для всех targets.
+}
+```
+
+<MouseTrap>
+Если код в `commonMain` импортирует `java.*`, `android.*`, `platform.Foundation.*` или browser API напрямую, он уже перестал быть truly common code.
+</MouseTrap>
+
+## Platform source set
+
+Platform source set содержит code for one platform family or target.
+
+```kotlin
+// jvmMain/kotlin/lesson/JvmLessonFileReader.kt
+package lesson
+
+import java.nio.file.Files
+import java.nio.file.Path
+
+class JvmLessonFileReader {
+    fun read(path: Path): String {
+        // JVM-specific filesystem API разрешен в jvmMain.
+        return Files.readString(path)
+    }
+}
+```
+
+```kotlin
+// iosMain/kotlin/lesson/IosDeviceName.kt
+package lesson
+
+import platform.UIKit.UIDevice
+
+fun iosDeviceName(): String {
+    // iOS API разрешен в iosMain, но не в commonMain.
+    return UIDevice.currentDevice.name
+}
+```
+
+Platform source sets can depend on common code.
+
+Common source set cannot depend on platform source set.
+
+```kotlin
+// jvmMain/kotlin/lesson/JvmLessonPrinter.kt
+package lesson
+
+class JvmLessonPrinter {
+    fun print(lesson: Lesson) {
+        // Lesson объявлен в commonMain и доступен в jvmMain.
+        println("${lesson.slug}: ${lesson.title}")
+    }
+}
+```
+
+## Compilation to a specific target
+
+Когда Kotlin компилирует target, он берет all source sets labeled with that target.
+
+Например, для `jvm` target компилятор берет:
+
+- `commonMain`;
+- промежуточные source sets, если они участвуют в hierarchy;
+- `jvmMain`.
+
+Для `iosArm64`:
+
+- `commonMain`;
+- `nativeMain`, если есть;
+- `appleMain`, если есть;
+- `iosMain`, если есть;
+- `iosArm64Main`.
+
+Это объясняет важное правило: platform source set sees common API, потому что они компилируются together for the target.
+
+## Hierarchical source sets
+
+Hierarchical source sets позволяют делить код не только между all targets or one target, но и между группой targets.
+
+Пример:
+
+```text
+commonMain
+  nativeMain
+    appleMain
+      iosMain
+        iosArm64Main
+        iosSimulatorArm64Main
+      macosMain
+        macosArm64Main
+  jvmMain
+  jsMain
+```
+
+Зачем нужны intermediate source sets:
+
+- shared Native code;
+- shared Apple code;
+- shared iOS device and simulator code;
+- shared browser and Node JS code;
+- shared JVM and Android code, если проект так устроен;
+- shared code for targets with similar platform APIs.
+
+```kotlin
+// appleMain/kotlin/platform/AppleUuid.kt
+package platform
+
+import platform.Foundation.NSUUID
+
+fun randomAppleUuid(): String {
+    // Apple-specific API доступен для Apple targets, но не для Android/JVM/JS.
+    return NSUUID().UUIDString()
+}
+```
+
+Этот code нельзя положить в `commonMain`, но можно положить в source set, который компилируется только для Apple targets.
+
+## `dependsOn`
+
+`dependsOn` — relation between source sets.
+
+Если `A.dependsOn(B)`, это значит:
+
+- `A` видит API from `B`;
+- `A` inherits dependencies from `B`;
+- `A` can provide `actual` implementations for `expect` declarations from `B`;
+- `B` must compile to every target of `A`;
+- internal declarations from `B` are visible to `A` within module.
+
+В большинстве обычных проектов Kotlin Gradle plugin создает стандартную hierarchy сам.
+
+```kotlin
+kotlin {
+    iosArm64()
+    iosSimulatorArm64()
+
+    sourceSets {
+        val iosMain by getting {
+            dependsOn(commonMain.get())
+        }
+
+        val iosArm64Main by getting {
+            dependsOn(iosMain)
+        }
+
+        val iosSimulatorArm64Main by getting {
+            dependsOn(iosMain)
+        }
+    }
+}
+```
+
+Этот ручной пример полезен для понимания модели, но в современных проектах default hierarchy обычно избавляет от такой рутины.
+
+## Common code rules
+
+В common code доступны:
+
+- Kotlin standard library common APIs;
+- common dependencies, published as multiplatform libraries;
+- declarations from source sets, от которых current source set depends;
+- `expect` declarations from common source set;
+- pure Kotlin code without platform imports.
+
+В common code недоступны:
+
+- JDK-specific APIs;
+- Android framework APIs;
+- UIKit/Foundation directly, если source set не Apple-specific;
+- browser DOM APIs, если source set не JS/Wasm browser-specific;
+- platform-only dependencies;
+- assumptions about filesystem, threads, locale, time zone, entropy source, crypto provider.
+
+```kotlin
+// commonMain/kotlin/lesson/LessonValidator.kt
+package lesson
+
+class LessonValidator {
+    fun validate(lesson: Lesson): List<String> {
+        val errors = mutableListOf<String>()
+
+        if (lesson.slug.isBlank()) {
+            errors += "Slug не должен быть пустым"
+        }
+
+        if (lesson.title.isBlank()) {
+            errors += "Title не должен быть пустым"
+        }
+
+        return errors
+    }
+}
+```
+
+Такой validator идеально живет в common code.
+
+## How common code touches platform code
+
+Common code не импортирует platform APIs directly, но может работать с ними через boundaries:
+
+- interfaces defined in common and implemented on platform;
+- `expect` declarations in common with `actual` implementations per platform;
+- dependency injection from app layer;
+- callback interfaces;
+- abstract repositories;
+- multiplatform libraries that already hide platform differences.
+
+Interface approach:
+
+```kotlin
+// commonMain/kotlin/platform/Clock.kt
+package platform
+
+interface Clock {
+    fun nowMillis(): Long
+}
+
+class LessonTimer(
+    private val clock: Clock
+) {
+    fun elapsedSince(startMillis: Long): Long {
+        return clock.nowMillis() - startMillis
+    }
+}
+```
+
+JVM implementation:
+
+```kotlin
+// jvmMain/kotlin/platform/JvmClock.kt
+package platform
+
+class JvmClock : Clock {
+    override fun nowMillis(): Long {
+        return System.currentTimeMillis()
+    }
+}
+```
+
+`expect/actual` approach будет следующей темой.
+
+## Tests in multiplatform projects
+
+`commonTest` tests common behavior and compiles for all targets where applicable.
+
+```kotlin
+// commonTest/kotlin/lesson/LessonValidatorTest.kt
+package lesson
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class LessonValidatorTest {
+    @Test
+    fun rejectsBlankTitle() {
+        val lesson = Lesson(
+            slug = "90-multiplatform-mental-model",
+            title = "",
+            body = "Текст"
+        )
+
+        val errors = LessonValidator().validate(lesson)
+
+        assertTrue(errors.any { error -> "Title" in error })
+    }
+}
+```
+
+`jvmTest`, `iosTest`, `jsTest` нужны, когда test depends on platform behavior.
+
+```kotlin
+// jvmTest/kotlin/platform/JvmClockTest.kt
+package platform
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class JvmClockTest {
+    @Test
+    fun returnsPositiveTimestamp() {
+        val clock = JvmClock()
+
+        assertTrue(clock.nowMillis() > 0)
+    }
+}
+```
+
+## API design in multiplatform
+
+Shared API должен быть platform-neutral.
+
+Плохие common names:
+
+- `FilePath`, если JS/iOS representation отличается;
+- `ThreadConfig`, если targets without threads participate;
+- `ActivityProvider`, если common module должен знать Android;
+- `NSErrorWrapper`, если JVM/JS не используют NSError.
+
+Лучшие common concepts:
+
+- `LessonSource`;
+- `Clock`;
+- `UuidGenerator`;
+- `SettingsStore`;
+- `HttpClient`;
+- `Logger`;
+- `FileHandle`, если abstraction deliberately hides platform file details.
+
+```kotlin
+// commonMain/kotlin/storage/SettingsStore.kt
+package storage
+
+interface SettingsStore {
+    suspend fun readString(key: String): String?
+
+    suspend fun writeString(key: String, value: String)
+}
+```
+
+Platform implementations can use:
+
+- Android DataStore;
+- JVM file;
+- iOS NSUserDefaults;
+- browser localStorage;
+- in-memory test fake.
+
+<CatTip>
+Лучший common API говорит языком продукта, а не языком platform. `LessonProgressStore` переносится лучше, чем `SharedPreferencesWrapper`.
+</CatTip>
+
+## Production mental checklist
+
+Перед переносом code в `commonMain` спроси:
+
+- does it use only common dependencies;
+- can it be tested in `commonTest`;
+- does it avoid platform names in public API;
+- are time, random, filesystem and locale abstracted;
+- can platform-specific behavior be injected;
+- does it need `expect/actual` or is interface enough;
+- will adding a new target break this design;
+- is the source set hierarchy expressing real sharing, not wishful sharing.
+
+Kotlin Multiplatform works best when common code owns domain decisions, and platform code owns platform integration.
+

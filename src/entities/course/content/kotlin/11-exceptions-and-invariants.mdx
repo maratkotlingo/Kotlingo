@@ -1,0 +1,568 @@
+---
+title: "Исключения и базовая защита инвариантов"
+description: "Изучаем try, catch, finally, throw как выражение, unchecked-модель Kotlin, require, check, error, assert, Throwable и создание собственных исключений."
+order: 11
+category: "Базовый синтаксис"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое исключение
+
+Исключение — объект, который прерывает обычный поток выполнения и сообщает об ошибочной ситуации. В Kotlin исключения используются для ситуаций, где функция не может вернуть нормальный результат: некорректный аргумент, нарушенное состояние, ошибка парсинга, проблема ввода-вывода, недоступный ресурс.
+
+```kotlin
+fun requireNonBlankTitle(title: String): String {
+    if (title.isBlank()) {
+        throw IllegalArgumentException("Название урока не должно быть пустым")
+    }
+
+    return title.trim()
+}
+```
+
+`throw` прерывает функцию. Строка после него в той же ветке не выполняется.
+
+## Unchecked exceptions в Kotlin
+
+В Kotlin нет checked exceptions как обязательной части type system. Функция не обязана объявлять, какие исключения она может бросить.
+
+```kotlin
+fun parseMinutes(rawValue: String): Int {
+    return rawValue.toInt()
+}
+```
+
+`toInt()` может бросить `NumberFormatException`, но сигнатура функции не заставляет вызывающий код писать `try/catch`.
+
+Это отличается от Java checked exceptions. Kotlin считает, что обязательные checked exceptions часто приводят к шумному коду и формальной обработке. Но это не отменяет ответственность автора API: ошибки нужно документировать, моделировать и обрабатывать там, где это важно.
+
+<CatTip title="Кошачья дисциплина ошибок">
+Если ошибка является ожидаемым бизнес-результатом, часто лучше вернуть sealed result или nullable-значение. Если ошибка означает нарушение контракта или невозможность продолжать, исключение может быть правильным инструментом.
+</CatTip>
+
+## `try/catch`
+
+`try` выполняет опасный код, `catch` обрабатывает исключение.
+
+```kotlin
+fun parseMinutesOrNull(rawValue: String): Int? {
+    return try {
+        rawValue.trim().toInt()
+    } catch (exception: NumberFormatException) {
+        null
+    }
+}
+
+fun main() {
+    println(parseMinutesOrNull("45"))
+    println(parseMinutesOrNull("кот"))
+}
+```
+
+Здесь `NumberFormatException` превращается в `null`, потому что неверный пользовательский ввод — ожидаемый сценарий.
+
+## Несколько `catch`
+
+Можно обработать разные исключения разными ветками:
+
+```kotlin
+fun parseLessonNumber(rawValue: String?): Int? {
+    return try {
+        requireNotNull(rawValue) {
+            "Значение отсутствует"
+        }
+
+        rawValue.trim().toInt()
+    } catch (exception: NumberFormatException) {
+        println("Номер должен быть целым числом")
+        null
+    } catch (exception: IllegalArgumentException) {
+        println(exception.message)
+        null
+    }
+}
+
+fun main() {
+    println(parseLessonNumber("10"))
+    println(parseLessonNumber("abc"))
+    println(parseLessonNumber(null))
+}
+```
+
+Порядок `catch` важен: более конкретные исключения должны идти раньше более общих.
+
+Плохо:
+
+```kotlin
+fun parse(rawValue: String): Int? {
+    return try {
+        rawValue.toInt()
+    } catch (exception: Exception) {
+        null
+    } catch (exception: NumberFormatException) {
+        // Эта ветка недостижима, потому что Exception поймал все раньше.
+        null
+    }
+}
+```
+
+## `finally`
+
+`finally` выполняется после `try/catch` почти всегда: при успехе, при исключении, при `return` из `try`.
+
+```kotlin
+fun parseWithLog(rawValue: String): Int? {
+    return try {
+        rawValue.toInt()
+    } catch (exception: NumberFormatException) {
+        null
+    } finally {
+        println("Разбор завершен")
+    }
+}
+
+fun main() {
+    println(parseWithLog("42"))
+    println(parseWithLog("abc"))
+}
+```
+
+`finally` часто используют для освобождения ресурсов. На JVM для `Closeable` лучше использовать `use`, но базовая идея `finally` важна.
+
+```kotlin
+class FakeResource {
+    fun open() {
+        println("Ресурс открыт")
+    }
+
+    fun close() {
+        println("Ресурс закрыт")
+    }
+}
+
+fun main() {
+    val resource = FakeResource()
+
+    try {
+        resource.open()
+        println("Работаем с ресурсом")
+    } finally {
+        resource.close()
+    }
+}
+```
+
+## `try` как выражение
+
+`try` может возвращать значение:
+
+```kotlin
+fun parseMinutes(rawValue: String): Int {
+    return try {
+        rawValue.trim().toInt()
+    } catch (exception: NumberFormatException) {
+        0
+    }
+}
+
+fun main() {
+    println(parseMinutes("55"))
+    println(parseMinutes("oops"))
+}
+```
+
+Тип `try`-выражения выводится как общий тип веток. Если в `try` возвращается `Int`, а в `catch` строка, общий тип будет шире, например `Any`.
+
+Лучше не смешивать разные типы без необходимости:
+
+```kotlin
+fun parseMinutesLabel(rawValue: String): String {
+    return try {
+        val minutes = rawValue.trim().toInt()
+        "$minutes мин."
+    } catch (exception: NumberFormatException) {
+        "некорректная длительность"
+    }
+}
+```
+
+## `throw` как выражение
+
+`throw` имеет тип `Nothing`, поэтому может стоять внутри выражений.
+
+```kotlin
+fun requireTitle(rawTitle: String?): String {
+    return rawTitle?.trim()
+        ?: throw IllegalArgumentException("Название отсутствует")
+}
+
+fun main() {
+    println(requireTitle("Исключения"))
+}
+```
+
+`throw` справа от Elvis-оператора — распространенный способ превратить nullable-значение в non-null с явным сообщением.
+
+## `Throwable`: свойства и методы
+
+Базовый тип для исключений — `Throwable`.
+
+Важные свойства и методы:
+
+- `message` — nullable-сообщение;
+- `cause` — причина исключения;
+- `stackTrace` — массив элементов stack trace;
+- `printStackTrace()` печатает stack trace;
+- `localizedMessage` возвращает локализованное сообщение, если оно есть;
+- `suppressed` хранит подавленные исключения;
+- `addSuppressed(exception)` добавляет подавленное исключение;
+- `fillInStackTrace()` обновляет stack trace.
+
+```kotlin
+fun main() {
+    try {
+        error("Нарушено состояние урока")
+    } catch (exception: IllegalStateException) {
+        println("Тип: ${exception::class.simpleName}")
+        println("Сообщение: ${exception.message}")
+    }
+}
+```
+
+В production-коде stack trace обычно отправляют в логгер, а не печатают через `println`.
+
+## `require`
+
+`require` проверяет аргументы функции. Если условие ложно, бросает `IllegalArgumentException`.
+
+```kotlin
+fun createLesson(title: String, minutes: Int) {
+    require(title.isNotBlank()) {
+        "Название урока не должно быть пустым"
+    }
+
+    require(minutes > 0) {
+        "Длительность должна быть положительной"
+    }
+
+    println("Создан урок: ${title.trim()}, $minutes мин.")
+}
+
+fun main() {
+    createLesson("Исключения", 80)
+}
+```
+
+Используй `require`, когда вызывающий код передал неверные аргументы.
+
+`requireNotNull` проверяет nullable-значение:
+
+```kotlin
+fun normalizeTitle(rawTitle: String?): String {
+    val title = requireNotNull(rawTitle) {
+        "Название отсутствует"
+    }
+
+    return title.trim()
+}
+```
+
+## `check`
+
+`check` проверяет состояние объекта или системы. Если условие ложно, бросает `IllegalStateException`.
+
+```kotlin
+class LessonPlayer {
+    private var loadedTitle: String? = null
+
+    fun load(title: String) {
+        require(title.isNotBlank()) {
+            "Название не должно быть пустым"
+        }
+
+        loadedTitle = title.trim()
+    }
+
+    fun play() {
+        val title = loadedTitle
+
+        check(title != null) {
+            "Нельзя запустить урок до загрузки"
+        }
+
+        println("Запускаем: $title")
+    }
+}
+
+fun main() {
+    val player = LessonPlayer()
+
+    player.load("Исключения")
+    player.play()
+}
+```
+
+Используй `check`, когда проблема не в аргументе текущего вызова, а в состоянии.
+
+`checkNotNull` похож на `requireNotNull`, но сообщает о нарушенном состоянии:
+
+```kotlin
+class Session {
+    private var userId: String? = null
+
+    fun start(userId: String) {
+        this.userId = userId
+    }
+
+    fun currentUserId(): String {
+        return checkNotNull(userId) {
+            "Сессия еще не началась"
+        }
+    }
+}
+```
+
+## `error`
+
+`error(message)` бросает `IllegalStateException`.
+
+```kotlin
+fun renderMode(mode: String): String {
+    return when (mode) {
+        "theory" -> "Теория"
+        "practice" -> "Практика"
+        "quiz" -> "Тест"
+        else -> error("Неизвестный режим: $mode")
+    }
+}
+```
+
+`error` удобен для веток, которые означают невозможное или нарушенное состояние. Если значение приходит от пользователя, лучше вернуть ошибку валидации, а не падать через `error`.
+
+## `assert`
+
+`assert` проверяет условие только если assertions включены в runtime. На JVM они обычно выключены по умолчанию и включаются флагом `-ea`.
+
+```kotlin
+fun main() {
+    val percent = 80
+
+    assert(percent in 0..100) {
+        "Процент должен быть в диапазоне"
+    }
+
+    println(percent)
+}
+```
+
+Не используй `assert` для обязательной runtime-валидации аргументов или безопасности. Для этого нужны `require`, `check` или явная обработка.
+
+<MouseTrap title="Мышеловка: assert может не выполниться">
+Если проверка обязательна для корректности приложения, `assert` не подходит. Он может быть выключен. Используй `require` для аргументов, `check` для состояния и явные доменные ошибки для ожидаемых бизнес-сценариев.
+</MouseTrap>
+
+## Собственные исключения
+
+Собственное исключение полезно, когда вызывающему коду нужно отличить конкретный тип ошибки.
+
+```kotlin
+class LessonNotFoundException(
+    val lessonCode: String
+) : RuntimeException("Урок не найден: $lessonCode")
+
+class LessonRepository(
+    private val lessons: Map<String, String>
+) {
+    fun findTitleOrThrow(code: String): String {
+        require(code.isNotBlank()) {
+            "Код урока не должен быть пустым"
+        }
+
+        return lessons[code]
+            ?: throw LessonNotFoundException(code)
+    }
+}
+
+fun main() {
+    val repository = LessonRepository(
+        lessons = mapOf("basics-11" to "Исключения")
+    )
+
+    try {
+        println(repository.findTitleOrThrow("basics-99"))
+    } catch (exception: LessonNotFoundException) {
+        println("Показываем 404 для ${exception.lessonCode}")
+    }
+}
+```
+
+Хорошее custom exception:
+
+- имеет понятное имя;
+- хранит важные структурные данные;
+- передает `cause`, если оборачивает другую ошибку;
+- не используется вместо обычного результата там, где ошибка ожидаема.
+
+Пример с `cause`:
+
+```kotlin
+class LessonParseException(
+    val rawInput: String,
+    cause: Throwable
+) : RuntimeException("Не удалось разобрать урок: $rawInput", cause)
+
+fun parseLessonMinutes(rawInput: String): Int {
+    return try {
+        rawInput.trim().toInt()
+    } catch (exception: NumberFormatException) {
+        throw LessonParseException(rawInput, exception)
+    }
+}
+```
+
+## Исключения против результата
+
+Если сценарий ожидаемый, часто лучше вернуть sealed result:
+
+```kotlin
+sealed interface ParseMinutesResult {
+    data class Success(val minutes: Int) : ParseMinutesResult
+    data class Failure(val reason: String) : ParseMinutesResult
+}
+
+fun parseMinutes(rawValue: String): ParseMinutesResult {
+    val minutes = rawValue.trim().toIntOrNull()
+
+    if (minutes == null) {
+        return ParseMinutesResult.Failure("Длительность должна быть числом")
+    }
+
+    if (minutes <= 0) {
+        return ParseMinutesResult.Failure("Длительность должна быть положительной")
+    }
+
+    return ParseMinutesResult.Success(minutes)
+}
+
+fun renderParseResult(result: ParseMinutesResult): String {
+    return when (result) {
+        is ParseMinutesResult.Success -> "Длительность: ${result.minutes} мин."
+        is ParseMinutesResult.Failure -> "Ошибка: ${result.reason}"
+    }
+}
+
+fun main() {
+    println(renderParseResult(parseMinutes("45")))
+    println(renderParseResult(parseMinutes("кот")))
+}
+```
+
+Такой подход хорош для пользовательского ввода и бизнес-валидации.
+
+## Практический пример: безопасное создание урока
+
+```kotlin
+class DuplicateLessonCodeException(
+    val code: String
+) : RuntimeException("Урок с кодом $code уже существует")
+
+data class LessonDraft(
+    val code: String,
+    val title: String,
+    val minutes: Int
+)
+
+data class Lesson(
+    val code: String,
+    val title: String,
+    val minutes: Int
+)
+
+class LessonCatalog {
+    private val lessons = mutableMapOf<String, Lesson>()
+
+    fun addLesson(draft: LessonDraft): Lesson {
+        val code = draft.code.trim()
+        val title = draft.title.trim()
+
+        require(code.isNotBlank()) {
+            "Код урока не должен быть пустым"
+        }
+
+        require(title.isNotBlank()) {
+            "Название урока не должно быть пустым"
+        }
+
+        require(draft.minutes in 1..240) {
+            "Длительность урока должна быть от 1 до 240 минут"
+        }
+
+        if (code in lessons) {
+            throw DuplicateLessonCodeException(code)
+        }
+
+        val lesson = Lesson(
+            code = code,
+            title = title,
+            minutes = draft.minutes
+        )
+
+        lessons[code] = lesson
+
+        return lesson
+    }
+
+    fun findLesson(code: String): Lesson? {
+        return lessons[code.trim()]
+    }
+}
+
+fun main() {
+    val catalog = LessonCatalog()
+
+    try {
+        val lesson = catalog.addLesson(
+            LessonDraft(
+                code = "basics-11",
+                title = "Исключения",
+                minutes = 85
+            )
+        )
+
+        println("Создан урок: $lesson")
+    } catch (exception: DuplicateLessonCodeException) {
+        println("Дубликат кода: ${exception.code}")
+    } catch (exception: IllegalArgumentException) {
+        println("Ошибка валидации: ${exception.message}")
+    }
+}
+```
+
+Что здесь важно:
+
+- `require` защищает аргументы;
+- custom exception сообщает о дубликате;
+- nullable `findLesson` моделирует нормальное отсутствие урока;
+- `try/catch` стоит на границе сценария, где нужно превратить ошибку в сообщение;
+- внутреннее состояние `lessons` скрыто.
+
+## Итоги
+
+Исключения в Kotlin — инструмент для ошибок, а не основной способ управления обычной логикой:
+
+- `try/catch` обрабатывает исключения;
+- `finally` подходит для cleanup;
+- `try` может возвращать значение;
+- `throw` имеет тип `Nothing` и может участвовать в выражениях;
+- Kotlin не требует checked exceptions;
+- `Throwable` содержит `message`, `cause`, `stackTrace` и suppressed exceptions;
+- `require` проверяет аргументы и бросает `IllegalArgumentException`;
+- `check` проверяет состояние и бросает `IllegalStateException`;
+- `error` сообщает о нарушенном состоянии;
+- `assert` нельзя использовать для обязательной runtime-валидации;
+- custom exceptions полезны, когда тип ошибки важен вызывающему коду;
+- ожидаемые бизнес-ошибки часто лучше моделировать через sealed result, nullable или `Result`.
+

@@ -1,0 +1,448 @@
+---
+title: "Type-Safe Builders"
+description: "Type-safe builders в Kotlin: lambdas with receiver, builder scopes, nested builders, init functions, validation inside builders, immutable result models и построение DSL для курса."
+order: 67
+category: "DSL, аннотации и metaprogramming"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Type-safe builder строит объект через Kotlin DSL
+
+Type-safe builder — это API, который позволяет создавать сложную структуру через вложенные lambdas with receiver.
+
+```kotlin
+val course = course {
+    title("Kotlin с нуля")
+
+    module("Основы") {
+        lesson("01-introduction", "Введение")
+        lesson("02-types", "Типы")
+    }
+}
+```
+
+Такой код похож на декларативную разметку, но остается Kotlin-кодом: compiler проверяет types, scopes, required arguments и names.
+
+<CatTip>
+Builder DSL — это конструктор кошачьего домика: блоки вкладываются друг в друга, а compiler следит, чтобы полки, миски и лежанки оказались в правильных местах.
+</CatTip>
+
+## Lambda with receiver
+
+Фундамент builder-а — function type with receiver.
+
+```kotlin
+class CourseBuilder {
+    private var title: String = ""
+
+    fun title(value: String) {
+        // Внутри builder-а накапливаем mutable state.
+        title = value
+    }
+
+    fun build(): String {
+        require(title.isNotBlank()) {
+            "Название курса обязательно"
+        }
+
+        return title
+    }
+}
+
+fun course(init: CourseBuilder.() -> Unit): String {
+    val builder = CourseBuilder()
+
+    // Lambda выполняется с receiver CourseBuilder.
+    builder.init()
+
+    return builder.build()
+}
+```
+
+Когда caller пишет `course { title("Kotlin") }`, внутри lambda `this` имеет тип `CourseBuilder`.
+
+```kotlin
+val name = course {
+    this.title("Kotlin")
+}
+```
+
+`this` можно опустить.
+
+```kotlin
+val shorter = course {
+    title("Kotlin")
+}
+```
+
+## Mutable builder, immutable result
+
+Хорошая практика: builder внутри mutable, результат снаружи immutable.
+
+```kotlin
+data class Course(
+    val title: String,
+    val modules: List<CourseModule>
+)
+
+data class CourseModule(
+    val title: String,
+    val lessons: List<CourseLesson>
+)
+
+data class CourseLesson(
+    val slug: String,
+    val title: String
+)
+```
+
+Builders:
+
+```kotlin
+class CourseDslBuilder {
+    private var title: String? = null
+    private val modules = mutableListOf<CourseModule>()
+
+    fun title(value: String) {
+        title = value.trim()
+    }
+
+    fun module(title: String, init: ModuleDslBuilder.() -> Unit) {
+        val builder = ModuleDslBuilder(title)
+        builder.init()
+        modules.add(builder.build())
+    }
+
+    fun build(): Course {
+        val finalTitle = requireNotNull(title) {
+            "У курса должен быть title"
+        }
+
+        require(finalTitle.isNotBlank()) {
+            "Title курса не должен быть пустым"
+        }
+        require(modules.isNotEmpty()) {
+            "Курс должен содержать хотя бы один модуль"
+        }
+
+        return Course(
+            title = finalTitle,
+            modules = modules.toList()
+        )
+    }
+}
+
+class ModuleDslBuilder(
+    private val title: String
+) {
+    private val lessons = mutableListOf<CourseLesson>()
+
+    fun lesson(slug: String, title: String) {
+        lessons.add(
+            CourseLesson(
+                slug = slug.trim(),
+                title = title.trim()
+            )
+        )
+    }
+
+    fun build(): CourseModule {
+        require(title.isNotBlank()) {
+            "Название модуля не должно быть пустым"
+        }
+        require(lessons.isNotEmpty()) {
+            "Модуль '$title' должен содержать хотя бы один урок"
+        }
+
+        return CourseModule(
+            title = title,
+            lessons = lessons.toList()
+        )
+    }
+}
+
+fun course(init: CourseDslBuilder.() -> Unit): Course {
+    val builder = CourseDslBuilder()
+    builder.init()
+    return builder.build()
+}
+```
+
+Usage:
+
+```kotlin
+val kotlinCourse = course {
+    title("Kotlin с нуля")
+
+    module("Основы") {
+        lesson("01-introduction", "Введение")
+        lesson("02-types", "Типы")
+    }
+
+    module("Функции") {
+        lesson("16-function-declarations", "Объявление функций")
+    }
+}
+```
+
+## Builder scopes
+
+Каждый nested block имеет свой receiver.
+
+```kotlin
+course {
+    // Здесь receiver — CourseDslBuilder.
+    title("Kotlin")
+
+    module("Основы") {
+        // Здесь ближайший receiver — ModuleDslBuilder.
+        lesson("01-introduction", "Введение")
+    }
+}
+```
+
+Members outer receivers тоже могут быть видны, если не ограничить DSL marker-ом. Этому посвящена следующая тема, но уже сейчас важно понимать: nested builders создают несколько implicit receivers.
+
+## Generic helper `initChild`
+
+Повторяющийся pattern можно вынести.
+
+```kotlin
+private inline fun <Builder, Result> buildChild(
+    builder: Builder,
+    init: Builder.() -> Unit,
+    build: Builder.() -> Result
+): Result {
+    builder.init()
+    return builder.build()
+}
+```
+
+Применение:
+
+```kotlin
+fun CourseDslBuilder.moduleWithHelper(
+    title: String,
+    init: ModuleDslBuilder.() -> Unit
+) {
+    val module = buildChild(
+        builder = ModuleDslBuilder(title),
+        init = init,
+        build = ModuleDslBuilder::build
+    )
+
+    // В реальном builder-е этот метод должен иметь доступ к внутреннему списку modules.
+    println(module)
+}
+```
+
+Не вводи abstraction ради красоты. Helper полезен, если child-builder pattern повторяется много раз.
+
+## DSL methods вместо properties
+
+Для required fields можно использовать functions.
+
+```kotlin
+fun title(value: String) {
+    title = value.trim()
+}
+```
+
+А можно properties.
+
+```kotlin
+class AlternativeCourseBuilder {
+    var title: String = ""
+}
+```
+
+Function style лучше, когда нужно validation, normalization или несколько overloads. Property style проще, когда это обычная настройка.
+
+```kotlin
+course {
+    title("Kotlin")
+}
+```
+
+```kotlin
+settings {
+    retryCount = 3
+}
+```
+
+## Validation inside builders
+
+Validation должна происходить в `build`, когда весь объект уже собран.
+
+```kotlin
+fun build(): Course {
+    require(modules.isNotEmpty()) {
+        "Курс должен содержать модули"
+    }
+
+    val duplicateSlugs = modules
+        .flatMap { module ->
+            module.lessons
+        }
+        .groupBy { lesson ->
+            lesson.slug
+        }
+        .filterValues { sameSlugLessons ->
+            sameSlugLessons.size > 1
+        }
+
+    require(duplicateSlugs.isEmpty()) {
+        "Slug уроков должны быть уникальны: ${duplicateSlugs.keys.joinToString()}"
+    }
+
+    return Course(
+        title = requireNotNull(title),
+        modules = modules.toList()
+    )
+}
+```
+
+Field-level validation можно делать сразу, если ошибка локальная.
+
+```kotlin
+fun lesson(slug: String, title: String) {
+    require(slug.matches(Regex("""[a-z0-9]+(?:-[a-z0-9]+)*"""))) {
+        "Slug урока имеет неверный формат"
+    }
+
+    lessons.add(CourseLesson(slug, title))
+}
+```
+
+## Production-пример: DSL для навигации
+
+```kotlin
+data class NavItem(
+    val label: String,
+    val href: String,
+    val children: List<NavItem>
+)
+
+class NavBuilder {
+    private val items = mutableListOf<NavItem>()
+
+    fun item(label: String, href: String, init: NavItemBuilder.() -> Unit = {}) {
+        val builder = NavItemBuilder(label, href)
+        builder.init()
+        items.add(builder.build())
+    }
+
+    fun build(): List<NavItem> {
+        return items.toList()
+    }
+}
+
+class NavItemBuilder(
+    private val label: String,
+    private val href: String
+) {
+    private val children = mutableListOf<NavItem>()
+
+    fun child(label: String, href: String) {
+        children.add(
+            NavItem(
+                label = label,
+                href = href,
+                children = emptyList()
+            )
+        )
+    }
+
+    fun build(): NavItem {
+        require(label.isNotBlank()) {
+            "Label пункта навигации не должен быть пустым"
+        }
+        require(href.startsWith("/")) {
+            "Href должен быть абсолютным путем внутри сайта"
+        }
+
+        return NavItem(
+            label = label,
+            href = href,
+            children = children.toList()
+        )
+    }
+}
+
+fun navigation(init: NavBuilder.() -> Unit): List<NavItem> {
+    val builder = NavBuilder()
+    builder.init()
+    return builder.build()
+}
+
+val nav = navigation {
+    item("Основы", "/kotlin/01-introduction") {
+        child("Типы", "/kotlin/05-basic-types")
+        child("Null-safety", "/kotlin/12-nullable-and-non-null-types")
+    }
+    item("Коллекции", "/kotlin/46-read-only-and-mutable-collections")
+}
+```
+
+## Когда builder оправдан
+
+Builder DSL полезен, когда:
+
+- структура вложенная;
+- много optional blocks;
+- order деклараций важен для читаемости;
+- нужен compile-time guided API;
+- обычный constructor стал слишком шумным;
+- configuration должна выглядеть как маленький язык предметной области.
+
+Не нужен builder, если объект простой.
+
+```kotlin
+val lesson = CourseLesson(
+    slug = "01-introduction",
+    title = "Введение"
+)
+```
+
+<MouseTrap>
+Не превращай каждый data class в DSL. Builder должен уменьшать сложность, а не добавлять новый слой ради эстетики.
+</MouseTrap>
+
+## Практические правила
+
+Держи builder state private.
+
+```kotlin
+private val lessons = mutableListOf<CourseLesson>()
+```
+
+Возвращай immutable result.
+
+```kotlin
+lessons = lessons.toList()
+```
+
+Проверяй invariants в `build`.
+
+```kotlin
+require(lessons.isNotEmpty()) {
+    "Нужен хотя бы один урок"
+}
+```
+
+Выбирай хорошие имена DSL functions.
+
+```kotlin
+module("Основы") {
+    lesson("01-introduction", "Введение")
+}
+```
+
+<CatTip>
+Удачный builder читается как предметная область, но остается обычным Kotlin-кодом. Это и есть главная магия без магии.
+</CatTip>
+
+

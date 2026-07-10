@@ -1,0 +1,646 @@
+---
+title: "Expect And Actual"
+description: "expect и actual в Kotlin Multiplatform: expected declarations, actual implementations, functions, properties, classes, objects, annotations, typealiases, source set hierarchy и tradeoffs с interface-based design."
+order: 91
+category: "Kotlin Multiplatform"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны `expect` и `actual`
+
+`expect` и `actual` связывают common API с platform-specific implementation.
+
+В common source set объявляется expectation:
+
+```kotlin
+// commonMain/kotlin/platform/PlatformName.kt
+package platform
+
+expect fun platformName(): String
+```
+
+В platform source set дается actual implementation:
+
+```kotlin
+// jvmMain/kotlin/platform/PlatformNameJvm.kt
+package platform
+
+actual fun platformName(): String {
+    return "JVM ${System.getProperty("java.version")}"
+}
+```
+
+```kotlin
+// jsMain/kotlin/platform/PlatformNameJs.kt
+package platform
+
+actual fun platformName(): String {
+    return "JavaScript"
+}
+```
+
+Common code calls `platformName()` as if implementation already exists.
+
+```kotlin
+// commonMain/kotlin/lesson/Diagnostics.kt
+package lesson
+
+import platform.platformName
+
+fun diagnosticsLine(): String {
+    return "kotlingo работает на ${platformName()}"
+}
+```
+
+<CatTip>
+`expect` — это кошачий след в common code: «здесь будет platform paw». `actual` — сама лапа на JVM, JS, iOS или другой platform.
+</CatTip>
+
+## Matching rules
+
+`actual` declaration must match `expect` declaration.
+
+Совпадать должны:
+
+- package;
+- name;
+- kind of declaration;
+- type parameters;
+- function parameters;
+- return type;
+- property type;
+- modifiers that affect contract;
+- class members expected by common code;
+- source set hierarchy where actual source set depends on expect source set.
+
+```kotlin
+// commonMain/kotlin/platform/Clock.kt
+package platform
+
+expect object PlatformClock {
+    fun nowMillis(): Long
+}
+```
+
+```kotlin
+// jvmMain/kotlin/platform/ClockJvm.kt
+package platform
+
+actual object PlatformClock {
+    actual fun nowMillis(): Long {
+        return System.currentTimeMillis()
+    }
+}
+```
+
+Если `actual` находится в другом package, compiler не считает его implementation.
+
+<MouseTrap>
+`actual` — не просто похожая функция. Это точное выполнение common contract. Переименовал package, поменял nullability или забыл member — common module больше не имеет platform implementation.
+</MouseTrap>
+
+## Expected functions
+
+Functions are the simplest expect/actual case.
+
+```kotlin
+// commonMain/kotlin/platform/Uuid.kt
+package platform
+
+expect fun randomUuidString(): String
+```
+
+JVM:
+
+```kotlin
+// jvmMain/kotlin/platform/UuidJvm.kt
+package platform
+
+import java.util.UUID
+
+actual fun randomUuidString(): String {
+    return UUID.randomUUID().toString()
+}
+```
+
+iOS:
+
+```kotlin
+// iosMain/kotlin/platform/UuidIos.kt
+package platform
+
+import platform.Foundation.NSUUID
+
+actual fun randomUuidString(): String {
+    return NSUUID().UUIDString()
+}
+```
+
+Common usage:
+
+```kotlin
+// commonMain/kotlin/lesson/LessonDraft.kt
+package lesson
+
+import platform.randomUuidString
+
+data class LessonDraft(
+    val id: String = randomUuidString(),
+    val title: String
+)
+```
+
+Functions are good for:
+
+- platform constants;
+- small platform operations;
+- factories;
+- wrappers around APIs like UUID, clock, environment;
+- simple one-off platform bridges.
+
+For large services, interface plus injection is often easier to test and replace.
+
+## Expected properties
+
+Properties can also be expected.
+
+```kotlin
+// commonMain/kotlin/platform/RuntimeInfo.kt
+package platform
+
+expect val runtimeFamily: String
+```
+
+```kotlin
+// jvmMain/kotlin/platform/RuntimeInfoJvm.kt
+package platform
+
+actual val runtimeFamily: String = "jvm"
+```
+
+```kotlin
+// jsMain/kotlin/platform/RuntimeInfoJs.kt
+package platform
+
+actual val runtimeFamily: String = "js"
+```
+
+Common usage:
+
+```kotlin
+// commonMain/kotlin/analytics/AnalyticsContext.kt
+package analytics
+
+import platform.runtimeFamily
+
+data class AnalyticsContext(
+    val runtime: String = runtimeFamily,
+    val appName: String = "kotlingo"
+)
+```
+
+If value is computed, use getter:
+
+```kotlin
+// jvmMain/kotlin/platform/RuntimeInfoJvm.kt
+package platform
+
+actual val runtimeFamily: String
+    get() = "jvm:${System.getProperty("java.vm.name")}"
+```
+
+## Expected classes
+
+`expect class` declares a type that common code can use, while each platform provides actual class.
+
+```kotlin
+// commonMain/kotlin/platform/PlatformPath.kt
+package platform
+
+expect class PlatformPath(raw: String) {
+    val raw: String
+
+    fun fileName(): String
+}
+```
+
+JVM:
+
+```kotlin
+// jvmMain/kotlin/platform/PlatformPathJvm.kt
+package platform
+
+import java.nio.file.Path
+
+actual class PlatformPath actual constructor(
+    actual val raw: String
+) {
+    private val path: Path = Path.of(raw)
+
+    actual fun fileName(): String {
+        return path.fileName.toString()
+    }
+}
+```
+
+JS:
+
+```kotlin
+// jsMain/kotlin/platform/PlatformPathJs.kt
+package platform
+
+actual class PlatformPath actual constructor(
+    actual val raw: String
+) {
+    actual fun fileName(): String {
+        return raw.substringAfterLast("/")
+    }
+}
+```
+
+Expected classes are powerful but couple common code to a platform-shaped type. Prefer simple expected functions or interfaces unless the type itself is truly platform-dependent.
+
+## Constructors and members
+
+Common code can use only members declared in `expect`.
+
+```kotlin
+// commonMain/kotlin/platform/PlatformToken.kt
+package platform
+
+expect class PlatformToken(value: String) {
+    val value: String
+
+    fun normalized(): String
+}
+```
+
+Actual class can have extra platform-only members, but common code will not see them.
+
+```kotlin
+// jvmMain/kotlin/platform/PlatformTokenJvm.kt
+package platform
+
+actual class PlatformToken actual constructor(
+    actual val value: String
+) {
+    actual fun normalized(): String {
+        return value.trim().lowercase()
+    }
+
+    fun asSystemPropertyKey(): String {
+        // Этот method доступен только JVM code, если type visible there.
+        return "kotlingo.$value"
+    }
+}
+```
+
+Common code:
+
+```kotlin
+// commonMain/kotlin/platform/TokenUsage.kt
+package platform
+
+fun renderToken(token: PlatformToken): String {
+    // Доступны только expected members.
+    return token.normalized()
+}
+```
+
+## Objects and constants
+
+`expect object` useful for singleton platform services with tiny surface.
+
+```kotlin
+// commonMain/kotlin/platform/LineSeparator.kt
+package platform
+
+expect object PlatformText {
+    val lineSeparator: String
+}
+```
+
+```kotlin
+// jvmMain/kotlin/platform/LineSeparatorJvm.kt
+package platform
+
+actual object PlatformText {
+    actual val lineSeparator: String = System.lineSeparator()
+}
+```
+
+Use object carefully: global singleton can hide dependencies. For testability, interface injection often wins.
+
+## Type aliases as actuals
+
+Actual declaration can be typealias to existing platform type if it satisfies expected API shape.
+
+Common declaration:
+
+```kotlin
+// commonMain/kotlin/platform/DateFormatter.kt
+package platform
+
+expect class PlatformDateFormatter(pattern: String) {
+    fun format(timestampMillis: Long): String
+}
+```
+
+Instead of typealias, JVM often needs wrapper because `java.text.SimpleDateFormat` does not match this exact constructor/member contract safely for common expectations.
+
+Wrapper actual:
+
+```kotlin
+// jvmMain/kotlin/platform/DateFormatterJvm.kt
+package platform
+
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+actual class PlatformDateFormatter actual constructor(
+    pattern: String
+) {
+    private val delegate = SimpleDateFormat(pattern, Locale.US)
+
+    actual fun format(timestampMillis: Long): String {
+        return delegate.format(Date(timestampMillis))
+    }
+}
+```
+
+Typealias actual works best for simple type reuse.
+
+```kotlin
+// commonMain/kotlin/platform/PlatformRegex.kt
+package platform
+
+expect class PlatformRegex(pattern: String) {
+    fun matches(input: String): Boolean
+}
+```
+
+```kotlin
+// jvmMain/kotlin/platform/PlatformRegexJvm.kt
+package platform
+
+actual typealias PlatformRegex = kotlin.text.Regex
+```
+
+This works because `Regex` has compatible constructor and `matches` member.
+
+<MouseTrap>
+`actual typealias` is not a magic adapter. Existing platform type must already match expected contract. If names, constructor or members differ, write wrapper actual class.
+</MouseTrap>
+
+## Expected annotations
+
+Annotations can be expected too.
+
+```kotlin
+// commonMain/kotlin/platform/SerializableName.kt
+package platform
+
+expect annotation class PlatformSerializableName(
+    val name: String
+)
+```
+
+JVM actual could map to a platform annotation if contract matches, or define real annotation:
+
+```kotlin
+// jvmMain/kotlin/platform/SerializableNameJvm.kt
+package platform
+
+actual annotation class PlatformSerializableName actual constructor(
+    actual val name: String
+)
+```
+
+Use expected annotations sparingly. Many multiplatform libraries already provide common annotations, for example serialization annotations.
+
+## Visibility
+
+Visibility is part of API design.
+
+```kotlin
+// commonMain/kotlin/platform/InternalSecret.kt
+package platform
+
+internal expect fun machineFingerprint(): String
+```
+
+```kotlin
+// jvmMain/kotlin/platform/InternalSecretJvm.kt
+package platform
+
+internal actual fun machineFingerprint(): String {
+    return System.getProperty("os.name") + ":" + System.getProperty("os.arch")
+}
+```
+
+Do not expose expect declarations publicly unless you want them in your common API. Public expect declaration becomes public contract for every target.
+
+## Source set hierarchy and actuals
+
+Actual implementation must live in a source set that depends on the expect source set.
+
+Example:
+
+```text
+commonMain
+  nativeMain
+    appleMain
+      iosMain
+        iosArm64Main
+        iosSimulatorArm64Main
+  jvmMain
+```
+
+If expectation is in `commonMain`, then possible actual locations include:
+
+- `jvmMain` for JVM;
+- `iosMain` for iOS device and simulator;
+- `appleMain` for all Apple targets;
+- `nativeMain` for all Native targets;
+- specific target source set, if implementation truly target-specific.
+
+```kotlin
+// commonMain/kotlin/platform/DeviceFamily.kt
+package platform
+
+expect fun deviceFamily(): String
+```
+
+```kotlin
+// appleMain/kotlin/platform/DeviceFamilyApple.kt
+package platform
+
+actual fun deviceFamily(): String {
+    return "apple"
+}
+```
+
+This actual can satisfy all targets under `appleMain`.
+
+## Interface or expect/actual
+
+Prefer interface plus injection when:
+
+- implementation is a dependency;
+- tests need fake implementation;
+- multiple implementations may exist on one platform;
+- caller should choose implementation;
+- lifecycle matters;
+- stateful service is involved.
+
+```kotlin
+// commonMain/kotlin/platform/Logger.kt
+package platform
+
+interface Logger {
+    fun info(message: String)
+
+    fun error(message: String, throwable: Throwable?)
+}
+```
+
+JVM implementation:
+
+```kotlin
+// jvmMain/kotlin/platform/JvmLogger.kt
+package platform
+
+class JvmLogger : Logger {
+    override fun info(message: String) {
+        println("INFO $message")
+    }
+
+    override fun error(message: String, throwable: Throwable?) {
+        println("ERROR $message ${throwable?.message}")
+    }
+}
+```
+
+Prefer expect/actual when:
+
+- common code needs a platform primitive;
+- implementation is naturally one per platform;
+- dependency injection would add noise;
+- API surface is small and stable;
+- platform-specific implementation is unavoidable.
+
+```kotlin
+// commonMain/kotlin/platform/Platform.kt
+package platform
+
+expect fun defaultLocaleTag(): String
+```
+
+<CatTip>
+Если common code спрашивает «какая сейчас platform-specific value», `expect/actual` удобен. Если common code просит «выполни сервисную работу», чаще лучше interface.
+</CatTip>
+
+## Production example: clock and UUID
+
+Common:
+
+```kotlin
+// commonMain/kotlin/audit/AuditEventFactory.kt
+package audit
+
+import platform.PlatformClock
+import platform.randomUuidString
+
+class AuditEventFactory {
+    fun lessonOpened(userId: String, slug: String): AuditEvent {
+        return AuditEvent(
+            id = randomUuidString(),
+            userId = userId,
+            slug = slug,
+            createdAtMillis = PlatformClock.nowMillis()
+        )
+    }
+}
+
+data class AuditEvent(
+    val id: String,
+    val userId: String,
+    val slug: String,
+    val createdAtMillis: Long
+)
+```
+
+Expected declarations:
+
+```kotlin
+// commonMain/kotlin/platform/PlatformServices.kt
+package platform
+
+expect object PlatformClock {
+    fun nowMillis(): Long
+}
+
+expect fun randomUuidString(): String
+```
+
+JVM actuals:
+
+```kotlin
+// jvmMain/kotlin/platform/PlatformServicesJvm.kt
+package platform
+
+import java.util.UUID
+
+actual object PlatformClock {
+    actual fun nowMillis(): Long {
+        return System.currentTimeMillis()
+    }
+}
+
+actual fun randomUuidString(): String {
+    return UUID.randomUUID().toString()
+}
+```
+
+iOS actuals:
+
+```kotlin
+// iosMain/kotlin/platform/PlatformServicesIos.kt
+package platform
+
+import platform.Foundation.NSDate
+import platform.Foundation.NSUUID
+import platform.Foundation.timeIntervalSince1970
+
+actual object PlatformClock {
+    actual fun nowMillis(): Long {
+        return (NSDate().timeIntervalSince1970 * 1_000).toLong()
+    }
+}
+
+actual fun randomUuidString(): String {
+    return NSUUID().UUIDString()
+}
+```
+
+This design keeps `AuditEventFactory` in common code while platform source sets provide time and UUID details.
+
+## Common mistakes
+
+Частые ошибки:
+
+- declaring `expect` when interface would be more testable;
+- exposing platform-shaped names in common API;
+- using `actual typealias` where wrapper is needed;
+- placing actual in wrong source set;
+- forgetting actual for one target;
+- changing expected public declaration without updating all actuals;
+- hiding complex platform lifecycle behind tiny global expected object;
+- expecting common code to see actual-only members.
+
+Good expect/actual API is small, explicit and stable.
+

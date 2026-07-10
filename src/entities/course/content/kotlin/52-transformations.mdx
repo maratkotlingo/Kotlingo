@@ -1,0 +1,536 @@
+---
+title: "Transformations"
+description: "Трансформации коллекций: map, mapIndexed, mapNotNull, flatMap, flatten, zip, unzip, associate, associateBy, associateWith, потери ключей и безопасное построение моделей."
+order: 52
+category: "Коллекции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Transformation меняет форму данных
+
+Transformation operation берет collection и строит из нее новое представление: другой element type, другую структуру, пары, map или flat list.
+
+```kotlin
+val names = listOf("Murka", "Barsik", "Ryzhik")
+
+val lengths = names.map { name ->
+    // Каждый String превращается в Int.
+    name.length
+}
+
+println(lengths) // [5, 6, 6]
+```
+
+Filtering отвечает на вопрос «какие элементы оставить?». Transformation отвечает на вопрос «во что превратить каждый элемент?».
+
+<CatTip>
+Представь, что `map` — это кошачья лапка, которая касается каждого элемента и аккуратно превращает его в новый элемент, не меняя исходный список.
+</CatTip>
+
+## `map`
+
+`map` применяет transform-функцию к каждому element и возвращает `List` результатов.
+
+```kotlin
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val minutes: Int
+)
+
+data class LessonCard(
+    val href: String,
+    val label: String,
+    val durationLabel: String
+)
+
+val lessons = listOf(
+    Lesson("01-introduction", "Введение", 14),
+    Lesson("02-types", "Типы", 28),
+    Lesson("03-null-safety", "Null-safety", 35)
+)
+
+val cards = lessons.map { lesson ->
+    // Создаем UI-модель, не таща доменную модель прямо в слой отображения.
+    LessonCard(
+        href = "/kotlin/${lesson.slug}",
+        label = lesson.title,
+        durationLabel = "${lesson.minutes} мин"
+    )
+}
+```
+
+`map` сохраняет количество элементов: если на входе 3 элемента, на выходе тоже 3 результата. Тип результата может быть другим.
+
+```kotlin
+val slugs: List<String> = lessons.map { lesson ->
+    lesson.slug
+}
+```
+
+## `mapIndexed`
+
+`mapIndexed` передает в transform-функцию index и element.
+
+```kotlin
+val numberedTitles = lessons.mapIndexed { index, lesson ->
+    // index начинается с нуля, поэтому для человекочитаемого номера добавляем 1.
+    "${index + 1}. ${lesson.title}"
+}
+
+println(numberedTitles) // [1. Введение, 2. Типы, 3. Null-safety]
+```
+
+Используй `mapIndexed`, когда номер позиции действительно нужен в результате:
+
+```kotlin
+data class SidebarItem(
+    val position: Int,
+    val title: String,
+    val active: Boolean
+)
+
+fun buildSidebar(lessons: List<Lesson>, activeSlug: String): List<SidebarItem> {
+    return lessons.mapIndexed { index, lesson ->
+        SidebarItem(
+            position = index + 1,
+            title = lesson.title,
+            active = lesson.slug == activeSlug
+        )
+    }
+}
+```
+
+<MouseTrap>
+Не используй index как стабильный identifier. Если пользователь может сортировать, фильтровать или удалять элементы, index меняется. Для идентичности нужны `id`, `slug` или другой стабильный ключ.
+</MouseTrap>
+
+## `mapNotNull`
+
+`mapNotNull` сначала трансформирует каждый element, а затем выбрасывает результаты `null`.
+
+```kotlin
+val rawPercentages = listOf("100", "80", "кот", "", "45")
+
+val percentages: List<Int> = rawPercentages.mapNotNull { raw ->
+    // toIntOrNull возвращает null, если строка не является корректным Int.
+    raw.toIntOrNull()
+}
+
+println(percentages) // [100, 80, 45]
+```
+
+`mapNotNull` полезен, когда parsing, lookup или validation могут не дать результата.
+
+```kotlin
+data class User(val id: String, val email: String?)
+
+val users = listOf(
+    User("u-1", "mila@example.com"),
+    User("u-2", null),
+    User("u-3", "kot@example.com")
+)
+
+val normalizedEmails = users.mapNotNull { user ->
+    // Если email отсутствует, этот пользователь не попадет в итоговый список.
+    user.email?.trim()?.lowercase()
+}
+
+println(normalizedEmails) // [mila@example.com, kot@example.com]
+```
+
+## `flatMap`
+
+`flatMap` объединяет два действия:
+
+- transform каждого element в collection;
+- flatten всех полученных collections в один список.
+
+```kotlin
+data class Module(
+    val title: String,
+    val lessonSlugs: List<String>
+)
+
+val modules = listOf(
+    Module("Основы", listOf("01-introduction", "02-types")),
+    Module("Null-safety", listOf("03-nullable", "04-smart-casts"))
+)
+
+val allSlugs = modules.flatMap { module ->
+    // Каждый модуль превращается в список slug, затем списки склеиваются.
+    module.lessonSlugs
+}
+
+println(allSlugs) // [01-introduction, 02-types, 03-nullable, 04-smart-casts]
+```
+
+`flatMap` особенно важен для nested data:
+
+```kotlin
+data class Order(val id: String, val items: List<OrderItem>)
+data class OrderItem(val sku: String, val quantity: Int)
+
+val orderedSkus = orders.flatMap { order ->
+    // Получаем все позиции всех заказов одним плоским списком.
+    order.items
+}.map { item ->
+    item.sku
+}
+```
+
+Можно сохранять контекст родителя:
+
+```kotlin
+data class LessonRef(val moduleTitle: String, val slug: String)
+
+val refs = modules.flatMap { module ->
+    module.lessonSlugs.map { slug ->
+        // Внутренний map создает элемент, который помнит родительский module.
+        LessonRef(moduleTitle = module.title, slug = slug)
+    }
+}
+```
+
+## `flatten`
+
+`flatten` превращает collection of collections в один список.
+
+```kotlin
+val weeklyMinutes = listOf(
+    listOf(20, 30),
+    listOf(15, 25, 35),
+    emptyList()
+)
+
+val allMinutes = weeklyMinutes.flatten()
+
+println(allMinutes) // [20, 30, 15, 25, 35]
+```
+
+Если transform не нужен, используй `flatten`. Если перед flatten нужно превратить parent element в nested collection, используй `flatMap`.
+
+```kotlin
+val sameResult = modules
+    .map { module ->
+        // Получаем List<List<String>>.
+        module.lessonSlugs
+    }
+    .flatten()
+```
+
+Чаще это пишут через `flatMap`, потому что намерение короче и яснее:
+
+```kotlin
+val directResult = modules.flatMap { module ->
+    module.lessonSlugs
+}
+```
+
+## `zip`
+
+`zip` объединяет elements двух collections по index.
+
+```kotlin
+val slugs = listOf("01-introduction", "02-types", "03-null-safety")
+val titles = listOf("Введение", "Типы", "Null-safety")
+
+val pairs: List<Pair<String, String>> = slugs.zip(titles)
+
+println(pairs) // [(01-introduction, Введение), (02-types, Типы), (03-null-safety, Null-safety)]
+```
+
+Если размеры отличаются, результат имеет длину меньшей collection.
+
+```kotlin
+val left = listOf("a", "b", "c")
+val right = listOf(1, 2)
+
+println(left.zip(right)) // [(a, 1), (b, 2)]
+```
+
+Можно передать transform:
+
+```kotlin
+data class LessonSummary(val slug: String, val title: String)
+
+val summaries = slugs.zip(titles) { slug, title ->
+    // Создаем доменную модель вместо Pair.
+    LessonSummary(slug = slug, title = title)
+}
+```
+
+<MouseTrap>
+`zip` молча обрезает лишние элементы. Если разные размеры означают ошибку данных, проверь размеры заранее через `require`.
+</MouseTrap>
+
+```kotlin
+fun buildSummaries(slugs: List<String>, titles: List<String>): List<LessonSummary> {
+    require(slugs.size == titles.size) {
+        "Количество slug и title должно совпадать"
+    }
+
+    return slugs.zip(titles) { slug, title ->
+        LessonSummary(slug = slug, title = title)
+    }
+}
+```
+
+## `unzip`
+
+`unzip` превращает `List<Pair<A, B>>` в `Pair<List<A>, List<B>>`.
+
+```kotlin
+val lessonPairs = listOf(
+    "01-introduction" to "Введение",
+    "02-types" to "Типы",
+    "03-null-safety" to "Null-safety"
+)
+
+val (lessonSlugs, lessonTitles) = lessonPairs.unzip()
+
+println(lessonSlugs)  // [01-introduction, 02-types, 03-null-safety]
+println(lessonTitles) // [Введение, Типы, Null-safety]
+```
+
+`unzip` удобен, когда данные временно были представлены pair-ами, а дальше нужны две отдельные sequences значений.
+
+## `associate`
+
+`associate` строит `Map` из collection. Transform-функция должна вернуть `Pair<K, V>`.
+
+```kotlin
+val minutesBySlug = lessons.associate { lesson ->
+    // Ключом становится slug, значением — длительность.
+    lesson.slug to lesson.minutes
+}
+
+println(minutesBySlug) // {01-introduction=14, 02-types=28, 03-null-safety=35}
+```
+
+Если два элемента дают одинаковый key, последнее значение перезапишет предыдущее.
+
+```kotlin
+val duplicates = listOf(
+    Lesson("01-introduction", "Старое название", 10),
+    Lesson("01-introduction", "Новое название", 14)
+)
+
+val bySlug = duplicates.associate { lesson ->
+    lesson.slug to lesson.title
+}
+
+println(bySlug) // {01-introduction=Новое название}
+```
+
+<MouseTrap>
+`associate`, `associateBy` и `associateWith` не сообщают об accidental duplicates. Если duplicate key является ошибкой, проверь это явно.
+</MouseTrap>
+
+```kotlin
+fun List<Lesson>.associateByUniqueSlug(): Map<String, Lesson> {
+    val result = mutableMapOf<String, Lesson>()
+
+    for (lesson in this) {
+        val previous = result.put(lesson.slug, lesson)
+
+        require(previous == null) {
+            "Найден повторяющийся slug: ${lesson.slug}"
+        }
+    }
+
+    return result
+}
+```
+
+## `associateBy`
+
+`associateBy` строит map, где key вычисляется из element, а value по умолчанию является самим element.
+
+```kotlin
+val lessonsBySlug: Map<String, Lesson> = lessons.associateBy { lesson ->
+    lesson.slug
+}
+```
+
+Можно передать две функции: key selector и value transform.
+
+```kotlin
+val titlesBySlug: Map<String, String> = lessons.associateBy(
+    keySelector = { lesson ->
+        lesson.slug
+    },
+    valueTransform = { lesson ->
+        lesson.title
+    }
+)
+```
+
+Используй `associateBy`, когда element уже является нужным value или из него легко получить value.
+
+## `associateWith`
+
+`associateWith` строит map, где key — сам element, а value вычисляется функцией.
+
+```kotlin
+val estimatedReadTimeByTitle = lessons
+    .map { lesson -> lesson.title }
+    .associateWith { title ->
+        // Грубая оценка: одна минута на каждые десять символов.
+        (title.length / 10).coerceAtLeast(1)
+    }
+
+println(estimatedReadTimeByTitle)
+```
+
+`associateWith` удобен, когда есть список ключей и нужно вычислить значение для каждого.
+
+```kotlin
+val permissions = listOf("read", "write", "delete")
+
+val defaultAccess = permissions.associateWith { permission ->
+    // По умолчанию опасные операции выключены.
+    permission == "read"
+}
+
+println(defaultAccess) // {read=true, write=false, delete=false}
+```
+
+## Transformations для `Map`
+
+У `Map` можно трансформировать entries, keys и values.
+
+```kotlin
+val progressBySlug = mapOf(
+    "01-introduction" to 100,
+    "02-types" to 80,
+    "03-null-safety" to 0
+)
+
+val labels = progressBySlug.map { (slug, percent) ->
+    // map для Map возвращает List, потому что результат может быть чем угодно.
+    "$slug: $percent%"
+}
+
+println(labels)
+```
+
+Если нужна новая map с измененными values, используй `mapValues`.
+
+```kotlin
+val progressLabels = progressBySlug.mapValues { (_, percent) ->
+    // Key остается прежним, меняется только value.
+    when (percent) {
+        100 -> "готово"
+        0 -> "не начато"
+        else -> "$percent%"
+    }
+}
+```
+
+Если нужны измененные keys, используй `mapKeys`.
+
+```kotlin
+val fullUrls = progressBySlug.mapKeys { (slug, _) ->
+    // Value остается прежним, key превращается в URL.
+    "/kotlin/$slug"
+}
+```
+
+<MouseTrap>
+При `mapKeys` новые keys тоже могут совпасть. Если два старых ключа превращаются в один новый ключ, последнее значение перезапишет предыдущее.
+</MouseTrap>
+
+## Production-пример: построение страницы курса
+
+```kotlin
+data class RawLesson(
+    val slug: String?,
+    val title: String?,
+    val minutes: String?,
+    val tags: List<String>?
+)
+
+data class CoursePageLesson(
+    val slug: String,
+    val title: String,
+    val minutes: Int,
+    val tags: Set<String>,
+    val href: String
+)
+
+fun RawLesson.toPageLessonOrNull(): CoursePageLesson? {
+    val normalizedSlug = slug?.trim()?.takeIf { value ->
+        // Пустой slug нельзя использовать как URL.
+        value.isNotEmpty()
+    } ?: return null
+
+    val normalizedTitle = title?.trim()?.takeIf { value ->
+        // Заголовок должен быть видимым.
+        value.isNotEmpty()
+    } ?: return null
+
+    val parsedMinutes = minutes?.toIntOrNull()?.takeIf { value ->
+        // Нулевая и отрицательная длительность не имеют смысла для урока.
+        value > 0
+    } ?: return null
+
+    val normalizedTags = tags
+        .orEmpty()
+        .map { tag ->
+            // Приводим теги к единому регистру.
+            tag.trim().lowercase()
+        }
+        .filter { tag ->
+            tag.isNotEmpty()
+        }
+        .toSet()
+
+    return CoursePageLesson(
+        slug = normalizedSlug,
+        title = normalizedTitle,
+        minutes = parsedMinutes,
+        tags = normalizedTags,
+        href = "/kotlin/$normalizedSlug"
+    )
+}
+
+fun buildCourseLessons(rawLessons: List<RawLesson>): List<CoursePageLesson> {
+    return rawLessons
+        .mapNotNull { rawLesson ->
+            // Некорректные записи исчезают из результата, а корректные становятся строгой моделью.
+            rawLesson.toPageLessonOrNull()
+        }
+        .sortedBy { lesson ->
+            // После transformation можно сразу сортировать результат.
+            lesson.slug
+        }
+}
+```
+
+Этот пример показывает типичный production pipeline: внешний nullable input постепенно превращается в строгую модель, с которой проще работать дальше.
+
+## Transformation и side effects
+
+Transform-функции лучше держать pure. `map` должен описывать преобразование данных, а не запускать отправку email, запись в базу или изменение внешнего состояния.
+
+```kotlin
+val emails = users.mapNotNull { user ->
+    // Хорошо: получаем данные для следующего шага.
+    user.email
+}
+
+emails.forEach { email ->
+    // Side effect вынесен в отдельный явный шаг.
+    emailSender.sendWelcomeEmail(email)
+}
+```
+
+<CatTip>
+Если после `map` получается `List<Pair<...>>`, подумай, не пора ли ввести маленький data class. Pair хорош для локального glue-кода, но именованные поля обычно лучше передают смысл.
+</CatTip>
+
+

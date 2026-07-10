@@ -1,0 +1,388 @@
+---
+title: "Performance And Profiling"
+description: "Performance and profiling in Kotlin: measuring before optimizing, allocation hotspots, JMH, JFR, sequences versus collections, inline tradeoffs, coroutine overhead, boxing, logging costs и production-процесс."
+order: 103
+category: "Architecture"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Performance starts with measurement
+
+Оптимизация без измерений часто ускоряет не то место.
+
+Правильный порядок:
+
+- define user-visible problem;
+- measure baseline;
+- identify hotspot;
+- change one thing;
+- measure again;
+- keep benchmark or regression test where appropriate;
+- document tradeoff.
+
+```kotlin
+class LessonSearch(
+    private val lessons: List<Lesson>
+) {
+    fun search(query: String): List<Lesson> {
+        val normalized = query.lowercase()
+
+        return lessons.filter { lesson ->
+            lesson.title.lowercase().contains(normalized)
+        }
+    }
+}
+
+data class Lesson(
+    val slug: String,
+    val title: String
+)
+```
+
+Maybe this is fine. Maybe `lowercase()` inside loop is the hotspot. You only know after profiling with realistic data.
+
+<CatTip>
+Performance work без профиля — это кот, который охотится под диваном на шум из холодильника. Сначала найди настоящую мышку.
+</CatTip>
+
+## Macro and micro measurement
+
+Macro measurement answers product-level questions:
+
+- request latency;
+- throughput;
+- startup time;
+- memory footprint;
+- UI frame time;
+- import duration;
+- CPU usage under real workload.
+
+Micro measurement answers narrow questions:
+
+- is this parser faster;
+- does this allocation matter;
+- is sequence pipeline cheaper;
+- does inline remove lambda allocation;
+- does boxing appear in hot loop.
+
+Use macro profiling first. Use microbenchmarks for isolated, repeatable decisions.
+
+## JMH
+
+On JVM, JMH is the standard microbenchmark harness.
+
+Gradle plugin setup varies by project, but benchmark code usually looks like this:
+
+```kotlin
+import org.openjdk.jmh.annotations.Benchmark
+import org.openjdk.jmh.annotations.Fork
+import org.openjdk.jmh.annotations.Measurement
+import org.openjdk.jmh.annotations.Scope
+import org.openjdk.jmh.annotations.State
+import org.openjdk.jmh.annotations.Warmup
+
+@State(Scope.Benchmark)
+@Warmup(iterations = 3)
+@Measurement(iterations = 5)
+@Fork(2)
+open class SlugBenchmark {
+    private val titles = List(1_000) { index ->
+        "Kotlin Performance Lesson $index"
+    }
+
+    @Benchmark
+    fun normalizeAll(): List<String> {
+        return titles.map { title ->
+            title.trim()
+                .lowercase()
+                .replace(" ", "-")
+        }
+    }
+}
+```
+
+JMH handles warmup, forks and JVM optimization issues that make naive timing unreliable.
+
+<MouseTrap>
+`val started = System.nanoTime()` around one function call is usually not a trustworthy benchmark. JVM warmup, dead-code elimination and GC can dominate the result.
+</MouseTrap>
+
+## Profiling with JFR
+
+Java Flight Recorder helps identify real JVM hotspots:
+
+- CPU samples;
+- allocation pressure;
+- lock contention;
+- exceptions;
+- thread activity;
+- GC pauses;
+- file/socket I/O;
+- method profiling.
+
+Typical workflow:
+
+```bash
+java -XX:StartFlightRecording=filename=kotlingo.jfr,duration=60s -jar app.jar
+```
+
+Then inspect recording in JDK Mission Control or another JFR viewer.
+
+Use profiling questions:
+
+- where is CPU spent;
+- which methods allocate most;
+- which allocations survive GC;
+- where threads block;
+- are exceptions thrown in hot paths;
+- are logs or serialization expensive.
+
+## Allocation hotspots
+
+Kotlin features are expressive, but can allocate:
+
+- lambdas captured in non-inline calls;
+- intermediate collections;
+- boxing primitives;
+- string concatenation in loops;
+- data class copies;
+- sequences with many small wrappers;
+- coroutine state machines;
+- regex creation inside hot paths.
+
+Bad:
+
+```kotlin
+fun countTagsBad(lessons: List<LessonWithTags>): Int {
+    return lessons
+        .flatMap { lesson -> lesson.tags }
+        .filter { tag -> tag.startsWith("kotlin") }
+        .map { tag -> tag.lowercase() }
+        .distinct()
+        .count()
+}
+
+data class LessonWithTags(
+    val slug: String,
+    val tags: List<String>
+)
+```
+
+This is readable, but may allocate intermediate lists.
+
+Manual hot-path version:
+
+```kotlin
+fun countTagsHotPath(lessons: List<LessonWithTags>): Int {
+    val unique = HashSet<String>()
+
+    for (lesson in lessons) {
+        for (tag in lesson.tags) {
+            if (tag.startsWith("kotlin")) {
+                unique += tag.lowercase()
+            }
+        }
+    }
+
+    return unique.size
+}
+```
+
+Do not rewrite everything manually. Use this style only where profiling proves it matters.
+
+## Sequences versus collections
+
+Collections are eager. Each operator can create intermediate collection.
+
+```kotlin
+fun eagerPipeline(values: List<String>): List<String> {
+    return values
+        .filter { value -> value.isNotBlank() }
+        .map { value -> value.trim() }
+        .take(10)
+}
+```
+
+Sequence is lazy.
+
+```kotlin
+fun lazyPipeline(values: List<String>): List<String> {
+    return values.asSequence()
+        .filter { value -> value.isNotBlank() }
+        .map { value -> value.trim() }
+        .take(10)
+        .toList()
+}
+```
+
+Sequence can help when:
+
+- pipeline has many operators;
+- input is large;
+- `take`/`first` stops early;
+- avoiding intermediate collections matters.
+
+Sequence can hurt when:
+
+- input is small;
+- pipeline is short;
+- virtual calls/wrappers cost more than saved allocations;
+- code becomes harder to read.
+
+Measure with real data.
+
+## Inline tradeoffs
+
+`inline` can remove lambda allocation and call overhead for higher-order functions.
+
+```kotlin
+inline fun <T> measureBlock(name: String, block: () -> T): T {
+    val started = System.nanoTime()
+
+    return try {
+        block()
+    } finally {
+        val durationMs = (System.nanoTime() - started) / 1_000_000
+        println("$name took $durationMs ms")
+    }
+}
+```
+
+Tradeoffs:
+
+- larger bytecode;
+- public inline functions expose implementation details;
+- binary compatibility risks;
+- stack traces can be less direct;
+- not every function benefits.
+
+Use `inline` for:
+
+- small higher-order helpers;
+- reified type parameters;
+- performance-critical library functions after measurement;
+- DSL functions where lambdas are central.
+
+Avoid `inline` for large functions.
+
+## Boxing
+
+Generic code boxes primitives on JVM.
+
+```kotlin
+fun sumGeneric(values: List<Int>): Int {
+    var sum = 0
+
+    for (value in values) {
+        sum += value
+    }
+
+    return sum
+}
+```
+
+`List<Int>` stores boxed `Integer` on JVM. Primitive arrays avoid boxing.
+
+```kotlin
+fun sumArray(values: IntArray): Int {
+    var sum = 0
+
+    for (value in values) {
+        sum += value
+    }
+
+    return sum
+}
+```
+
+Use primitive arrays in hot numeric code. Do not use them everywhere by default.
+
+## Coroutine overhead
+
+Coroutines are lightweight, not free.
+
+Costs:
+
+- state machine allocation;
+- dispatcher scheduling;
+- context switching;
+- cancellation checks;
+- `async`/`Deferred` objects;
+- Flow operator overhead;
+- channel buffers and synchronization.
+
+Bad tiny task fan-out:
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+
+suspend fun normalizeBad(values: List<String>): List<String> = coroutineScope {
+    values.map { value ->
+        async {
+            value.trim().lowercase()
+        }
+    }.awaitAll()
+}
+```
+
+Better:
+
+```kotlin
+fun normalize(values: List<String>): List<String> {
+    return values.map { value ->
+        value.trim().lowercase()
+    }
+}
+```
+
+Use coroutines for concurrency, async I/O and structured cancellation, not for every small CPU operation.
+
+## Logging cost
+
+Logging can become a performance problem:
+
+- eager string interpolation;
+- huge payload rendering;
+- high-cardinality structured fields;
+- sync appenders;
+- logs in tight loops;
+- exception stack traces in expected branches.
+
+Better:
+
+```kotlin
+logger.debug("Parsed lesson count={}", count)
+```
+
+Guard expensive rendering:
+
+```kotlin
+if (logger.isDebugEnabled) {
+    logger.debug("Parsed lesson tree={}", renderDebugTree(tree))
+}
+```
+
+## Production checklist
+
+For performance work:
+
+- reproduce issue with realistic workload;
+- profile before optimizing;
+- separate macro and micro measurements;
+- use JMH for JVM microbenchmarks;
+- inspect allocation hotspots, not only CPU;
+- compare sequence and collection pipelines with real data;
+- use inline deliberately;
+- avoid coroutine fan-out for tiny CPU tasks;
+- preserve readability unless performance evidence justifies complexity;
+- keep benchmark or performance regression check for critical path.
+
+<CatTip>
+Хорошая optimization leaves code no more clever than necessary. Если измерение не доказало пользу, не заставляй будущего разработчика распутывать клубок ради воображаемой скорости.
+</CatTip>
+

@@ -1,0 +1,430 @@
+---
+title: "Ranges и Progressions"
+description: "Диапазоны и прогрессии Kotlin: закрытые и open-ended ranges, Comparable ranges, in, !in, .., ..<, until, downTo, step, reversed, IntProgression, LongProgression, CharProgression и основы custom progression."
+order: 59
+category: "Стандартная библиотека"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Range описывает границы
+
+Range представляет диапазон значений: от start до end. В Kotlin ranges используются для checks через `in`, loops, slicing-like logic и validation.
+
+```kotlin
+val validPercent = 0..100
+
+println(42 in validPercent)  // true
+println(120 in validPercent) // false
+```
+
+Closed range включает обе границы.
+
+```kotlin
+val closed = 1..4
+
+println(closed.toList()) // [1, 2, 3, 4]
+```
+
+Open-ended range включает start, но исключает end.
+
+```kotlin
+val openEnded = 1..<4
+
+println(openEnded.toList()) // [1, 2, 3]
+```
+
+<CatTip>
+Closed range — это коробка с обеими закрытыми створками: крайние значения внутри. Open-ended range оставляет правую створку приоткрытой: start внутри, end уже снаружи.
+</CatTip>
+
+## `..` и `rangeTo`
+
+Operator `..` вызывает `rangeTo`.
+
+```kotlin
+val numbers = 1..5
+val sameNumbers = 1.rangeTo(5)
+
+println(numbers == sameNumbers) // true
+```
+
+Для integral types результат можно iterировать.
+
+```kotlin
+for (index in 1..3) {
+    // Цикл пройдет по 1, 2, 3.
+    println(index)
+}
+```
+
+Для `Char` тоже есть progression.
+
+```kotlin
+for (letter in 'a'..'d') {
+    print(letter)
+}
+
+println() // abcd
+```
+
+## `..<` и `rangeUntil`
+
+Operator `..<` вызывает `rangeUntil` и создает open-ended range.
+
+```kotlin
+val indices = 0..<3
+
+println(indices.toList()) // [0, 1, 2]
+```
+
+Он особенно удобен для zero-based indices.
+
+```kotlin
+val lessons = listOf("intro", "types", "collections")
+
+for (index in 0..<lessons.size) {
+    // Верхняя граница size не включается, поэтому index безопасен.
+    println("$index: ${lessons[index]}")
+}
+```
+
+В старом Kotlin-коде часто встречается `until`.
+
+```kotlin
+for (index in 0 until lessons.size) {
+    println(lessons[index])
+}
+```
+
+`..<` обычно читается ближе к математической записи half-open interval.
+
+## `in` и `!in`
+
+`in` вызывает `contains`.
+
+```kotlin
+fun requireScore(score: Int) {
+    require(score in 0..100) {
+        "Оценка должна быть от 0 до 100 включительно"
+    }
+}
+```
+
+`!in` проверяет opposite.
+
+```kotlin
+fun isOutsideWorkingHours(hour: Int): Boolean {
+    return hour !in 9..<18
+}
+```
+
+Ranges хорошо подходят для validation numeric boundaries.
+
+```kotlin
+data class LessonProgress(val percent: Int)
+
+fun LessonProgress.isComplete(): Boolean {
+    return percent in 100..100
+}
+```
+
+В последнем примере range из одного значения работает, но проще написать `percent == 100`.
+
+## Empty ranges
+
+Для numeric progressions range может быть empty.
+
+```kotlin
+val empty = 5..1
+
+println(empty.toList()) // []
+```
+
+Для обратного движения используй `downTo`.
+
+```kotlin
+val descending = 5 downTo 1
+
+println(descending.toList()) // [5, 4, 3, 2, 1]
+```
+
+<MouseTrap>
+`5..1` не означает обратный диапазон. Это empty progression. Для обратной итерации нужен `downTo`.
+</MouseTrap>
+
+## `downTo`
+
+`downTo` создает progression с отрицательным направлением.
+
+```kotlin
+for (count in 3 downTo 1) {
+    println("Старт через $count")
+}
+```
+
+`downTo` работает с numeric integral types и `Char`.
+
+```kotlin
+for (letter in 'd' downTo 'a') {
+    print(letter)
+}
+
+println() // dcba
+```
+
+## `step`
+
+`step` задает размер шага.
+
+```kotlin
+val even = 0..10 step 2
+
+println(even.toList()) // [0, 2, 4, 6, 8, 10]
+```
+
+Для open-ended range end не включается.
+
+```kotlin
+val evenBeforeTen = 0..<10 step 2
+
+println(evenBeforeTen.toList()) // [0, 2, 4, 6, 8]
+```
+
+Для descending progression step указывается положительным числом, направление уже задано `downTo`.
+
+```kotlin
+val countdown = 10 downTo 0 step 2
+
+println(countdown.toList()) // [10, 8, 6, 4, 2, 0]
+```
+
+Step должен быть positive.
+
+```kotlin
+fun everyNthIndex(size: Int, step: Int): List<Int> {
+    require(size >= 0) {
+        "Размер не может быть отрицательным"
+    }
+    require(step > 0) {
+        "Шаг должен быть положительным"
+    }
+
+    return (0..<size step step).toList()
+}
+```
+
+## `first`, `last`, `step` у progression
+
+Integral progressions имеют `first`, `last`, `step`.
+
+```kotlin
+val progression = 1..9 step 3
+
+println(progression.first) // 1
+println(progression.last)  // 7
+println(progression.step)  // 3
+```
+
+`last` — это последний достижимый element progression, а не обязательно указанная граница.
+
+```kotlin
+println((1..10 step 4).toList()) // [1, 5, 9]
+println((1..10 step 4).last)     // 9
+```
+
+Это важно для циклов, pagination и генерации UI-сеток.
+
+## `reversed`
+
+`reversed` меняет направление progression.
+
+```kotlin
+val forward = 1..5
+val backward = forward.reversed()
+
+println(backward.toList()) // [5, 4, 3, 2, 1]
+```
+
+Step сохраняет magnitude, но меняет sign.
+
+```kotlin
+val stepped = 1..9 step 2
+
+println(stepped.reversed().toList()) // [9, 7, 5, 3, 1]
+```
+
+## `indices` и `lastIndex`
+
+Для lists, arrays и strings часто не нужно писать range вручную. Используй `indices`.
+
+```kotlin
+val titles = listOf("Введение", "Типы", "Коллекции")
+
+for (index in titles.indices) {
+    println("$index: ${titles[index]}")
+}
+```
+
+`indices` безопасен для empty collection.
+
+```kotlin
+val empty = emptyList<String>()
+
+println(empty.indices.toList()) // []
+```
+
+`lastIndex` возвращает last valid index, но для empty list это `-1`.
+
+```kotlin
+if (titles.isNotEmpty()) {
+    println(titles[titles.lastIndex])
+}
+```
+
+<MouseTrap>
+Не пиши `0..list.lastIndex` без проверки empty list. Для empty list получится `0..-1`, что для IntRange empty, но намерение читается хуже. `list.indices` говорит точнее.
+</MouseTrap>
+
+## Comparable ranges
+
+Ranges не ограничены только числами. Любой comparable type может иметь closed range.
+
+```kotlin
+val validVersions = Version(1, 0)..Version(2, 0)
+
+data class Version(
+    val major: Int,
+    val minor: Int
+) : Comparable<Version> {
+    override fun compareTo(other: Version): Int {
+        return compareValuesBy(
+            this,
+            other,
+            Version::major,
+            Version::minor
+        )
+    }
+}
+
+println(Version(1, 5) in validVersions) // true
+```
+
+Comparable range может проверять membership через comparison, но это не значит, что по нему можно iterировать. Iteration требует progression или iterator.
+
+```kotlin
+val words = "cat".."dog"
+
+println("cow" in words) // true
+// for (word in words) не работает, потому что String range не является progression.
+```
+
+## Custom range basics
+
+Можно определить `rangeTo` для собственного типа.
+
+```kotlin
+data class DayNumber(val value: Int) : Comparable<DayNumber> {
+    override fun compareTo(other: DayNumber): Int {
+        return value.compareTo(other.value)
+    }
+}
+
+operator fun DayNumber.rangeTo(other: DayNumber): ClosedRange<DayNumber> {
+    return object : ClosedRange<DayNumber> {
+        override val start: DayNumber = this@rangeTo
+        override val endInclusive: DayNumber = other
+    }
+}
+
+val sprint = DayNumber(1)..DayNumber(14)
+
+println(DayNumber(7) in sprint) // true
+```
+
+Такой custom range поддерживает `in`, но не `for`. Для iteration нужно вернуть тип, у которого есть `iterator`.
+
+```kotlin
+class DayProgression(
+    private val start: DayNumber,
+    private val endInclusive: DayNumber
+) : Iterable<DayNumber> {
+    override fun iterator(): Iterator<DayNumber> {
+        return object : Iterator<DayNumber> {
+            private var current = start.value
+
+            override fun hasNext(): Boolean {
+                return current <= endInclusive.value
+            }
+
+            override fun next(): DayNumber {
+                if (!hasNext()) {
+                    throw NoSuchElementException()
+                }
+
+                val result = DayNumber(current)
+                current += 1
+                return result
+            }
+        }
+    }
+}
+
+fun dayProgression(start: DayNumber, endInclusive: DayNumber): DayProgression {
+    return DayProgression(start, endInclusive)
+}
+
+for (day in dayProgression(DayNumber(1), DayNumber(3))) {
+    println(day.value)
+}
+```
+
+## Production-пример: validation и pagination
+
+```kotlin
+data class PageRequest(
+    val page: Int,
+    val pageSize: Int
+)
+
+data class PageWindow(
+    val offset: Int,
+    val limit: Int,
+    val visiblePageNumbers: List<Int>
+)
+
+fun buildPageWindow(
+    request: PageRequest,
+    totalPages: Int
+): PageWindow {
+    require(request.page in 1..totalPages.coerceAtLeast(1)) {
+        "Номер страницы должен попадать в существующий диапазон"
+    }
+    require(request.pageSize in 1..100) {
+        "Размер страницы должен быть от 1 до 100"
+    }
+
+    val startPage = (request.page - 2).coerceAtLeast(1)
+    val endPageExclusive = (request.page + 3).coerceAtMost(totalPages + 1)
+
+    return PageWindow(
+        offset = (request.page - 1) * request.pageSize,
+        limit = request.pageSize,
+        visiblePageNumbers = (startPage..<endPageExclusive).toList()
+    )
+}
+```
+
+Здесь ranges выражают бизнес-ограничения, а open-ended range удобно строит visible page numbers.
+
+## Практическое правило
+
+Используй `..`, когда обе границы включены. Используй `..<` для index-like ranges и half-open intervals. Используй `downTo` для обратного направления, `step` для пропусков, `indices` для обхода индексируемых структур.
+
+<CatTip>
+Хороший range делает границы видимыми. Чем меньше ручных `+ 1` и `- 1`, тем меньше шансов наступить лапой на off-by-one.
+</CatTip>
+
+

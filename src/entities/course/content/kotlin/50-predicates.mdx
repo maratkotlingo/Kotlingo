@@ -1,0 +1,458 @@
+---
+title: "Predicates"
+description: "Разбираем any, all и none, vacuous truth на пустых коллекциях, short-circuit, contains/containsAll, in, Map membership, isEmpty/isNotEmpty, equality и сложность проверок."
+order: 50
+category: "Коллекции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Predicate возвращает Boolean
+
+```kotlin
+val validScore: (Int) -> Boolean = { score -> score in 0..100 }
+```
+
+Collection predicate operations отвечают на вопросы о elements:
+
+- `any` — существует ли хотя бы один matching;
+- `all` — matching ли каждый element;
+- `none` — нет ли ни одного matching.
+
+Они не создают новую collection и обычно short-circuit.
+
+## `any(predicate)`
+
+```kotlin
+val scores = listOf(45, 70, 100)
+val hasPassing = scores.any { score -> score >= 60 }
+```
+
+Возвращает true после первого matching element и не проверяет remaining.
+
+```kotlin
+var checks = 0
+val result = scores.any { score ->
+    checks += 1
+    score >= 60
+}
+
+println("$result, проверок: $checks")
+```
+
+Side effect демонстрирует short-circuit, но production predicate лучше pure.
+
+## `any()` без predicate
+
+```kotlin
+val hasElements = scores.any()
+```
+
+Проверяет, есть ли хотя бы один element. Для Collection обычно яснее/эффективнее `isNotEmpty()`:
+
+```kotlin
+if (scores.isNotEmpty()) {
+    println("Есть оценки")
+}
+```
+
+Для generic Iterable/Sequence `any()` может получить iterator и проверить первый element.
+
+## `all(predicate)`
+
+```kotlin
+val allValid = scores.all { score -> score in 0..100 }
+```
+
+Возвращает false после первого non-matching element.
+
+```kotlin
+val allPassing = scores.all { it >= 60 }
+```
+
+## `none(predicate)`
+
+```kotlin
+val noInvalid = scores.none { score -> score !in 0..100 }
+```
+
+Возвращает false после первого matching element. Логически:
+
+```kotlin
+scores.none(predicate) == !scores.any(predicate)
+```
+
+Не вычисляй collection дважды; выбери читаемую operation.
+
+## `none()` без predicate
+
+```kotlin
+val empty = emptyList<Int>()
+println(empty.none())
+```
+
+True, если elements нет. Для Collection conventionally `isEmpty()` яснее.
+
+## Пустая collection и vacuous truth
+
+```kotlin
+val empty = emptyList<Int>()
+
+println(empty.any { it > 0 })
+println(empty.all { it > 0 })
+println(empty.none { it > 0 })
+```
+
+Results:
+
+- `any` → false: matching element не существует;
+- `all` → true: нет counterexample;
+- `none` → true: matching element отсутствует.
+
+`all` true на empty называется vacuous truth.
+
+<MouseTrap title="Мышеловка: all не доказывает непустоту">
+`scores.all { it >= 60 }` true для empty list. Если нужен хотя бы один score, проверяй `isNotEmpty() && all(...)`.
+</MouseTrap>
+
+## Business rule «непусто и все подходят»
+
+```kotlin
+fun canPublish(scores: List<Int>): Boolean {
+    return scores.isNotEmpty() && scores.all { score -> score >= 60 }
+}
+```
+
+Порядок даёт short-circuit: при empty predicate не запускается.
+
+## De Morgan и читаемость
+
+Эквивалентные формы:
+
+```kotlin
+val noInvalidA = scores.none { it !in 0..100 }
+val noInvalidB = scores.all { it in 0..100 }
+```
+
+Выбирай affirmative rule, который проще читать. Double negation ухудшает понимание:
+
+```kotlin
+// !scores.any { it !in 0..100 }
+```
+
+## `contains`
+
+```kotlin
+val lessons = listOf("Arrays", "Predicates")
+
+println(lessons.contains("Arrays"))
+println("Predicates" in lessons)
+println("Missing" !in lessons)
+```
+
+`in` вызывает `contains`. Equality основана на `equals` element type.
+
+## Complexity contains
+
+Typical:
+
+- List — O(n) linear search;
+- HashSet — average O(1), worst-case depends on hashing/collisions;
+- sorted tree set — O(log n);
+- custom collection — свой contract.
+
+Если membership проверяется многократно, преобразование List в Set может окупиться:
+
+```kotlin
+val allowedIds = allowedIdList.toHashSet()
+val accepted = candidates.filter { id -> id in allowedIds }
+```
+
+Учитывай cost создания set и memory.
+
+## Equality и mutable keys
+
+```kotlin
+data class Tag(var value: String)
+
+val tag = Tag("kotlin")
+val set = hashSetOf(tag)
+tag.value = "collections"
+
+println(tag in set)
+```
+
+Hash code изменился, lookup может fail. Hash elements/keys должны иметь stable equality fields.
+
+## `containsAll`
+
+```kotlin
+val completed = setOf(45, 46, 47, 48, 49, 50)
+val required = listOf(45, 46, 50)
+
+val ready = completed.containsAll(required)
+```
+
+True, если каждый element argument присутствует receiver.
+
+Duplicates в required не требуют нескольких copies:
+
+```kotlin
+println(listOf(1).containsAll(listOf(1, 1)))
+```
+
+Обычно true: containsAll проверяет membership каждого requested value, не multiset cardinality.
+
+Если нужны counts duplicates, строй frequency map.
+
+## Направление `containsAll`
+
+```kotlin
+completed.containsAll(required)
+```
+
+Читается «completed содержит всё required». Перестановка меняет смысл.
+
+Set subset syntax можно выразить:
+
+```kotlin
+val requiredSet = required.toSet()
+val isSubset = requiredSet.all { it in completed }
+```
+
+## `isEmpty` и `isNotEmpty`
+
+```kotlin
+if (lessons.isEmpty()) {
+    println("Уроков нет")
+}
+
+if (lessons.isNotEmpty()) {
+    println("Первый: ${lessons.first()}")
+}
+```
+
+Для Collection эти operations используют size/implementation property. Для String также существуют overloads, но String не Collection.
+
+## `isNullOrEmpty`
+
+Nullable collection helper:
+
+```kotlin
+val lessons: Collection<String>? = null
+println(lessons.isNullOrEmpty())
+```
+
+True и для null, и для empty; если states различаются, не объединяй их.
+
+```kotlin
+when {
+    lessons == null -> println("Не загружено")
+    lessons.isEmpty() -> println("Загружено, но пусто")
+    else -> println("Есть данные")
+}
+```
+
+## Predicates с nullable elements
+
+```kotlin
+val titles: List<String?> = listOf("Kotlin", null)
+
+val hasMissing = titles.any { it == null }
+val allPresent = titles.all { it != null }
+val noneBlank = titles.filterNotNull().none(String::isBlank)
+```
+
+`filterNotNull` меняет population: noneBlank ничего не говорит о missing elements. Для полного rule:
+
+```kotlin
+val valid = titles.all { title -> !title.isNullOrBlank() }
+```
+
+## Map membership
+
+Для Map оператор `in` проверяет keys:
+
+```kotlin
+val lessons = mapOf(50 to "Predicates")
+
+println(50 in lessons)
+println(lessons.containsKey(50))
+```
+
+Values проверяются отдельно:
+
+```kotlin
+println("Predicates" in lessons.values)
+println(lessons.containsValue("Predicates"))
+```
+
+Entry membership:
+
+```kotlin
+val entry = lessons.entries.first()
+println(entry in lessons.entries)
+```
+
+`containsValue` обычно linear, key lookup hash/tree map быстрее согласно implementation.
+
+## Array predicates
+
+Arrays/primitive arrays имеют аналогичные extensions:
+
+```kotlin
+val scores = intArrayOf(70, 85, 100)
+
+println(scores.any { it == 100 })
+println(scores.all { it in 0..100 })
+println(scores.none { it < 0 })
+println(85 in scores)
+```
+
+IntArray avoids element boxing in storage; lambda/backend may still have optimization details.
+
+## Sequence predicates
+
+```kotlin
+val result = generateSequence(1) { value -> value + 1 }
+    .any { value -> value == 100 }
+```
+
+Terminal `any` consumes only until match. `all`/`none` over infinite sequence may never terminate if no counterexample/match appears.
+
+```kotlin
+// generateSequence(1) { it + 1 }.all { it > 0 } не завершится.
+```
+
+## Side effects predicate
+
+```kotlin
+var checked = 0
+val hasLarge = scores.any { score ->
+    checked += 1
+    score > 90
+}
+```
+
+Number calls зависит от order/short-circuit. Не помещай обязательный audit/mutation в predicate. Выполни отдельный traversal или explicit loop.
+
+<CatTip title="Котосовет: predicate должен быть чистым вопросом">
+`any`/`all` могут остановиться раньше. Side effect внутри не гарантирован для каждого element и усложняет parallel/lazy migration.
+</CatTip>
+
+## Expensive predicates
+
+```kotlin
+val hasAccessible = lessons.any { lesson -> permissionService.canOpen(lesson) }
+```
+
+Если predicate делает network/database call, N+1 behavior и partial execution скрыты. Batch API лучше:
+
+```kotlin
+val accessibleIds = permissionService.accessibleLessonIds(lessons.map(Lesson::id))
+val hasAccessible = accessibleIds.isNotEmpty()
+```
+
+## Predicate composition
+
+```kotlin
+typealias Predicate<T> = (T) -> Boolean
+
+infix fun <T> Predicate<T>.and(other: Predicate<T>): Predicate<T> {
+    return { value -> this(value) && other(value) }
+}
+
+val valid: Predicate<Int> = { it in 0..100 }
+val passing: Predicate<Int> = { it >= 60 }
+val validPassing = valid and passing
+
+println(scores.all(validPassing))
+```
+
+`&&` сохраняет short-circuit между component predicates.
+
+## Практический пример: readiness курса
+
+```kotlin
+data class Lesson(
+    val id: Int,
+    val title: String,
+    val published: Boolean,
+    val prerequisites: Set<Int>
+)
+
+data class CourseReadiness(
+    val ready: Boolean,
+    val reasons: List<String>
+)
+
+fun evaluateCourse(
+    lessons: List<Lesson>,
+    completedIds: Set<Int>
+): CourseReadiness {
+    val reasons = buildList {
+        if (lessons.isEmpty()) {
+            add("Курс должен содержать хотя бы один урок")
+        }
+
+        if (lessons.any { lesson -> lesson.title.isBlank() }) {
+            add("Все уроки должны иметь название")
+        }
+
+        if (!lessons.all(Lesson::published)) {
+            add("Все уроки должны быть опубликованы")
+        }
+
+        val allIds = lessons.mapTo(hashSetOf(), Lesson::id)
+        val hasUnknownPrerequisites = lessons.any { lesson ->
+            !allIds.containsAll(lesson.prerequisites)
+        }
+        if (hasUnknownPrerequisites) {
+            add("Prerequisites должны ссылаться на уроки курса")
+        }
+
+        val firstLesson = lessons.firstOrNull()
+        if (firstLesson != null && !completedIds.containsAll(firstLesson.prerequisites)) {
+            add("Не выполнены prerequisites первого урока")
+        }
+    }
+
+    return CourseReadiness(
+        ready = reasons.isEmpty(),
+        reasons = reasons
+    )
+}
+
+fun main() {
+    val readiness = evaluateCourse(
+        lessons = listOf(
+            Lesson(49, "Access operations", true, emptySet()),
+            Lesson(50, "Predicates", true, setOf(49))
+        ),
+        completedIds = setOf(49)
+    )
+
+    println(readiness)
+}
+```
+
+Empty проверяется отдельно, `any` ищет counterexamples, `all` утверждает universal rule, Set ускоряет repeated membership, containsAll выражает subset requirement.
+
+## Итоги
+
+- `any` true при первом matching element, false на empty;
+- `all` false при первом counterexample и true на empty;
+- `none` false при первом match и true на empty;
+- `all` не доказывает non-empty;
+- `contains`/`in` используют element equality;
+- complexity membership зависит от List/HashSet/tree implementation;
+- `containsAll` проверяет membership, а не counts duplicates;
+- `isEmpty`/`isNotEmpty` яснее parameterless any/none для Collection;
+- `isNullOrEmpty` объединяет null и empty;
+- `in map` проверяет keys, values проверяются отдельно;
+- predicates short-circuit, поэтому обязательные side effects внутри опасны;
+- infinite Sequence terminal predicate может не завершиться;
+- выбирай affirmative operation, которая точнее выражает business rule.
+

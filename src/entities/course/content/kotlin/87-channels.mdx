@@ -1,0 +1,663 @@
+---
+title: "Channels"
+description: "Channels в Kotlin coroutines: Channel, send, receive, trySend, tryReceive, capacity, buffered channels, closing, cancellation, producer-consumer pipelines, fan-out, fan-in и выбор между Channel, Flow и SharedFlow."
+order: 87
+category: "Coroutines"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое channel
+
+`Channel<T>` — coroutine-friendly очередь для передачи значений между coroutines.
+
+Главная идея:
+
+- producer вызывает `send`;
+- consumer вызывает `receive`;
+- операции suspending, а не blocking;
+- channel может быть закрыт;
+- channel может иметь buffer;
+- несколько producers могут отправлять в один channel;
+- несколько consumers могут читать из одного channel;
+- cancellation scope должна останавливать producers и consumers.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    val channel = Channel<Int>()
+
+    launch {
+        for (number in 1..5) {
+            // send приостанавливает sender, пока value не будет принято.
+            channel.send(number * number)
+        }
+
+        channel.close()
+    }
+
+    for (value in channel) {
+        println(value)
+    }
+}
+```
+
+Channel похож на `BlockingQueue`, но вместо blocking `put` и `take` у него suspending `send` и `receive`.
+
+<CatTip>
+Channel — это кошачий тоннель между coroutines: одна coroutine кладет мышку в тоннель, другая забирает, а thread при этом не сидит у входа без дела.
+</CatTip>
+
+## `send` и `receive`
+
+`send(value)` отправляет value в channel.
+
+`receive()` получает следующее value.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun sendReceiveExample() = runBlocking {
+    val messages = Channel<String>()
+
+    launch {
+        messages.send("opened:84-flow")
+        messages.send("completed:87-channels")
+        messages.close()
+    }
+
+    val first = messages.receive()
+    val second = messages.receive()
+
+    println(first)
+    println(second)
+}
+```
+
+Если channel пуст, `receive` suspends до появления value или close.
+
+Если channel без buffer и consumer не готов, `send` suspends до `receive`.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun rendezvousExample() = runBlocking {
+    val channel = Channel<String>()
+
+    launch {
+        println("До send")
+        channel.send("lesson")
+        println("После send")
+    }
+
+    delay(300)
+
+    println("До receive")
+    println(channel.receive())
+}
+```
+
+Default `Channel()` is rendezvous channel: value передается только когда sender и receiver встретились.
+
+## Capacity
+
+Capacity управляет buffer-ом channel.
+
+Варианты:
+
+- `Channel.RENDEZVOUS` — buffer size 0, sender и receiver встречаются напрямую;
+- положительное число — fixed buffer capacity;
+- `Channel.BUFFERED` — default buffered capacity;
+- `Channel.CONFLATED` — хранит только latest value;
+- `Channel.UNLIMITED` — растущий buffer без backpressure.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun bufferedChannelExample() = runBlocking {
+    val channel = Channel<Int>(capacity = 3)
+
+    val sender = launch {
+        repeat(6) { index ->
+            println("Отправляем $index")
+            channel.send(index)
+            println("Отправили $index")
+        }
+
+        channel.close()
+    }
+
+    delay(500)
+
+    for (value in channel) {
+        println("Получили $value")
+        delay(200)
+    }
+
+    sender.join()
+}
+```
+
+Buffer позволяет sender-у уйти вперед, но не отменяет backpressure: когда buffer заполнен, `send` suspends.
+
+<MouseTrap>
+`Channel.UNLIMITED` редко является хорошим default. Если consumer отстал, память начнет расти. Обычно лучше ограничить capacity, drop strategy или явно обработать backpressure.
+</MouseTrap>
+
+## `trySend` и `tryReceive`
+
+`trySend` и `tryReceive` не suspend-ятся. Они возвращают `ChannelResult`.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+
+fun trySendExample() {
+    val channel = Channel<String>(capacity = 1)
+
+    val first = channel.trySend("first")
+    val second = channel.trySend("second")
+
+    println(first.isSuccess)
+    println(second.isFailure)
+}
+```
+
+`trySend` полезен, когда caller не может suspend-иться:
+
+- callback из Java API;
+- UI listener;
+- low-level logging hook;
+- best-effort telemetry;
+- быстрый event bus с explicit drop behavior.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.trySendBlocking
+
+class JavaCallbackBridge {
+    private val channel = Channel<String>(capacity = Channel.BUFFERED)
+
+    fun onExternalEvent(value: String) {
+        // Callback не является suspend function, поэтому обычный send недоступен.
+        val result = channel.trySend(value)
+
+        if (result.isFailure) {
+            println("Событие отброшено: $value")
+        }
+    }
+
+    fun onBlockingExternalEvent(value: String) {
+        // trySendBlocking можно использовать только когда blocking callback допустим.
+        channel.trySendBlocking(value)
+    }
+}
+```
+
+`tryReceive` пытается получить value immediately.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+
+fun tryReceiveExample() {
+    val channel = Channel<String>()
+
+    val result = channel.tryReceive()
+
+    if (result.isFailure) {
+        println("Сейчас значений нет")
+    }
+}
+```
+
+## Закрытие channel
+
+`close()` сообщает, что новых values больше не будет.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun closeExample() = runBlocking {
+    val channel = Channel<String>()
+
+    launch {
+        channel.send("84-flow")
+        channel.send("87-channels")
+        channel.close()
+    }
+
+    for (slug in channel) {
+        println(slug)
+    }
+
+    println("Channel закрыт и все values прочитаны")
+}
+```
+
+После `close`:
+
+- уже отправленные buffered values можно прочитать;
+- новые `send` завершаются failure;
+- `receive` после исчерпания values бросит exception;
+- `receiveCatching` вернет закрытый `ChannelResult`.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
+
+fun receiveCatchingExample() = runBlocking {
+    val channel = Channel<String>()
+
+    channel.close()
+
+    val result = channel.receiveCatching()
+
+    if (result.isClosed) {
+        println("Channel закрыт")
+    }
+}
+```
+
+`close(cause)` закрывает channel с причиной.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
+
+fun closeWithCauseExample() = runBlocking {
+    val channel = Channel<String>()
+
+    channel.close(IllegalStateException("Источник данных упал"))
+
+    val result = channel.receiveCatching()
+
+    result.exceptionOrNull()?.let { exception ->
+        println("Причина закрытия: ${exception.message}")
+    }
+}
+```
+
+<MouseTrap>
+`close()` не отменяет автоматически всю surrounding coroutine hierarchy. Если producer бесконечный, обычно нужно отменить его `Job` или scope, а не только закрыть channel.
+</MouseTrap>
+
+## `cancel` channel
+
+`cancel()` закрывает channel и удаляет buffered values, потому что receiver больше не interested.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun cancelChannelExample() = runBlocking {
+    val channel = Channel<Int>(capacity = 10)
+
+    val producer = launch {
+        repeat(100) { index ->
+            channel.send(index)
+        }
+    }
+
+    val first = channel.receive()
+    println(first)
+
+    // Consumer больше не нуждается в stream.
+    channel.cancel()
+    producer.cancel()
+}
+```
+
+Use `close`, когда producer завершился normally и хочет доставить buffered values.
+
+Use `cancel`, когда consumer прекращает collection и values больше не нужны.
+
+## `onUndeliveredElement`
+
+Если channel хранит resources, которые могут быть не доставлены, настрой `onUndeliveredElement`.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
+
+data class LessonChunk(
+    val id: String,
+    val bytes: ByteArray
+) {
+    fun release() {
+        println("Освобождаем chunk $id")
+    }
+}
+
+fun undeliveredElementExample() = runBlocking {
+    val channel = Channel<LessonChunk>(
+        capacity = 2,
+        onUndeliveredElement = { chunk ->
+            // Этот callback вызывается, если element не дошел до consumer-а.
+            chunk.release()
+        }
+    )
+
+    channel.send(LessonChunk("first", ByteArray(8)))
+    channel.cancel()
+}
+```
+
+Это важно для:
+
+- buffers;
+- file handles;
+- temporary resources;
+- objects from pools;
+- native resources.
+
+## `produce`
+
+`produce` — coroutine builder, который запускает producer coroutine и возвращает `ReceiveChannel<T>`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.channels.produce
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+
+fun CoroutineScope.lessonSlugs(): ReceiveChannel<String> = produce {
+    send("84-flow")
+    delay(100)
+    send("87-channels")
+}
+
+fun produceExample() = runBlocking {
+    val slugs = lessonSlugs()
+
+    for (slug in slugs) {
+        println(slug)
+    }
+}
+```
+
+`produce` is scoped: producer coroutine is child of receiver scope, если ты вызываешь его внутри structured scope.
+
+Для многих stream APIs лучше начать с `Flow`. Channel больше подходит, когда нужен explicit queue, fan-out, multiple senders или integration с callback/worker pipeline.
+
+## Producer-consumer pipeline
+
+Pipeline — цепочка coroutines, где один stage produces values, другой consumes and transforms them.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.channels.produce
+import kotlinx.coroutines.runBlocking
+
+fun CoroutineScope.sourceSlugs(): ReceiveChannel<String> = produce {
+    listOf("84-flow", "85-flow-operators", "87-channels").forEach { slug ->
+        send(slug)
+    }
+}
+
+fun CoroutineScope.loadTitles(
+    slugs: ReceiveChannel<String>
+): ReceiveChannel<LessonTitle> = produce {
+    for (slug in slugs) {
+        send(
+            LessonTitle(
+                slug = slug,
+                title = "Урок $slug"
+            )
+        )
+    }
+}
+
+data class LessonTitle(
+    val slug: String,
+    val title: String
+)
+
+fun pipelineExample() = runBlocking {
+    val slugs = sourceSlugs()
+    val titles = loadTitles(slugs)
+
+    for (title in titles) {
+        println(title)
+    }
+}
+```
+
+Если pipeline infinite или consumer берет только часть values, cancel scope or channels.
+
+```kotlin
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.runBlocking
+
+fun boundedPipelineExample() = runBlocking {
+    val slugs = sourceSlugs()
+    val titles = loadTitles(slugs)
+
+    repeat(2) {
+        println(titles.receive())
+    }
+
+    // Останавливаем child producers, чтобы main coroutine могла завершиться.
+    coroutineContext.cancelChildren()
+}
+```
+
+## Fan-out
+
+Fan-out: несколько consumers читают из одного channel, распределяя work.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun CoroutineScope.launchWorker(
+    id: Int,
+    channel: Channel<String>
+) = launch {
+    for (slug in channel) {
+        delay(100)
+        println("Worker $id обработал $slug")
+    }
+}
+
+fun fanOutExample() = runBlocking {
+    val channel = Channel<String>()
+
+    repeat(3) { workerId ->
+        launchWorker(workerId, channel)
+    }
+
+    listOf("84-flow", "85-flow-operators", "86-stateflow-and-sharedflow").forEach { slug ->
+        channel.send(slug)
+    }
+
+    channel.close()
+}
+```
+
+В fan-out pattern каждый value получает один worker.
+
+Не используй `consumeEach` для fan-out with multiple consumers, если failure одного worker-а не должен cancel underlying channel for all. Обычный `for (value in channel)` обычно безопаснее для worker loop.
+
+## Fan-in
+
+Fan-in: несколько producers отправляют в один channel.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun fanInExample() = runBlocking {
+    val channel = Channel<String>()
+
+    launch {
+        repeat(3) { index ->
+            delay(100)
+            channel.send("progress:$index")
+        }
+    }
+
+    launch {
+        repeat(2) { index ->
+            delay(150)
+            channel.send("notification:$index")
+        }
+    }
+
+    repeat(5) {
+        println(channel.receive())
+    }
+
+    channel.close()
+}
+```
+
+Когда producers много, закрывать channel должен owner, который знает, что all producers completed.
+
+```kotlin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun safeFanInClosingExample() = runBlocking {
+    val channel = Channel<String>()
+
+    val producers = listOf(
+        launch { channel.send("from-first") },
+        launch { channel.send("from-second") }
+    )
+
+    launch {
+        producers.joinAll()
+        channel.close()
+    }
+
+    for (value in channel) {
+        println(value)
+    }
+}
+```
+
+## Channel или Flow
+
+Используй `Flow`, когда:
+
+- нужен stream values для caller-а;
+- stream удобно описывается declarative operators;
+- collector должен управлять cancellation;
+- нужен cold stream by default;
+- хочешь transformations like `map`, `filter`, `retry`, `flowOn`.
+
+Используй `Channel`, когда:
+
+- нужна queue между coroutines;
+- есть multiple producers или multiple consumers;
+- нужен fan-out worker pool;
+- нужно вручную управлять buffer/backpressure;
+- нужно bridge callback API to coroutine world;
+- нужен explicit close/cancel protocol.
+
+Используй `SharedFlow`, когда:
+
+- нужен hot broadcast to many subscribers;
+- одно событие должны получить все collectors;
+- важны replay and buffer overflow strategies;
+- channel queue semantics не подходят.
+
+<CatTip>
+Практическое правило: `Flow` рассказывает историю значений, `Channel` передает работу между исполнителями, `SharedFlow` разносит события по подписчикам.
+</CatTip>
+
+## Production pattern: worker queue
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+
+class LessonIndexQueue(
+    private val scope: CoroutineScope,
+    private val indexer: LessonIndexer,
+    workerCount: Int = 4
+) {
+    private val jobs = Channel<IndexJob>(
+        capacity = 128,
+        onUndeliveredElement = { job ->
+            println("Задание не доставлено: ${job.slug}")
+        }
+    )
+
+    private val workers: List<Job> = List(workerCount) { workerId ->
+        scope.launch {
+            for (job in jobs) {
+                try {
+                    indexer.index(job.slug)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: RuntimeException) {
+                    println("Worker $workerId не смог индексировать ${job.slug}: ${exception.message}")
+                }
+            }
+        }
+    }
+
+    suspend fun enqueue(slug: String) {
+        jobs.send(IndexJob(slug))
+    }
+
+    suspend fun shutdownGracefully() {
+        jobs.close()
+        workers.joinAll()
+    }
+
+    fun cancelNow() {
+        jobs.cancel()
+        workers.forEach { job -> job.cancel() }
+    }
+}
+
+data class IndexJob(
+    val slug: String
+)
+
+class LessonIndexer {
+    suspend fun index(slug: String) {
+        println("Индексируем $slug")
+    }
+}
+```
+
+Этот queue:
+
+- ограничивает backlog через capacity;
+- не теряет ownership scope;
+- корректно закрывает workers через `close`;
+- умеет emergency cancellation через `cancel`;
+- не проглатывает `CancellationException`;
+- локально обрабатывает обычные worker failures.
+

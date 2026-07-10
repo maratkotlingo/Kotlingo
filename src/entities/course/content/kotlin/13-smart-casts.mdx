@@ -1,0 +1,510 @@
+---
+title: "Smart casts"
+description: "Разбираем автоматическое сужение типов после проверок, условия для smart cast, ограничения var и открытых свойств, smart casts после return/throw/break/continue, when и contracts."
+order: 13
+category: "Null-safety"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое smart cast
+
+Smart cast — автоматическое сужение типа компилятором после проверки. Если Kotlin может доказать, что значение не `null` или имеет конкретный тип, он позволяет использовать его без явного cast.
+
+```kotlin
+fun printLength(value: Any) {
+    if (value is String) {
+        println(value.length)
+    }
+}
+```
+
+В параметре `value` объявлен тип `Any`. Но внутри `if (value is String)` компилятор обращается с `value` как со `String`.
+
+Smart casts уменьшают шум:
+
+```kotlin
+fun printTitle(title: String?) {
+    if (title != null) {
+        println(title.trim())
+    }
+}
+```
+
+После `title != null` тип внутри блока — `String`, а не `String?`.
+
+## Smart cast после проверки на `null`
+
+```kotlin
+fun normalizeTitle(title: String?): String {
+    if (title == null) {
+        return "Без названия"
+    }
+
+    return title.trim()
+}
+```
+
+После раннего `return` компилятор знает, что ниже `title` не может быть `null`.
+
+Похожий вариант:
+
+```kotlin
+fun printTitle(title: String?) {
+    if (title != null) {
+        println(title.length)
+    } else {
+        println("Название отсутствует")
+    }
+}
+```
+
+В `if`-ветке `title` smart-cast к `String`.
+
+## Smart cast после `is`
+
+```kotlin
+fun describe(value: Any): String {
+    if (value is String) {
+        return "Строка длиной ${value.length}"
+    }
+
+    if (value is Int) {
+        return "Целое число: $value"
+    }
+
+    return "Другое значение: $value"
+}
+```
+
+Каждая проверка `is` дает доступ к членам конкретного типа.
+
+С `!is` и ранним выходом:
+
+```kotlin
+fun requireString(value: Any): String {
+    if (value !is String) {
+        throw IllegalArgumentException("Ожидалась строка")
+    }
+
+    return value.trim()
+}
+```
+
+После `throw` компилятор знает, что если выполнение продолжается, `value` является `String`.
+
+<CatTip title="Кошачий способ читать smart cast">
+Smart cast работает, когда компилятор может доказать стабильность факта: значение проверили, и до использования оно не могло измениться на что-то другое.
+</CatTip>
+
+## Smart cast в `when`
+
+`when` хорошо работает с type checks:
+
+```kotlin
+sealed interface LessonEvent {
+    data class Opened(val title: String) : LessonEvent
+    data class Completed(val title: String, val score: Int) : LessonEvent
+    data class Failed(val reason: String) : LessonEvent
+}
+
+fun renderEvent(event: LessonEvent): String {
+    return when (event) {
+        is LessonEvent.Opened -> "Открыт урок: ${event.title}"
+        is LessonEvent.Completed -> "Пройдено: ${event.title}, балл ${event.score}"
+        is LessonEvent.Failed -> "Ошибка: ${event.reason}"
+    }
+}
+```
+
+В каждой ветке `event` получает конкретный тип.
+
+`when` с `Any`:
+
+```kotlin
+fun renderUnknown(value: Any?): String {
+    return when (value) {
+        null -> "Значение отсутствует"
+        is String -> "Строка: ${value.trim()}"
+        is Int -> "Число: $value"
+        is List<*> -> "Список размером ${value.size}"
+        else -> "Неизвестный тип"
+    }
+}
+```
+
+`List<*>` — star projection. Из-за type erasure нельзя надежно проверить `value is List<String>` в обычном runtime-коде.
+
+## Smart cast с boolean-операторами
+
+`&&` учитывает проверку слева:
+
+```kotlin
+fun titleIsLong(title: String?): Boolean {
+    return title != null && title.length > 10
+}
+```
+
+Правая часть `&&` выполняется только если `title != null`.
+
+`||` тоже может помогать:
+
+```kotlin
+fun requireNonBlankTitle(title: String?) {
+    if (title == null || title.isBlank()) {
+        println("Название отсутствует или пустое")
+        return
+    }
+
+    println(title.trim())
+}
+```
+
+После условия и `return` ниже `title` smart-cast к `String`, и компилятор знает, что он не blank только логически для человека; типовая система фиксирует только non-null.
+
+## Почему smart cast не всегда работает с `var`
+
+Локальный `var` может быть smart-cast, если компилятор видит, что между проверкой и использованием значение не изменилось.
+
+```kotlin
+fun main() {
+    var title: String? = "Smart casts"
+
+    if (title != null) {
+        println(title.length)
+    }
+}
+```
+
+Но если значение изменилось:
+
+```kotlin
+fun main() {
+    var title: String? = "Smart casts"
+
+    if (title != null) {
+        title = null
+
+        // Этот код не компилируется: title снова может быть null.
+        println(title.length)
+    }
+}
+```
+
+С `val` проще:
+
+```kotlin
+fun main() {
+    val title: String? = "Smart casts"
+
+    if (title != null) {
+        println(title.length)
+    }
+}
+```
+
+## Почему smart cast ограничен для свойств
+
+Smart cast не всегда работает для mutable-свойств:
+
+```kotlin
+class LessonScreen {
+    var title: String? = null
+
+    fun printTitle() {
+        if (title != null) {
+            // Этот код может не скомпилироваться: title — изменяемое свойство.
+            println(title.length)
+        }
+    }
+}
+```
+
+Почему компилятор осторожен:
+
+- getter свойства может вернуть другое значение при следующем вызове;
+- свойство `var` можно изменить между проверкой и использованием;
+- другой поток может изменить состояние;
+- open property может быть переопределено;
+- custom getter может иметь нестабильное поведение.
+
+Надежный прием — сохранить в локальный `val`:
+
+```kotlin
+class LessonScreen {
+    var title: String? = null
+
+    fun printTitle() {
+        val currentTitle = title
+
+        if (currentTitle != null) {
+            println(currentTitle.length)
+        }
+    }
+}
+```
+
+Локальный `val` стабилен.
+
+<MouseTrap title="Мышеловка: свойство не равно локальной переменной">
+Если smart cast не работает для свойства, не спорь с компилятором через `!!`. Сначала сохрани значение в локальный `val`, затем проверяй. Так ты фиксируешь snapshot состояния.
+</MouseTrap>
+
+## Open properties и custom getters
+
+Открытое свойство может быть переопределено:
+
+```kotlin
+open class BaseLesson {
+    open val title: String? = "Базовый урок"
+
+    fun printTitle() {
+        val currentTitle = title
+
+        if (currentTitle != null) {
+            println(currentTitle.length)
+        }
+    }
+}
+```
+
+Если обращаться напрямую к `title`, компилятор не обязан считать значение стабильным. Через локальный `currentTitle` проблема исчезает.
+
+Custom getter может возвращать разные значения:
+
+```kotlin
+class RandomTitleProvider {
+    val title: String?
+        get() = listOf("Smart casts", null).random()
+}
+```
+
+Проверка `provider.title != null` не гарантирует, что следующий вызов `provider.title` вернет то же самое.
+
+## Smart casts после `return`, `throw`, `break`, `continue`
+
+После `return`:
+
+```kotlin
+fun normalize(title: String?): String {
+    if (title == null) {
+        return "Без названия"
+    }
+
+    return title.trim()
+}
+```
+
+После `throw`:
+
+```kotlin
+fun requireTitle(title: String?): String {
+    if (title == null) {
+        throw IllegalArgumentException("Название отсутствует")
+    }
+
+    return title.trim()
+}
+```
+
+После `continue`:
+
+```kotlin
+fun printNonBlankTitles(titles: List<String?>) {
+    for (title in titles) {
+        if (title.isNullOrBlank()) {
+            continue
+        }
+
+        println(title.trim())
+    }
+}
+```
+
+После `continue` ниже в итерации `title` smart-cast к `String`.
+
+После `break` в конкретной ветке smart cast зависит от структуры цикла. Если факт нужен после цикла, обычно лучше сохранить найденное значение отдельно:
+
+```kotlin
+fun firstNonBlankTitle(titles: List<String?>): String? {
+    var foundTitle: String? = null
+
+    for (title in titles) {
+        if (title.isNullOrBlank()) {
+            continue
+        }
+
+        foundTitle = title.trim()
+        break
+    }
+
+    return foundTitle
+}
+```
+
+## Smart casts и nullable collection elements
+
+```kotlin
+fun printTitles(titles: List<String?>) {
+    for (title in titles) {
+        if (title == null) {
+            continue
+        }
+
+        println(title.uppercase())
+    }
+}
+```
+
+Часто лучше использовать `filterNotNull()`:
+
+```kotlin
+fun printTitles(titles: List<String?>) {
+    titles
+        .filterNotNull()
+        .forEach { title ->
+            println(title.uppercase())
+        }
+}
+```
+
+`filterNotNull()` возвращает `List<String>`.
+
+## Contracts: предварительный обзор
+
+Kotlin contracts позволяют библиотечной функции сообщить компилятору факты о результате. Многие функции стандартной библиотеки уже имеют contracts.
+
+Например, `requireNotNull` помогает smart cast:
+
+```kotlin
+fun normalizeTitle(title: String?): String {
+    val nonNullTitle = requireNotNull(title) {
+        "Название отсутствует"
+    }
+
+    return nonNullTitle.trim()
+}
+```
+
+`isNullOrBlank()` тоже помогает:
+
+```kotlin
+fun normalizeTitle(title: String?): String? {
+    if (title.isNullOrBlank()) {
+        return null
+    }
+
+    return title.trim()
+}
+```
+
+Собственные contracts — продвинутая тема. Их нужно писать осторожно, потому что неверный contract обманывает компилятор и пользователей API.
+
+## Safe cast против smart cast
+
+Smart cast требует проверки:
+
+```kotlin
+fun render(value: Any): String {
+    return if (value is String) {
+        value.trim()
+    } else {
+        "не строка"
+    }
+}
+```
+
+Safe cast возвращает `null`, если тип не подходит:
+
+```kotlin
+fun render(value: Any): String {
+    val text = value as? String
+
+    return text?.trim() ?: "не строка"
+}
+```
+
+Оба варианта нормальны. Выбор зависит от читаемости и дальнейшей логики.
+
+## Практический пример: обработка событий курса
+
+```kotlin
+sealed interface CourseEvent {
+    data class LessonOpened(val title: String?) : CourseEvent
+    data class LessonCompleted(val title: String, val score: Int?) : CourseEvent
+    data class ErrorReceived(val payload: Any?) : CourseEvent
+}
+
+fun renderCourseEvent(event: CourseEvent): String {
+    return when (event) {
+        is CourseEvent.LessonOpened -> {
+            val title = event.title
+
+            if (title.isNullOrBlank()) {
+                "Открыт урок без названия"
+            } else {
+                "Открыт урок: ${title.trim()}"
+            }
+        }
+
+        is CourseEvent.LessonCompleted -> {
+            val score = event.score
+
+            if (score == null) {
+                "Урок ${event.title} завершен без оценки"
+            } else if (score in 0..100) {
+                "Урок ${event.title} завершен, балл $score"
+            } else {
+                "Урок ${event.title} завершен, но балл некорректен"
+            }
+        }
+
+        is CourseEvent.ErrorReceived -> {
+            val payload = event.payload
+
+            when (payload) {
+                null -> "Получена ошибка без данных"
+                is String -> "Ошибка: ${payload.trim()}"
+                is Throwable -> "Исключение: ${payload.message ?: "без сообщения"}"
+                else -> "Неизвестная ошибка: $payload"
+            }
+        }
+    }
+}
+
+fun main() {
+    val events = listOf(
+        CourseEvent.LessonOpened(" Smart casts "),
+        CourseEvent.LessonCompleted("Smart casts", 95),
+        CourseEvent.ErrorReceived(IllegalStateException("Состояние нарушено"))
+    )
+
+    events.forEach { event ->
+        println(renderCourseEvent(event))
+    }
+}
+```
+
+Что здесь показывает smart cast:
+
+- `when` по sealed interface дает конкретные типы событий;
+- локальные `val title`, `val score`, `val payload` фиксируют snapshot;
+- `isNullOrBlank()` позволяет ниже использовать `title` как non-null;
+- `payload is Throwable` дает доступ к `message`;
+- nested `when` аккуратно обрабатывает разные runtime-типы.
+
+## Итоги
+
+Smart casts работают, когда компилятор может доказать факт о типе:
+
+- проверка `x != null` сужает `T?` до `T`;
+- проверка `x is Type` сужает тип внутри ветки;
+- ранние `return`, `throw`, `continue` помогают убрать nullable/неподходящий вариант;
+- `when` с type checks и sealed types особенно хорошо раскрывает smart casts;
+- mutable `var`, open properties и custom getters ограничивают smart cast;
+- локальный `val` часто решает проблему стабильности;
+- `filterNotNull`, `requireNotNull`, `isNullOrBlank` используют contracts или типовые эффекты, которые помогают компилятору;
+- если smart cast не работает, сначала спроси себя: может ли значение измениться между проверкой и использованием.
+

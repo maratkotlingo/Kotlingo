@@ -1,0 +1,484 @@
+---
+title: "JavaScript Target"
+description: "Kotlin/JS target: browser and Node targets, IR compiler, npm dependencies, webpack, testing, JavaScript interop, @JsExport, @JsName, TypeScript declarations и ограничения API."
+order: 95
+category: "Kotlin Multiplatform"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Когда нужен Kotlin/JS
+
+Kotlin/JS компилирует Kotlin в JavaScript.
+
+Use cases:
+
+- browser applications;
+- Node.js tools;
+- serverless functions;
+- shared validation logic for web and backend;
+- Kotlin wrappers over JS libraries;
+- TypeScript-facing libraries;
+- fallback for older browsers when Wasm is not suitable;
+- gradual reuse of Kotlin domain code in web stack.
+
+```kotlin
+kotlin {
+    js {
+        browser()
+        nodejs()
+        binaries.executable()
+    }
+}
+```
+
+`browser()` configures browser environment. `nodejs()` configures Node.js environment.
+
+<CatTip>
+Kotlin/JS — это кот, который умеет ходить по JavaScript-подоконнику: доменная логика остается Kotlin-овой, а runtime говорит на языке browser or Node.
+</CatTip>
+
+## Source sets
+
+Typical KMP layout:
+
+```text
+src/
+  commonMain/
+    kotlin/
+  jsMain/
+    kotlin/
+  jsTest/
+    kotlin/
+```
+
+Common code:
+
+```kotlin
+// commonMain/kotlin/lesson/SlugRules.kt
+package lesson
+
+object SlugRules {
+    fun normalize(value: String): String {
+        return value.trim()
+            .lowercase()
+            .replace(Regex("\\s+"), "-")
+    }
+}
+```
+
+JS-specific code:
+
+```kotlin
+// jsMain/kotlin/browser/BrowserTitle.kt
+package browser
+
+import kotlinx.browser.document
+
+fun setPageTitle(title: String) {
+    // DOM API доступен в browser-oriented JS source set.
+    document.title = title
+}
+```
+
+Do not put DOM or Node imports into `commonMain`.
+
+## Browser target
+
+Browser target uses webpack for bundling.
+
+```kotlin
+kotlin {
+    js {
+        browser {
+            webpackTask {
+                outputFileName = "kotlingo.js"
+            }
+
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
+            }
+        }
+
+        binaries.executable()
+    }
+}
+```
+
+Browser code can use DOM declarations:
+
+```kotlin
+// jsMain/kotlin/browser/ProgressDomRenderer.kt
+package browser
+
+import kotlinx.browser.document
+
+class ProgressDomRenderer(
+    private val elementId: String
+) {
+    fun render(percent: Int) {
+        val element = document.getElementById(elementId)
+            ?: error("Element '$elementId' не найден")
+
+        element.textContent = "Прогресс: $percent%"
+    }
+}
+```
+
+If code manipulates DOM, it belongs in JS/browser source set or a UI module, not pure common domain module.
+
+## Node target
+
+Node target is useful for CLI, serverless and tooling.
+
+```kotlin
+kotlin {
+    js {
+        nodejs {
+            testTask {
+                useMocha()
+            }
+        }
+
+        binaries.executable()
+    }
+}
+```
+
+Node-specific external declaration:
+
+```kotlin
+// jsMain/kotlin/node/NodeProcess.kt
+package node
+
+external val process: Process
+
+external interface Process {
+    val env: dynamic
+}
+
+fun readEnvironment(name: String): String? {
+    // dynamic здесь ограничен JS adapter layer.
+    return process.env[name] as? String
+}
+```
+
+<MouseTrap>
+`dynamic` удобен, но он выключает часть пользы Kotlin type system. Держи `dynamic` рядом с JS boundary и сразу переводь values в typed Kotlin models.
+</MouseTrap>
+
+## IR compiler
+
+Modern Kotlin/JS uses IR-based compilation pipeline.
+
+What it gives:
+
+- lazy initialization of top-level properties;
+- incremental compilation for development binaries;
+- dead code elimination in production builds;
+- minification support;
+- better basis for exports and TypeScript declarations;
+- consistent compiler architecture with other Kotlin targets.
+
+Development and production tasks differ:
+
+```bash
+./gradlew jsBrowserDevelopmentRun
+./gradlew jsBrowserProductionWebpack
+```
+
+Top-level property initialization:
+
+```kotlin
+package startup
+
+val expensiveIndex: Map<String, Int> = run {
+    // Kotlin/JS initializes top-level property lazily when first used.
+    mapOf("flow" to 84, "javascript" to 95)
+}
+
+fun findLesson(name: String): Int? {
+    return expensiveIndex[name]
+}
+```
+
+DCE removes unused declarations in production bundles. If declaration is called from JavaScript, export it explicitly.
+
+## NPM dependencies
+
+Kotlin/JS can depend on npm packages.
+
+```kotlin
+kotlin {
+    js {
+        browser()
+
+        sourceSets {
+            jsMain.dependencies {
+                implementation(npm("uuid", "12.0.0"))
+            }
+        }
+    }
+}
+```
+
+External declaration:
+
+```kotlin
+// jsMain/kotlin/external/Uuid.kt
+@file:JsModule("uuid")
+@file:JsNonModule
+
+package external
+
+external fun v4(): String
+```
+
+Typed wrapper:
+
+```kotlin
+// jsMain/kotlin/platform/JsUuidGenerator.kt
+package platform
+
+import external.v4
+
+class JsUuidGenerator {
+    fun randomUuid(): String {
+        // JS package isolated behind typed Kotlin API.
+        return v4()
+    }
+}
+```
+
+Dependency types:
+
+- `npm` — runtime dependency;
+- `devNpm` — development-only dependency;
+- `optionalNpm` — optional dependency;
+- `peerNpm` — peer dependency expected from consumer.
+
+## JavaScript interop
+
+Use `external` declarations to describe JS APIs.
+
+```kotlin
+// jsMain/kotlin/interop/ConsoleTimer.kt
+package interop
+
+external object console {
+    fun time(label: String)
+
+    fun timeEnd(label: String)
+}
+
+inline fun <T> measureInConsole(label: String, block: () -> T): T {
+    console.time(label)
+
+    return try {
+        block()
+    } finally {
+        console.timeEnd(label)
+    }
+}
+```
+
+Use `@JsName` to control generated JavaScript name.
+
+```kotlin
+package exports
+
+import kotlin.js.JsName
+
+class LessonApi {
+    @JsName("normalizeSlug")
+    fun normalize(value: String): String {
+        return value.trim().lowercase().replace(" ", "-")
+    }
+}
+```
+
+Without `@JsName`, overloads and signatures may be mangled to avoid collisions.
+
+## `@JsExport`
+
+`@JsExport` makes Kotlin declarations available to JavaScript/TypeScript consumers.
+
+```kotlin
+package exports
+
+import kotlin.js.JsExport
+
+@JsExport
+class ExportedLessonCard(
+    val slug: String,
+    val title: String
+)
+
+@JsExport
+fun createLessonCard(slug: String, title: String): ExportedLessonCard {
+    return ExportedLessonCard(slug, title)
+}
+```
+
+Exported API should be designed for JavaScript:
+
+- stable names;
+- simple parameter types;
+- clear nullability;
+- no Kotlin-only abstractions in public surface;
+- avoid exposing internal domain objects accidentally;
+- use DTOs for JS boundary.
+
+```kotlin
+package exports
+
+import kotlin.js.JsExport
+
+@JsExport
+data class LessonProgressDto(
+    val completed: Int,
+    val total: Int
+) {
+    val percent: Int
+        get() = if (total == 0) 0 else completed * 100 / total
+}
+```
+
+## TypeScript declarations
+
+Kotlin/JS can generate TypeScript declarations for exported API. Keep exported declarations friendly to TS consumers.
+
+Good:
+
+```kotlin
+package exports
+
+import kotlin.js.JsExport
+
+@JsExport
+class SearchResult(
+    val slug: String,
+    val title: String
+)
+
+@JsExport
+class SearchApi {
+    fun search(query: String): Array<SearchResult> {
+        return arrayOf(
+            SearchResult(
+                slug = "95-javascript-target",
+                title = "JavaScript Target"
+            )
+        )
+    }
+}
+```
+
+Risky:
+
+```kotlin
+package exports
+
+class InternalSearchState(
+    val cache: MutableMap<String, MutableList<String>>
+)
+```
+
+Do not export internal mutable structures to TypeScript if you can export DTOs.
+
+## Kotlin types in JavaScript
+
+Important mapping concerns:
+
+- Kotlin `Int`, `Double`, `Float` become JS `Number`;
+- `Long` may require BigInt support in modern JS configuration;
+- `String` maps cleanly;
+- `Boolean` maps cleanly;
+- arrays and collections may use Kotlin wrappers;
+- nullable values may become `null` or `undefined` depending on export;
+- exceptions appear as JS errors at boundary.
+
+```kotlin
+package exports
+
+import kotlin.js.JsExport
+
+@JsExport
+class SafeCounter {
+    private var value: Int = 0
+
+    fun increment(): Int {
+        value += 1
+        return value
+    }
+}
+```
+
+For JS-facing APIs, prefer `Int`, `Double`, `String`, `Boolean`, arrays and exported DTO classes.
+
+## Testing Kotlin/JS
+
+Browser tests usually use Karma; Node tests use Mocha.
+
+```kotlin
+kotlin {
+    js {
+        browser {
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
+            }
+        }
+
+        nodejs {
+            testTask {
+                useMocha()
+            }
+        }
+    }
+}
+```
+
+Test:
+
+```kotlin
+package lesson
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class SlugRulesTest {
+    @Test
+    fun normalizesSlug() {
+        val slug = SlugRules.normalize(" JavaScript Target ")
+
+        assertEquals("javascript-target", slug)
+    }
+}
+```
+
+CI must install browsers if browser tests are enabled. Gradle can configure test runner, but it does not magically install Chrome for every CI image.
+
+## Production checklist
+
+For JS target:
+
+- choose browser, Node or both intentionally;
+- keep DOM/Node APIs out of `commonMain`;
+- isolate `dynamic`;
+- wrap npm packages with typed APIs;
+- export only stable JS-facing DTOs;
+- add `@JsName` where names matter;
+- understand DCE and production bundles;
+- configure browser/Node tests in CI;
+- do not assume JS numeric model equals JVM numeric model.
+
+<CatTip>
+Kotlin/JS shines when Kotlin owns rules and types, while JavaScript interop stays as a narrow, well-labelled cat flap at the edge.
+</CatTip>
+

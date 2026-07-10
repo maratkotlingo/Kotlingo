@@ -1,0 +1,792 @@
+---
+title: "Интерфейсы"
+description: "Подробно изучаем abstract members и default implementations интерфейсов Kotlin, properties без состояния, конфликты реализаций, делегирование и fun interface."
+order: 26
+category: "Классы и объекты"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Интерфейс как контракт способности
+
+Interface описывает операции и properties, которые обязан предоставить implementing type. Он отвечает на вопрос «что объект умеет», не фиксируя единственную class hierarchy.
+
+```kotlin
+interface Completable {
+    fun complete(): Boolean
+}
+
+class LessonProgress : Completable {
+    private var completed = false
+
+    override fun complete(): Boolean {
+        if (completed) return false
+
+        completed = true
+        return true
+    }
+}
+```
+
+Класс указывает interface после двоеточия без круглых скобок: у interface нет constructor, который нужно вызвать.
+
+```kotlin
+val item: Completable = LessonProgress()
+println(item.complete())
+```
+
+Client зависит от capability `Completable`, а не от concrete storage.
+
+## Что может содержать interface
+
+Interface может объявлять:
+
+- abstract functions;
+- functions с default implementation;
+- abstract properties;
+- properties с getter implementation без backing field;
+- private helpers с body;
+- nested classes/objects;
+- companion object;
+- inherited contracts других interfaces.
+
+Interface не имеет instance constructor и не хранит обычное per-instance state через backing fields.
+
+## Abstract function
+
+Function без body abstract автоматически; слово `abstract` можно не писать.
+
+```kotlin
+interface LessonRepository {
+    fun findTitle(id: Int): String?
+    fun saveTitle(id: Int, title: String)
+}
+```
+
+Concrete class обязан реализовать все abstract members, если сам не abstract.
+
+```kotlin
+class InMemoryLessonRepository : LessonRepository {
+    private val titles = mutableMapOf<Int, String>()
+
+    override fun findTitle(id: Int): String? {
+        return titles[id]
+    }
+
+    override fun saveTitle(id: Int, title: String) {
+        require(id > 0) { "Идентификатор должен быть положительным" }
+        require(title.isNotBlank()) { "Название не должно быть пустым" }
+        titles[id] = title.trim()
+    }
+}
+```
+
+`override` обязателен. Сигнатура реализации должна быть совместима с contract.
+
+## Default implementation
+
+Interface function может иметь body, который наследуют implementors.
+
+```kotlin
+interface LessonFormatter {
+    fun normalize(title: String): String {
+        return title.trim().replace(Regex("""\s+"""), " ")
+    }
+
+    fun format(title: String): String {
+        return "Урок: ${normalize(title)}"
+    }
+}
+```
+
+```kotlin
+class PlainLessonFormatter : LessonFormatter
+```
+
+`PlainLessonFormatter` получает обе реализации.
+
+Subclass может override default:
+
+```kotlin
+class MarkdownLessonFormatter : LessonFormatter {
+    override fun format(title: String): String {
+        return "## ${normalize(title)}"
+    }
+}
+```
+
+Default implementation полезна, если поведение корректно для всех implementors и основано только на contract members/parameters.
+
+<CatTip title="Котосовет: default должен быть действительно универсальным">
+Не помещай в interface реализацию, зависящую от скрытых предположений о storage, platform или lifecycle. Default становится поведением всех implementors, включая неизвестные будущие.
+</CatTip>
+
+## Interface properties
+
+Property в interface задаёт accessor contract.
+
+```kotlin
+interface Titled {
+    val title: String
+}
+
+class Lesson(
+    override val title: String
+) : Titled
+```
+
+Interface не знает, хранится ли значение в field, вычисляется или делегируется.
+
+```kotlin
+class GeneratedLesson(private val order: Int) : Titled {
+    override val title: String
+        get() = "Урок $order"
+}
+```
+
+Обе реализации соблюдают один read-only contract.
+
+## Property с default getter
+
+Interface property может вычисляться из других members:
+
+```kotlin
+interface ProgressView {
+    val completed: Int
+    val total: Int
+
+    val percent: Int
+        get() {
+            if (total == 0) return 0
+            return completed * 100 / total
+        }
+}
+```
+
+Backing field недоступен, поэтому initializer и `field` использовать нельзя:
+
+```kotlin
+// interface Invalid {
+//     val title: String = "Значение"
+// }
+```
+
+Constant можно разместить в companion object, а per-instance value должен предоставить implementor или computed getter.
+
+## `var` в interface
+
+```kotlin
+interface MutableProgress {
+    var completed: Int
+}
+
+class StoredProgress(
+    override var completed: Int
+) : MutableProgress
+```
+
+Contract требует и getter, и setter. Реализация не может заменить `var` на `val`.
+
+Можно дать default getter/setter только если они делегируют доступному внешнему contract; хранить `field` interface не умеет. Mutable state лучше часто выражать operations:
+
+```kotlin
+interface ProgressController {
+    val completed: Int
+    fun completeNext(): Boolean
+}
+```
+
+Так implementor контролирует invariants.
+
+## Несколько interfaces
+
+Класс может реализовать сколько угодно interfaces, но наследовать только один class.
+
+```kotlin
+interface Titled {
+    val title: String
+}
+
+interface Ordered {
+    val order: Int
+}
+
+interface Publishable {
+    fun publish(): Boolean
+}
+
+class Lesson(
+    override val title: String,
+    override val order: Int
+) : Titled, Ordered, Publishable {
+    private var published = false
+
+    override fun publish(): Boolean {
+        if (published) return false
+        published = true
+        return true
+    }
+}
+```
+
+Interfaces позволяют комбинировать независимые capabilities без глубокой class tree.
+
+## Наследование interfaces
+
+Interface может расширять другие interfaces.
+
+```kotlin
+interface Identifiable {
+    val id: Int
+}
+
+interface LessonView : Identifiable, Titled {
+    fun route(): String {
+        return "/kotlin/$id"
+    }
+}
+```
+
+Concrete implementation обязана предоставить `id` и `title`, а `route` получает default.
+
+```kotlin
+data class LessonSummary(
+    override val id: Int,
+    override val title: String
+) : LessonView
+```
+
+## Interface и abstract class
+
+Обе abstraction могут иметь abstract и concrete members, но различаются:
+
+- class имеет constructor и instance state;
+- class участвует только в single class inheritance;
+- interface не имеет per-instance backing fields;
+- один class реализует несколько interfaces;
+- interface лучше выражает role/capability;
+- abstract class удобна для общего state и строго управляемого lifecycle.
+
+Можно сочетать:
+
+```kotlin
+interface Validatable {
+    fun validate(): List<String>
+}
+
+abstract class Content(
+    val id: Int,
+    val title: String
+) : Validatable {
+    protected fun baseErrors(): MutableList<String> {
+        val errors = mutableListOf<String>()
+        if (id <= 0) errors += "Идентификатор должен быть положительным"
+        if (title.isBlank()) errors += "Название обязательно"
+        return errors
+    }
+}
+```
+
+## Конфликт default implementations
+
+Если два supertypes дают реализацию одной signature, class обязан разрешить конфликт явно.
+
+```kotlin
+interface ShortLabel {
+    fun label(): String = "Короткая метка"
+}
+
+interface DetailedLabel {
+    fun label(): String = "Подробная метка"
+}
+
+class CombinedLabel : ShortLabel, DetailedLabel {
+    override fun label(): String {
+        val short = super<ShortLabel>.label()
+        val detailed = super<DetailedLabel>.label()
+        return "$short | $detailed"
+    }
+}
+```
+
+Qualified super syntax `super<InterfaceName>.member()` выбирает конкретную default implementation.
+
+Можно не вызывать ни одну и реализовать contract самостоятельно:
+
+```kotlin
+class CustomLabel : ShortLabel, DetailedLabel {
+    override fun label(): String = "Собственная метка"
+}
+```
+
+<MouseTrap title="Мышеловка: порядок interfaces не решает конфликт">
+Запись `class C : A, B` не означает, что B автоматически побеждает A. Kotlin требует явный override, чтобы решение было видно в коде.
+</MouseTrap>
+
+## Конфликт abstract и default member
+
+Если один supertype объявляет member abstract, а другой предоставляет совместимую implementation, правила inherited members могут всё равно требовать явного override в зависимости от relation и signatures. Не полагайся на случайное «поглощение» contract: объяви override и при необходимости делегируй default.
+
+```kotlin
+interface Named {
+    fun label(): String
+}
+
+interface DefaultNamed {
+    fun label(): String = "По умолчанию"
+}
+
+class ExplicitNamed : Named, DefaultNamed {
+    override fun label(): String {
+        return super<DefaultNamed>.label()
+    }
+}
+```
+
+Явная реализация устойчива и документирует выбор.
+
+## Конфликт property и function accessors
+
+На JVM Kotlin property компилируется к accessors, что может пересечься с function signatures из Java/Kotlin supertypes. Например, `val name` и `getName()` могут иметь одинаковую JVM signature.
+
+Проектируя cross-language interfaces:
+
+- проверяй generated JVM methods;
+- не дублируй property и Java-style getter без необходимости;
+- учитывай type erasure;
+- запускай compilation Java и Kotlin clients.
+
+## Private functions в interface
+
+Private helper позволяет переиспользовать implementation detail между defaults, не добавляя member в client contract.
+
+```kotlin
+interface SafeFormatter {
+    fun title(raw: String): String {
+        return "Урок: ${normalize(raw)}"
+    }
+
+    fun heading(raw: String): String {
+        return "## ${normalize(raw)}"
+    }
+
+    private fun normalize(raw: String): String {
+        return raw.trim().replace(Regex("""\s+"""), " ")
+    }
+}
+```
+
+Implementor не видит и не override private helper. Это сохраняет freedom менять detail.
+
+## `Any` methods в interface
+
+Interface может требовать semantics, но реализация `equals`, `hashCode`, `toString` связана с `Any` и concrete class. Default implementation interface для методов `Any` имеет platform/language ограничения, поэтому не строй portability на попытке подменить их как обычный default.
+
+Для value semantics используй data/value class или явную реализацию в class.
+
+## Interface delegation через `by`
+
+Класс может делегировать реализацию interface другому объекту.
+
+```kotlin
+interface LessonLogger {
+    fun info(message: String)
+    fun error(message: String)
+}
+
+class ConsoleLessonLogger : LessonLogger {
+    override fun info(message: String) {
+        println("INFO: $message")
+    }
+
+    override fun error(message: String) {
+        println("ERROR: $message")
+    }
+}
+
+class LessonService(
+    logger: LessonLogger
+) : LessonLogger by logger {
+    fun load(id: Int) {
+        if (id <= 0) {
+            error("Некорректный идентификатор: $id")
+            return
+        }
+
+        info("Загружаем урок $id")
+    }
+}
+```
+
+Compiler генерирует forwarding members. Класс может override отдельный member:
+
+```kotlin
+class PrefixedLessonService(
+    private val logger: LessonLogger
+) : LessonLogger by logger {
+    override fun info(message: String) {
+        logger.info("[lesson] $message")
+    }
+}
+```
+
+Delegation использует объект, переданный при construction; изменение другого property позже не перенаправляет автоматически generated delegate.
+
+Interface delegation подробно рассматривается в отдельной теме, но уже здесь полезно видеть composition без boilerplate forwarding.
+
+## Functional interface
+
+`fun interface` — interface с ровно одним abstract method, то есть SAM (Single Abstract Method).
+
+```kotlin
+fun interface ScoreValidator {
+    fun validate(score: Int): Boolean
+}
+```
+
+Его можно реализовать классом:
+
+```kotlin
+class RangeScoreValidator : ScoreValidator {
+    override fun validate(score: Int): Boolean {
+        return score in 0..100
+    }
+}
+```
+
+Или SAM conversion из lambda:
+
+```kotlin
+val validator = ScoreValidator { score -> score in 0..100 }
+println(validator.validate(95))
+```
+
+## Ограничения `fun interface`
+
+Functional interface:
+
+- имеет ровно один abstract function;
+- может иметь несколько concrete/default functions;
+- может иметь abstract properties только с осторожностью: abstract property accessors добавляют abstract members и нарушают SAM requirement;
+- может наследовать contracts, если итоговый набор abstract methods остаётся одним совместимым contract;
+- не является просто type alias для function type.
+
+```kotlin
+fun interface TitleNormalizer {
+    fun normalize(raw: String): String
+
+    fun normalizeOrFallback(raw: String?, fallback: String): String {
+        return raw?.let(::normalize)?.takeIf(String::isNotEmpty) ?: fallback
+    }
+}
+```
+
+Один abstract `normalize`, второй method concrete.
+
+## `fun interface` против function type
+
+Function type:
+
+```kotlin
+typealias Validator = (Int) -> Boolean
+```
+
+Functional interface:
+
+```kotlin
+fun interface ValidatorContract {
+    fun validate(value: Int): Boolean
+}
+```
+
+Выбирай function type, когда:
+
+- операция локальна и проста;
+- отдельная domain identity не нужна;
+- не нужны default methods;
+- API естественно говорит «передай функцию».
+
+Выбирай `fun interface`, когда:
+
+- contract имеет domain name;
+- нужна Java-friendly SAM abstraction;
+- нужны annotations/documentation на method;
+- нужны default helper methods;
+- разные функциональные параметры одинаковой signature должны различаться типами.
+
+```kotlin
+fun interface LessonFilter {
+    fun accept(title: String): Boolean
+}
+
+fun interface LessonMapper {
+    fun map(title: String): String
+}
+```
+
+Обе имеют `(String) -> ...`-подобные signatures, но domain types не перепутаются.
+
+<CatTip title="Котосовет: fun interface даёт операции имя в модели">
+Если parameter `validator: (String) -> Boolean` уже понятен, отдельный interface может быть лишним. Если существуют разные kinds правил с одинаковой signature, именованный SAM contract предотвращает путаницу.
+</CatTip>
+
+## SAM conversion и callable references
+
+```kotlin
+fun nonBlankTitle(value: String): Boolean {
+    return value.isNotBlank()
+}
+
+fun interface TitleRule {
+    fun accepts(title: String): Boolean
+}
+
+fun main() {
+    val fromLambda = TitleRule { title -> title.length >= 3 }
+    val fromReference = TitleRule(::nonBlankTitle)
+
+    println(fromLambda.accepts("Kotlin"))
+    println(fromReference.accepts("Kotlin"))
+}
+```
+
+SAM instance и raw function value — разные values/types, хотя conversion удобна.
+
+## Java SAM interfaces
+
+Kotlin поддерживает SAM conversion для Java interfaces с одним abstract method, например `Runnable`, `Comparator`, event listeners.
+
+```kotlin
+val task = Runnable {
+    println("Задание выполнено")
+}
+
+task.run()
+```
+
+Для overloaded Java methods lambda type inference может нуждаться в явном SAM constructor/type.
+
+## Default methods и JVM compatibility
+
+На JVM способ генерации default interface methods зависит от Kotlin compiler settings, target и compatibility mode. Современные toolchains могут создавать реальные JVM default methods, bridges или compatibility helpers.
+
+Для library API важно:
+
+- зафиксировать compiler/JVM default mode;
+- не менять его без ABI analysis;
+- тестировать Java clients;
+- использовать binary compatibility validator;
+- учитывать min JVM/Android desugaring environment.
+
+Source-level Kotlin semantics одинаково показывают default implementation, но bytecode shape важна опубликованной библиотеке.
+
+## Эволюция interface
+
+Добавление abstract member ломает все existing implementors:
+
+```kotlin
+interface Repository {
+    fun find(id: Int): String?
+}
+```
+
+Если добавить `fun delete(id: Int)` без body, реализации перестанут компилироваться, а binaries могут стать несовместимыми.
+
+Default implementation иногда позволяет эволюцию мягче:
+
+```kotlin
+interface Repository {
+    fun find(id: Int): String?
+
+    fun exists(id: Int): Boolean {
+        return find(id) != null
+    }
+}
+```
+
+Но semantic default должен быть корректным и performance acceptable для всех implementors. Например, default `all().contains(id)` может неожиданно загружать миллионы записей.
+
+## Interface segregation
+
+Большой interface заставляет implementors зависеть от ненужных operations.
+
+Вместо:
+
+```kotlin
+interface CourseSystem {
+    fun load(id: Int): String?
+    fun save(id: Int, value: String)
+    fun delete(id: Int)
+    fun publish(id: Int)
+    fun sendNotification(id: Int)
+}
+```
+
+Раздели capabilities:
+
+```kotlin
+interface LessonReader {
+    fun load(id: Int): String?
+}
+
+interface LessonWriter {
+    fun save(id: Int, value: String)
+}
+
+interface LessonPublisher {
+    fun publish(id: Int)
+}
+```
+
+Use case зависит только от требуемой роли:
+
+```kotlin
+class LessonPreview(private val reader: LessonReader) {
+    fun preview(id: Int): String {
+        return reader.load(id) ?: "Урок не найден"
+    }
+}
+```
+
+## Практический пример: модуль проверки урока
+
+```kotlin
+data class LessonDraft(
+    val title: String,
+    val content: String,
+    val tags: Set<String>
+)
+
+data class ValidationIssue(
+    val rule: String,
+    val message: String
+)
+
+fun interface LessonRule {
+    fun validate(draft: LessonDraft): ValidationIssue?
+}
+
+interface ValidationReporter {
+    fun report(issues: List<ValidationIssue>)
+
+    fun reportSuccess() {
+        println("Урок прошёл все проверки")
+    }
+}
+
+class ConsoleValidationReporter : ValidationReporter {
+    override fun report(issues: List<ValidationIssue>) {
+        issues.forEach { issue ->
+            println("${issue.rule}: ${issue.message}")
+        }
+    }
+}
+
+class LessonValidator(
+    private val rules: List<LessonRule>,
+    private val reporter: ValidationReporter
+) {
+    fun validate(draft: LessonDraft): Boolean {
+        val issues = rules.mapNotNull { rule -> rule.validate(draft) }
+
+        if (issues.isEmpty()) {
+            reporter.reportSuccess()
+            return true
+        }
+
+        reporter.report(issues)
+        return false
+    }
+}
+
+fun titleRule(minLength: Int, maxLength: Int): LessonRule {
+    require(minLength > 0) { "Минимальная длина должна быть положительной" }
+    require(maxLength >= minLength) { "Максимум не может быть меньше минимума" }
+
+    return LessonRule { draft ->
+        val length = draft.title.trim().length
+        if (length in minLength..maxLength) {
+            null
+        } else {
+            ValidationIssue(
+                rule = "title-length",
+                message = "Длина названия должна быть от $minLength до $maxLength"
+            )
+        }
+    }
+}
+
+val contentRule = LessonRule { draft ->
+    if (draft.content.isBlank()) {
+        ValidationIssue(
+            rule = "content-required",
+            message = "Содержание урока обязательно"
+        )
+    } else {
+        null
+    }
+}
+
+val tagRule = LessonRule { draft ->
+    if (draft.tags.isEmpty()) {
+        ValidationIssue(
+            rule = "tags-required",
+            message = "Добавь хотя бы одну метку"
+        )
+    } else {
+        null
+    }
+}
+
+fun main() {
+    val validator = LessonValidator(
+        rules = listOf(
+            titleRule(minLength = 3, maxLength = 120),
+            contentRule,
+            tagRule
+        ),
+        reporter = ConsoleValidationReporter()
+    )
+
+    val valid = validator.validate(
+        LessonDraft(
+            title = "Интерфейсы",
+            content = "Контракты, default implementations и SAM.",
+            tags = setOf("kotlin", "oop")
+        )
+    )
+
+    println("Валиден: $valid")
+}
+```
+
+Здесь:
+
+- `LessonRule` — domain SAM contract с одной validation operation;
+- lambdas создают независимые rules без boilerplate classes;
+- factory `titleRule` захватывает configuration;
+- `ValidationReporter` имеет abstract effect и universal default success;
+- validator зависит от interfaces, а не console details;
+- rules легко добавлять и тестировать отдельно;
+- interface не хранит state, concrete objects/lambda closures хранят необходимую configuration.
+
+## Итоги
+
+- interface описывает capability и не имеет instance constructor;
+- abstract functions не требуют слова `abstract`;
+- concrete class реализует members через обязательный `override`;
+- default implementation наследуется и может быть переопределена;
+- interface property задаёт accessors, но не имеет backing field;
+- один class может реализовать несколько interfaces;
+- interface может расширять другие interfaces;
+- конфликт одинаковых defaults разрешается явным override и `super<Interface>`;
+- private interface helper не становится частью contract;
+- delegation `by` генерирует forwarding implementation;
+- `fun interface` имеет ровно один abstract method и поддерживает SAM conversion;
+- function type подходит локальной функции, functional interface даёт domain identity;
+- добавление abstract member ломает implementors;
+- default API evolution требует semantic и binary анализа;
+- маленькие role-specific interfaces уменьшают coupling.
+

@@ -1,0 +1,544 @@
+---
+title: "Scope functions"
+description: "Исчерпывающе сравниваем let, run, with, apply и also по receiver, result и side effects, разбираем nullable-цепочки, конфигурацию объектов и типичные ошибки вложения."
+order: 44
+category: "Функциональный Kotlin"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Пять похожих функций с двумя ключевыми различиями
+
+Scope function выполняет block в context объекта. Выбор определяется двумя вопросами:
+
+1. Объект внутри доступен как `this` или как argument `it`?
+2. Результат whole expression — result lambda или исходный объект?
+
+Пять функций:
+
+- `let`: объект как `it`, возвращает lambda result;
+- `run`: объект как `this`, возвращает lambda result;
+- `with`: объект как `this`, возвращает lambda result, вызывается не extension;
+- `apply`: объект как `this`, возвращает исходный объект;
+- `also`: объект как `it`, возвращает исходный объект.
+
+Есть ещё non-extension `run { ... }` без context object: он группирует statements и возвращает последнее expression.
+
+## `let`: argument и result
+
+Conceptual signature:
+
+```kotlin
+inline fun <T, R> T.let(block: (T) -> R): R
+```
+
+```kotlin
+val length = " Scope functions ".let { value ->
+    value.trim().length
+}
+```
+
+Whole expression — `Int`, result последнего expression.
+
+`let` уместен:
+
+- для преобразования value;
+- для ограничения local scope variable;
+- в nullable safe-call chain;
+- когда explicit parameter name яснее `this`;
+- для передачи value нескольким calls.
+
+```kotlin
+val route = "Scope Functions".let { title ->
+    val slug = title.lowercase().replace(' ', '-')
+    "/kotlin/44-$slug"
+}
+```
+
+## Nullable `?.let`
+
+```kotlin
+fun printTitle(title: String?) {
+    title?.let { presentTitle ->
+        println(presentTitle.trim())
+    }
+}
+```
+
+Block выполняется только для non-null receiver, parameter smart-typed как String.
+
+Result whole expression nullable:
+
+```kotlin
+val length: Int? = title?.let { it.length }
+```
+
+`?.let` не должен заменять простой safe call:
+
+```kotlin
+val length = title?.length
+```
+
+## `let` и method reference
+
+```kotlin
+val text = listOf("let", "run")
+    .joinToString()
+    .let(::println)
+```
+
+Если block — один вызов с value argument, reference может быть короче.
+
+## `run`: receiver и result
+
+Conceptual signature:
+
+```kotlin
+inline fun <T, R> T.run(block: T.() -> R): R
+```
+
+```kotlin
+data class Lesson(val title: String, val order: Int)
+
+val label = Lesson("Scope functions", 44).run {
+    "$order. ${title.trim()}"
+}
+```
+
+Внутри implicit `this`, members доступны без qualifier. Result — String.
+
+`run` уместен, когда:
+
+- нужно вызвать несколько members receiver;
+- затем вычислить отдельный result;
+- object configuration и calculation находятся рядом;
+- explicit `it` создал бы шум.
+
+```kotlin
+val percent = CourseProgress(4, 5).run {
+    require(total > 0) { "Общее число должно быть положительным" }
+    completed * 100 / total
+}
+
+data class CourseProgress(val completed: Int, val total: Int)
+```
+
+## `run` в nullable chain
+
+```kotlin
+fun label(lesson: Lesson?): String {
+    return lesson?.run {
+        "$order. $title"
+    } ?: "Урок не найден"
+}
+```
+
+Receiver внутри non-null.
+
+## Non-extension `run`
+
+```kotlin
+val titlePattern = run {
+    val latin = "a-zA-Z"
+    val cyrillic = "а-яА-ЯёЁ"
+    Regex("[$latin$cyrillic0-9 ]+")
+}
+```
+
+Нет context object. `run` превращает несколько statements в expression и ограничивает scope временных variables.
+
+```kotlin
+val message = if (true) run {
+    val lesson = "Scope functions"
+    "Открыт урок: $lesson"
+} else {
+    "Нет урока"
+}
+```
+
+## `with`: argument, receiver, result
+
+Conceptual signature:
+
+```kotlin
+inline fun <T, R> with(receiver: T, block: T.() -> R): R
+```
+
+Вызов не через dot:
+
+```kotlin
+val lesson = Lesson("Scope functions", 44)
+val label = with(lesson) {
+    "$order. $title"
+}
+```
+
+`with` читается как «с этим объектом выполни группу операций».
+
+```kotlin
+fun printLesson(lesson: Lesson) {
+    with(lesson) {
+        println("Порядок: $order")
+        println("Название: $title")
+    }
+}
+```
+
+Хотя result здесь Unit, `with` возвращает последнее expression и может вычислять value.
+
+`run` удобнее chain/safe-call, `with` — когда receiver уже есть отдельной variable и нужно визуально сгруппировать calls.
+
+## `apply`: receiver и исходный объект
+
+Conceptual signature:
+
+```kotlin
+inline fun <T> T.apply(block: T.() -> Unit): T
+```
+
+```kotlin
+class LessonDraft {
+    var title: String = ""
+    var order: Int = 0
+    val tags: MutableSet<String> = linkedSetOf()
+}
+
+val draft = LessonDraft().apply {
+    title = "Scope functions"
+    order = 44
+    tags += "kotlin"
+    tags += "functional"
+}
+```
+
+Result — тот же `LessonDraft`, не result block.
+
+`apply` читается как «применить configuration к объекту». Подходит:
+
+- builder/configuration;
+- setting properties;
+- post-construction setup;
+- test fixture setup.
+
+<CatTip title="Котосовет: apply для конфигурации, не вычисления">
+Block должен в основном изменять receiver. Если главное — получить другой result, выбирай `run` или `let`.
+</CatTip>
+
+## `apply` и invariant
+
+Public mutable object можно оставить partially configured:
+
+```kotlin
+val unsafe = LessonDraft().apply {
+    title = ""
+}
+```
+
+Для domain model constructor/factory лучше:
+
+```kotlin
+data class ValidLesson(val order: Int, val title: String) {
+    init {
+        require(order > 0) { "Порядок должен быть положительным" }
+        require(title.isNotBlank()) { "Название обязательно" }
+    }
+}
+```
+
+`apply` не заменяет validation.
+
+## `also`: argument и исходный объект
+
+Conceptual signature:
+
+```kotlin
+inline fun <T> T.also(block: (T) -> Unit): T
+```
+
+```kotlin
+val title = " Scope functions "
+    .trim()
+    .also { normalized -> println("Нормализовано: $normalized") }
+    .uppercase()
+```
+
+Result `also` — String receiver, chain продолжается. Block предназначен для дополнительного effect:
+
+- logging;
+- metrics;
+- audit;
+- assertion/debug inspection;
+- side effect, не меняющий основной result.
+
+`it`/named parameter не shadow outer `this`, поэтому `also` удобен внутри classes.
+
+## `also` не должен менять смысл pipeline
+
+```kotlin
+val lessons = mutableListOf<String>()
+    .also { list -> list += "Scope functions" }
+```
+
+Это допустимо, но `apply` лучше выражает configuration receiver. `also` convention — дополнительное наблюдение/effect.
+
+## Receiver `this` против argument `it`
+
+Выбирай `this` (`run`, `with`, `apply`), когда:
+
+- block в основном вызывает members receiver;
+- нужен DSL/configuration style;
+- receiver obvious и не конфликтует с outer receiver.
+
+Выбирай argument (`let`, `also`), когда:
+
+- объект передаётся в другие functions;
+- нужно содержательное имя;
+- outer `this` должен оставаться видимым;
+- несколько variables участвуют на равных.
+
+```kotlin
+class Renderer(private val prefix: String) {
+    fun render(lesson: Lesson): String {
+        return lesson.let { current ->
+            "$prefix ${current.order}: ${current.title}"
+        }
+    }
+}
+```
+
+`let` сохраняет `this@Renderer` implicit context и явно называет lesson.
+
+## Result lambda против receiver
+
+Возвращают lambda result:
+
+- `let`;
+- `run`;
+- `with`;
+- non-extension `run`.
+
+Возвращают исходный object:
+
+- `apply`;
+- `also`.
+
+Это главный критерий выбора.
+
+```kotlin
+val transformed: Int = "Kotlin".let { it.length }
+val same: String = "Kotlin".also { println(it) }
+```
+
+## Side effects
+
+`also` conventionally side effect, но технически любой scope block может делать effect. Compiler не запрещает запись в database внутри `let`.
+
+Design rule:
+
+- transformation — `let`/`run`;
+- configuration — `apply`;
+- observation/additional effect — `also`;
+- grouping calls — `with`;
+- expression block без receiver — `run`.
+
+## Вложенные scope functions
+
+```kotlin
+lesson.run {
+    title.let {
+        println(it)
+    }
+}
+```
+
+При nesting быстро теряется, что такое `this` и `it`. Назови parameters или разверни variables:
+
+```kotlin
+val currentTitle = lesson.title
+println(currentTitle)
+```
+
+<MouseTrap title="Мышеловка: nested this и it скрывают контекст">
+Scope functions экономят имя receiver, но во вложении это преимущество исчезает. Если нужно считать уровни, используй обычные local variables и functions.
+</MouseTrap>
+
+## Qualified `this`
+
+```kotlin
+class CourseRenderer(private val prefix: String) {
+    fun render(lesson: Lesson): String {
+        return lesson.run lessonScope@{
+            "${this@CourseRenderer.prefix} ${this@lessonScope.order}: ${title}"
+        }
+    }
+}
+```
+
+Qualified receiver работает, но если label нужен часто, explicit variable может быть проще.
+
+## Scope functions и nullable values
+
+```kotlin
+val result = nullableTitle
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+    ?.let { title -> "Урок: $title" }
+    ?: "Название отсутствует"
+```
+
+Это ясная linear chain. Но не используй `?.apply` для обязательной configuration, если null должен считаться ошибкой:
+
+```kotlin
+val draft = requireNotNull(possibleDraft) { "Черновик обязателен" }
+draft.apply { title = "Scope functions" }
+```
+
+## `takeIf` и `takeUnless`
+
+Это не scope functions из основной пятёрки, но часто участвуют в chains:
+
+```kotlin
+val validTitle = "Scope functions"
+    .takeIf { title -> title.length in 3..120 }
+```
+
+- `takeIf(predicate)` возвращает receiver, если true, иначе null;
+- `takeUnless(predicate)` возвращает receiver, если false, иначе null.
+
+Они не заменяют validation с подробной ошибкой.
+
+## `use` рядом со scope functions
+
+`use` управляет `Closeable` resource и закрывает его. Это не просто scope convenience, а lifecycle contract.
+
+```kotlin
+java.io.StringReader("Scope functions").use { reader ->
+    println(reader.readText())
+}
+```
+
+Не заменяй `use` на `run`, если resource нужно закрыть.
+
+## Return и labels
+
+Scope functions inline, поэтому non-local returns возможны в допустимом direct context.
+
+```kotlin
+fun normalizedOrNull(raw: String?): String? {
+    raw?.let { value ->
+        val normalized = value.trim()
+        if (normalized.isEmpty()) return null
+        return normalized
+    }
+    return null
+}
+```
+
+Код проще без scope:
+
+```kotlin
+fun clearerNormalizedOrNull(raw: String?): String? {
+    val normalized = raw?.trim().orEmpty()
+    return normalized.ifEmpty { null }
+}
+```
+
+Scope function не обязательна только потому, что значение nullable.
+
+## Chaining и тип результата
+
+```kotlin
+val route = Lesson("Scope functions", 44)
+    .also { lesson -> println("Создан: $lesson") }
+    .run { "/kotlin/$order-${title.lowercase().replace(' ', '-')}" }
+    .also { path -> println("Маршрут: $path") }
+```
+
+После первого `also` type Lesson, после `run` type String, после второго `also` String. При review отслеживай type на каждом шаге.
+
+## Не использовать scope function ради краткости
+
+Вместо:
+
+```kotlin
+val result = service.let { it.load(44) }
+```
+
+Проще:
+
+```kotlin
+val result = service.load(44)
+```
+
+Scope function оправдана дополнительной структурой, null boundary, configuration или pipeline effect.
+
+## Практический пример: подготовка публикации
+
+```kotlin
+data class LessonDraft(
+    var title: String,
+    var content: String,
+    var slug: String = "",
+    var published: Boolean = false
+)
+
+data class PublicationResult(
+    val slug: String,
+    val contentLength: Int
+)
+
+fun preparePublication(rawTitle: String, rawContent: String): PublicationResult {
+    val draft = LessonDraft(rawTitle, rawContent).apply {
+        title = title.trim().replace(Regex("""\s+"""), " ")
+        content = content.trim()
+        slug = title.lowercase().replace(Regex("""[^a-zа-яё0-9]+"""), "-").trim('-')
+    }
+
+    return draft
+        .also { prepared ->
+            require(prepared.title.length in 3..120) {
+                "Название должно содержать от 3 до 120 символов"
+            }
+            require(prepared.content.isNotEmpty()) { "Содержание обязательно" }
+            require(prepared.slug.isNotEmpty()) { "Slug не сформирован" }
+        }
+        .run {
+            published = true
+            PublicationResult(
+                slug = slug,
+                contentLength = content.length
+            )
+        }
+        .also { result ->
+            println("Подготовлена публикация ${result.slug}")
+        }
+}
+
+fun main() {
+    val result = preparePublication(
+        rawTitle = "  Scope   functions ",
+        rawContent = "let, run, with, apply и also"
+    )
+    println(result)
+}
+```
+
+`apply` конфигурирует mutable draft, `also` проверяет/наблюдает без смены chain value, `run` превращает draft в отдельный result. В настоящем domain immutable factory может быть безопаснее mutable draft.
+
+## Итоги
+
+- `let` использует argument и возвращает lambda result;
+- `run` использует receiver и возвращает lambda result;
+- `with` принимает object argument, использует receiver и возвращает lambda result;
+- `apply` использует receiver и возвращает исходный object;
+- `also` использует argument и возвращает исходный object;
+- non-extension `run` создаёт expression scope без receiver;
+- `?.let` выполняет block только для non-null value;
+- `apply` conventionally настраивает object;
+- `also` добавляет logging/audit/inspection effect;
+- вложенные scope functions ухудшают понимание `this`/`it`;
+- scope function не заменяет validation, resource `use` или простой direct call;
+- выбор определяется receiver style, desired result и ролью side effect.
+

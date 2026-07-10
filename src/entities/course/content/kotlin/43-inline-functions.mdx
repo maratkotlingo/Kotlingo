@@ -1,0 +1,467 @@
+---
+title: "Inline functions"
+description: "Глубоко разбираем inline, noinline и crossinline, non-local returns и jumps, reified parameters, производительность, code size, public ABI и PublishedApi."
+order: 43
+category: "Функциональный Kotlin"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что означает `inline`
+
+Compiler может вставить body inline function и inlinable lambda arguments непосредственно в call site.
+
+```kotlin
+inline fun measure(block: () -> Unit): Long {
+    val startedAt = System.nanoTime()
+    block()
+    return System.nanoTime() - startedAt
+}
+
+fun main() {
+    val elapsed = measure {
+        println("Изучаем inline")
+    }
+    println("Наносекунд: $elapsed")
+}
+```
+
+Conceptually call превращается в code `measure` плюс lambda body. Точный bytecode выбирает compiler/backend.
+
+## Зачем inline higher-order functions
+
+Обычная higher-order call может включать:
+
+- object для lambda closure;
+- virtual `invoke`;
+- captured fields;
+- дополнительный call boundary.
+
+Inlining способен убрать часть overhead, особенно в hot loops и маленьких utilities.
+
+Но inline увеличивает code size: body копируется в каждый call site. Это trade-off, не universal optimization.
+
+## Что inline не гарантирует
+
+- JIT всё равно принимает собственные решения;
+- captured/escaped `noinline` lambdas могут аллоцироваться;
+- большой body раздувает bytecode;
+- reflection/I/O не становятся дешёвыми;
+- cross-module clients содержат старую копию body до recompilation;
+- backend representation отличается между JVM/JS/Native.
+
+<CatTip title="Котосовет: inline маленький control-flow wrapper">
+Лучшие кандидаты — короткие functions с lambda parameters, reified type parameters или non-local control flow. Большой business algorithm оставляй обычной function.
+</CatTip>
+
+## Inlinable lambda parameter
+
+```kotlin
+inline fun <T> repeatValue(
+    times: Int,
+    producer: (Int) -> T
+): List<T> {
+    require(times >= 0) { "Число повторов не может быть отрицательным" }
+    return List(times) { index -> producer(index) }
+}
+```
+
+Parameter `producer` по умолчанию inlinable. Его можно:
+
+- вызвать напрямую;
+- передать в другую inline function как inlinable argument;
+- использовать для non-local return при соблюдении control-flow условий.
+
+Его нельзя произвольно сохранить в property/collection или вернуть как value.
+
+## `noinline`
+
+`noinline` запрещает inlining конкретного lambda parameter и разрешает обращаться с ним как обычным object value.
+
+```kotlin
+class ListenerRegistry {
+    private val listeners = mutableListOf<(Int) -> Unit>()
+
+    fun add(listener: (Int) -> Unit) {
+        listeners += listener
+    }
+
+    fun publish(id: Int) {
+        listeners.toList().forEach { listener -> listener(id) }
+    }
+}
+
+inline fun registerAndRun(
+    registry: ListenerRegistry,
+    noinline stored: (Int) -> Unit,
+    immediate: () -> Unit
+) {
+    registry.add(stored)
+    immediate()
+}
+```
+
+`stored` передаётся non-inline `add` и сохраняется. `immediate` вставляется/called inline.
+
+`noinline` доступен только lambda parameters inline function.
+
+## Когда вся function теряет смысл inline
+
+Если все function parameters `noinline` и нет reified parameters, inline часто не приносит пользы. Compiler может предупредить `NOTHING_TO_INLINE`.
+
+```kotlin
+// inline fun sum(left: Int, right: Int): Int = left + right
+```
+
+Для tiny primitive wrapper JIT и обычная function достаточны; suppress warning только при измеренной/платформенной причине.
+
+## Non-local return
+
+Bare return из lambda inline call может завершить enclosing named function.
+
+```kotlin
+fun firstInvalid(scores: List<Int>): Int? {
+    scores.forEach { score ->
+        if (score !in 0..100) return score
+    }
+    return null
+}
+```
+
+`forEach` inline, поэтому lambda body находится в control-flow context `firstInvalid`.
+
+Собственный API:
+
+```kotlin
+inline fun inspect(values: List<Int>, block: (Int) -> Unit) {
+    for (value in values) block(value)
+}
+
+fun findPassing(values: List<Int>): Int? {
+    inspect(values) { value ->
+        if (value >= 60) return value
+    }
+    return null
+}
+```
+
+## Local return остаётся доступен
+
+```kotlin
+inspect(listOf(-1, 60, 80)) { value ->
+    if (value < 0) return@inspect
+    println(value)
+}
+```
+
+`return@inspect` завершает текущий lambda invocation, enclosing function продолжается.
+
+## Почему non-local return иногда невозможен
+
+Если lambda вызывается не непосредственно, а внутри local object, nested non-inline function, stored callback или другого execution context, bare return нельзя безопасно перенести в caller.
+
+```kotlin
+inline fun runDirect(block: () -> Unit) {
+    block()
+}
+```
+
+Direct вызов разрешает non-local return. Но следующий design требует `crossinline`.
+
+## `crossinline`
+
+```kotlin
+inline fun asRunnable(crossinline block: () -> Unit): Runnable {
+    return Runnable {
+        block()
+    }
+}
+```
+
+Lambda захвачена object/later execution. `crossinline` запрещает caller использовать non-local return, но позволяет compiler inline/capture body в разрешённой форме.
+
+```kotlin
+fun main() {
+    val task = asRunnable {
+        println("Выполняется позже")
+        // bare return из main здесь недопустим.
+    }
+    task.run()
+}
+```
+
+### `crossinline` против `noinline`
+
+`noinline`:
+
+- lambda остаётся ordinary object;
+- её можно хранить/возвращать/передавать куда угодно;
+- non-local returns невозможны.
+
+`crossinline`:
+
+- compiler всё ещё может inline body;
+- lambda можно вызвать из nested execution context, разрешённого compiler;
+- non-local returns запрещены;
+- произвольное хранение/return как обычного value не становится автоматически допустимым.
+
+<MouseTrap title="Мышеловка: crossinline не означает асинхронность">
+Он описывает control-flow restriction, потому что callback может быть вызван не напрямую. Реальный thread, scheduling и lifetime определяет implementation/API contract.
+</MouseTrap>
+
+## Non-local `break` и `continue`
+
+Актуальный Kotlin разрешает non-local jump expressions в lambdas подходящих inline functions, когда control-flow structurally окружает loop.
+
+```kotlin
+fun processRows(rows: List<String>) {
+    for (row in rows) {
+        val id = row.toIntOrNull() ?: run {
+            continue
+        }
+        if (id < 0) break
+        println(id)
+    }
+}
+```
+
+`run` inline, поэтому `continue` относится к enclosing loop. В старых language versions feature могла требовать preview flag; фиксируй compiler version проекта.
+
+Не заменяй понятный `for` цепочкой inline scopes, если control flow становится скрытым.
+
+## Reified parameters
+
+Runtime-like operations над T возможны только в inline function с `reified`.
+
+```kotlin
+inline fun <reified T> Any?.castOrNull(): T? {
+    return this as? T
+}
+```
+
+```kotlin
+val title: String? = "Inline".castOrNull<String>()
+```
+
+Inlining подставляет concrete type at call site. Nested generic erasure остаётся.
+
+## Inline и recursion
+
+Direct recursive inline function невозможна: compiler не может бесконечно раскрывать body.
+
+```kotlin
+// inline fun factorial(value: Int): Int =
+//     if (value <= 1) 1 else value * factorial(value - 1)
+```
+
+Используй обычную/tailrec/iterative function.
+
+## Inline member и polymorphism
+
+Inlining требует statically known body. Open virtual member может override runtime, поэтому inline APIs обычно final/private/top-level. Не проектируй `open inline` как dynamic extension point.
+
+```kotlin
+class Processor {
+    inline fun process(block: () -> Unit) {
+        block()
+    }
+}
+```
+
+Class final по умолчанию, member final.
+
+## Inline properties
+
+Property accessors без backing field можно inline.
+
+```kotlin
+inline val currentNanoTime: Long
+    get() = System.nanoTime()
+```
+
+Или отдельный accessor:
+
+```kotlin
+var globalStatus: String
+    get() = StatusHolder.value
+    inline set(value) {
+        StatusHolder.value = value
+    }
+
+private object StatusHolder {
+    var value: String = "idle"
+}
+```
+
+Global mutable state здесь только демонстрирует syntax, не рекомендуемую архитектуру. Accessor с backing field нельзя inline.
+
+## Inline не связан с value class напрямую
+
+`inline fun` копирует function body. `@JvmInline value class` меняет representation value wrapper. Это разные mechanisms с похожим словом.
+
+## Public inline API
+
+Public/protected inline function вставляется в external client module. Поэтому body не может напрямую использовать private/internal declarations.
+
+```kotlin
+private fun hiddenLog(message: String) {
+    println(message)
+}
+
+// public inline fun logged(block: () -> Unit) {
+//     hiddenLog("Начало")
+//     block()
+// }
+```
+
+После inlining external bytecode не имеет legal access к hidden function.
+
+## `@PublishedApi`
+
+```kotlin
+@PublishedApi
+internal fun inlineLog(message: String) {
+    println(message)
+}
+
+inline fun logged(block: () -> Unit) {
+    inlineLog("Начало")
+    try {
+        block()
+    } finally {
+        inlineLog("Конец")
+    }
+}
+```
+
+`@PublishedApi` разрешает public inline body ссылаться на internal declaration, но helper становится частью binary contract. Его signature нельзя менять как свободную internal detail.
+
+## Binary compatibility
+
+Client хранит inlined old body. После обновления library без recompilation:
+
+- обычные calls используют новую library implementation;
+- старые inlined call sites продолжают старое behavior;
+- удаление referenced published helper может вызвать linkage error;
+- bug/security fix требует client recompilation для гарантированной замены inline body.
+
+Для library release policy это критично.
+
+## Code size
+
+Плохой candidate:
+
+```kotlin
+// inline fun processEntireCourse(...) {
+//     // сотни строк сложного алгоритма
+// }
+```
+
+Каждый call site получает копию. Вынеси heavy core:
+
+```kotlin
+inline fun <reified T> decode(raw: String): T {
+    return decodeCore(raw, T::class) as T
+}
+
+@PublishedApi
+internal fun decodeCore(raw: String, type: kotlin.reflect.KClass<*>): Any {
+    return when (type) {
+        String::class -> raw
+        Int::class -> raw.toIntOrNull()
+            ?: throw IllegalArgumentException("Ожидалось целое число: $raw")
+        else -> throw IllegalArgumentException(
+            "Для типа ${type.qualifiedName} не зарегистрирован decoder"
+        )
+    }
+}
+```
+
+Unchecked cast опирается на строгую связь branch и KClass. При расширении registry эту связь нужно тестировать; пример показывает split thin inline adapter/heavy core.
+
+## Contracts и inline
+
+Inline помогает compiler видеть lambda body, но smart casts/calls-in-place не выводятся автоматически для каждого custom function. Kotlin contracts явно описывают invocation behavior и рассматриваются в следующем уроке силлабуса после scope functions.
+
+## Benchmarking
+
+На JVM используй JMH:
+
+- warmup;
+- multiple forks;
+- consume results;
+- measure allocations;
+- сравни normal/inline end-to-end;
+- проверяй bytecode only as supporting evidence.
+
+Не добавляй inline по ощущениям.
+
+## Практический пример: transactional update
+
+```kotlin
+class LessonTransaction {
+    private var completed = false
+
+    fun commit() {
+        check(!completed) { "Транзакция уже завершена" }
+        completed = true
+        println("Изменения подтверждены")
+    }
+
+    fun rollback() {
+        if (!completed) {
+            completed = true
+            println("Изменения отменены")
+        }
+    }
+}
+
+inline fun <T> inTransaction(block: (LessonTransaction) -> T): T {
+    val transaction = LessonTransaction()
+    return try {
+        val result = block(transaction)
+        transaction.commit()
+        result
+    } catch (error: RuntimeException) {
+        transaction.rollback()
+        throw error
+    }
+}
+
+fun findValidatedTitle(titles: List<String>): String? {
+    return inTransaction { _ ->
+        for (title in titles) {
+            val normalized = title.trim()
+            if (normalized.isEmpty()) continue
+            if (normalized.length > 120) return null
+            return normalized
+        }
+        null
+    }
+}
+
+fun main() {
+    println(findValidatedTitle(listOf("", "Inline functions")))
+}
+```
+
+`block` вызывается directly, поэтому non-local returns разрешены. `finally` отсутствует только потому, что commit/rollback model упрощена; real resource API должен закрывать connection и корректно обрабатывать failures cleanup.
+
+## Итоги
+
+- inline вставляет body function/lambda в call site при compiler transformation;
+- главная выгода HOF — уменьшение lambda allocation и invoke overhead;
+- inlining увеличивает code size;
+- inlinable parameter нельзя произвольно хранить;
+- `noinline` оставляет lambda ordinary value;
+- `crossinline` запрещает non-local return при indirect invocation;
+- bare return из direct inline lambda может завершить enclosing function;
+- non-local break/continue зависят от подходящего inline loop context/language version;
+- reified доступен только inline type parameter;
+- recursive/virtual designs не подходят inline;
+- public inline body является client ABI;
+- `@PublishedApi` helper нельзя считать свободной internal detail;
+- performance проверяется benchmark, а не предположением.
+

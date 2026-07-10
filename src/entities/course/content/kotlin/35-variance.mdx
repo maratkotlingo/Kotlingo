@@ -1,0 +1,518 @@
+---
+title: "Variance"
+description: "Глубоко разбираем инвариантность, declaration-site out и in, use-site projections, star projections, producer/consumer reasoning, function variance и Java wildcards."
+order: 35
+category: "Generics и типовая система"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Подтип элемента не гарантирует подтип контейнера
+
+`Cat` может быть subtype `Animal`, но `MutableList<Cat>` не является `MutableList<Animal>`.
+
+```kotlin
+open class Content(val title: String)
+class Lesson(title: String) : Content(title)
+class Quiz(title: String) : Content(title)
+```
+
+Если бы mutable list была covariant:
+
+```kotlin
+fun addQuiz(items: MutableList<Content>) {
+    items += Quiz("Проверка")
+}
+```
+
+Передача `MutableList<Lesson>` позволила бы добавить Quiz в list, обещающий только Lesson. Поэтому mutable consumer/producer type обычно invariant.
+
+## Инвариантность по умолчанию
+
+```kotlin
+class Box<T>(var value: T)
+```
+
+`Box<Lesson>` не subtype `Box<Content>` и наоборот.
+
+`T` используется:
+
+- на выходе getter;
+- на входе setter.
+
+Covariance небезопасна для записи, contravariance — для чтения как narrow type. Инвариантность сохраняет обе операции.
+
+## Covariance `out`
+
+```kotlin
+interface Producer<out T> {
+    fun produce(): T
+}
+```
+
+`out T` означает: type производит values `T`, не принимает их в небезопасных input positions.
+
+```kotlin
+class LessonProducer : Producer<Lesson> {
+    override fun produce(): Lesson = Lesson("Variance")
+}
+
+val contentProducer: Producer<Content> = LessonProducer()
+val content: Content = contentProducer.produce()
+```
+
+Если `Lesson <: Content`, то `Producer<Lesson> <: Producer<Content>`.
+
+### Ограничения out parameter
+
+```kotlin
+interface Source<out T> {
+    fun next(): T
+
+    // fun put(value: T) недопустима: T находится во входной позиции.
+}
+```
+
+`T` можно возвращать, использовать в covariant output structures и read-only properties.
+
+```kotlin
+interface Snapshot<out T> {
+    val value: T
+    fun values(): List<T>
+}
+```
+
+`var value: T` обычно невозможен: setter принимает `T`.
+
+## Почему `List` covariant
+
+Kotlin read-only `List` объявлена conceptually как `List<out E>`. Она возвращает elements и не принимает новые `E` для mutation.
+
+```kotlin
+val lessons: List<Lesson> = listOf(Lesson("Variance"))
+val contents: List<Content> = lessons
+```
+
+Через `contents` нельзя добавить Quiz, потому что `List` не имеет mutation API.
+
+Read-only не означает deep immutable: underlying mutable list может изменяться через другую reference.
+
+## Contravariance `in`
+
+```kotlin
+interface Consumer<in T> {
+    fun consume(value: T)
+}
+```
+
+Consumer общего типа может обслужить subtype:
+
+```kotlin
+class ContentLogger : Consumer<Content> {
+    override fun consume(value: Content) {
+        println(value.title)
+    }
+}
+
+val lessonConsumer: Consumer<Lesson> = ContentLogger()
+lessonConsumer.consume(Lesson("Variance"))
+```
+
+Если `Lesson <: Content`, то `Consumer<Content> <: Consumer<Lesson>` — направление обратное.
+
+### Ограничения in parameter
+
+```kotlin
+interface Sink<in T> {
+    fun accept(value: T)
+
+    // fun latest(): T недопустима: нельзя обещать узкий T на выходе.
+}
+```
+
+Чтение value из contravariant API возможно только как общий безопасный supertype (`Any?`) там, где declaration это предоставляет.
+
+## Producer/consumer reasoning
+
+Практическое правило:
+
+- producer — `out`;
+- consumer — `in`;
+- producer и consumer одновременно — invariant.
+
+PECS из Java формулируется как Producer Extends, Consumer Super; Kotlin переносит это в declaration-site `out`/`in` и projections.
+
+<CatTip title="Котосовет: смотри на поток значений">
+Не начинай с запоминания стрелок subtype. Спроси: API отдаёт `T`, принимает `T` или делает оба? Направление данных почти всегда подсказывает variance.
+</CatTip>
+
+## Function types уже variant
+
+Function `(P) -> R` contravariant по parameter `P` и covariant по result `R`.
+
+```kotlin
+val describeContent: (Content) -> String = { content -> content.title }
+
+val describeLesson: (Lesson) -> CharSequence = describeContent
+```
+
+Почему безопасно:
+
+- function, принимающая любой Content, точно принимает Lesson;
+- function возвращает String, который является CharSequence.
+
+Обратное присваивание небезопасно: function только для Lesson не обязана принимать Quiz.
+
+## Declaration-site variance
+
+`out`/`in` в declaration действует для всех usages type.
+
+```kotlin
+interface RepositoryReader<out T> {
+    fun find(id: Int): T?
+    fun all(): List<T>
+}
+
+interface RepositoryWriter<in T> {
+    fun save(item: T)
+}
+```
+
+Разделение read/write interfaces позволяет variance, хотя полный mutable repository invariant:
+
+```kotlin
+interface Repository<T> : RepositoryReader<T>, RepositoryWriter<T>
+```
+
+## Private members и variance
+
+Compiler анализирует exposed usage positions. Private storage может использовать `T` для внутренней реализации, если не создаёт небезопасный public contract.
+
+```kotlin
+class ImmutableBox<out T>(value: T) {
+    private var stored: T = value
+
+    fun get(): T = stored
+}
+```
+
+Public setter отсутствует. Не используй `@UnsafeVariance` для обхода ошибок без строгого доказательства.
+
+## `@UnsafeVariance`
+
+Annotation подавляет variance conflict для конкретного usage.
+
+```kotlin
+class RiskyBox<out T>(private val value: T) {
+    fun sameAs(other: @UnsafeVariance T): Boolean {
+        return value == other
+    }
+}
+```
+
+Compiler доверяет автору. Неправильное применение может разрушить type safety через casts/platform boundaries.
+
+<MouseTrap title="Мышеловка: UnsafeVariance переносит доказательство на автора">
+Это не исправление дизайна. Сначала раздели read/write contracts, добавь method type parameter или используй projection. Annotation оправдана только для тщательно доказанного immutable API.
+</MouseTrap>
+
+## Use-site projection `out`
+
+Если generic class invariant, конкретное usage можно ограничить producer-view.
+
+```kotlin
+fun copyTitles(from: Array<out Content>): List<String> {
+    return from.map(Content::title)
+}
+```
+
+`Array` invariant, но `Array<out Content>` принимает `Array<Lesson>` для чтения.
+
+```kotlin
+val lessons: Array<Lesson> = arrayOf(Lesson("Variance"))
+println(copyTitles(lessons))
+```
+
+Запись запрещена:
+
+```kotlin
+fun cannotWrite(values: Array<out Content>) {
+    // values[0] = Quiz("Нельзя")
+}
+```
+
+Projection означает: это Array неизвестного subtype Content, поэтому безопасно читать как Content, но не писать конкретный Content.
+
+## Use-site projection `in`
+
+```kotlin
+fun addDefaultLesson(target: MutableList<in Lesson>) {
+    target += Lesson("Variance")
+}
+```
+
+Подходит `MutableList<Lesson>`, `MutableList<Content>`, `MutableList<Any>`.
+
+Чтение имеет только общий тип:
+
+```kotlin
+fun inspectTarget(target: MutableList<in Lesson>) {
+    val value: Any? = target.firstOrNull()
+    println(value)
+}
+```
+
+Container может реально содержать Quiz/Any, поэтому нельзя читать как Lesson.
+
+## Проекция и Java wildcard
+
+Use-site projections похожи по роли:
+
+- Kotlin `Array<out Content>` ≈ Java `? extends Content`;
+- Kotlin `Consumer<in Lesson>` ≈ Java `? super Lesson`.
+
+Но Kotlin также имеет declaration-site variance, которой Java generic classes не имеют в том же виде.
+
+Generated JVM wildcards зависят от position, compiler optimizations и annotations `@JvmWildcard`/`@JvmSuppressWildcards`. Для Java-facing API проверяй generated signature, а не угадывай по Kotlin source.
+
+## Star projection `*`
+
+Star projection означает неизвестный type argument с безопасными операциями.
+
+```kotlin
+fun printBox(box: Box<*>) {
+    val value: Any? = box.value
+    println(value)
+}
+```
+
+Это не то же самое, что `Box<Any?>`: конкретный box может быть `Box<String>` и не разрешать запись Int/null.
+
+### Star для covariant type
+
+Для `Producer<out T>` star позволяет безопасно получать upper bound:
+
+```kotlin
+fun inspectProducer(producer: Producer<*>) {
+    val value: Any? = producer.produce()
+    println(value)
+}
+```
+
+Если `T : Content`, результат безопасно читать как Content.
+
+```kotlin
+interface ContentProducer<out T : Content> {
+    fun produce(): T
+}
+
+fun titleOf(producer: ContentProducer<*>): String {
+    return producer.produce().title
+}
+```
+
+### Star для contravariant type
+
+У `Consumer<in T>` неизвестно, какой exact subtype он принимает. Безопасно передать только `Nothing`, values которого не существует.
+
+```kotlin
+fun unknownConsumer(consumer: Consumer<*>) {
+    // consumer.consume(...) вызвать с реальным значением нельзя.
+    println(consumer)
+}
+```
+
+### Star для invariant type
+
+Для invariant `Box<T>` чтение доступно как upper bound (`Any?` по умолчанию), запись concrete T запрещена.
+
+## `Any?` не заменяет star
+
+```kotlin
+fun acceptsAnyBox(box: Box<Any?>) {
+    box.value = 42
+}
+```
+
+`Box<String>` сюда передать нельзя. `Box<*>` принимает box любого argument, но ограничивает operations.
+
+```kotlin
+fun acceptsUnknownBox(box: Box<*>) {
+    println(box.value)
+}
+```
+
+## Captured type
+
+При projection compiler создаёт внутренний captured type: «некоторый неизвестный subtype/supertype». Diagnostics могут содержать `CapturedType(out Content)`.
+
+```kotlin
+fun first(values: List<out Content>): Content {
+    return values.first()
+}
+```
+
+У `List` собственный `out`, поэтому projection redundant, но демонстрирует idea.
+
+Ошибка записи возникает не из-за слабости compiler, а потому что captured exact type неизвестен.
+
+## Type parameter вместо projection
+
+Иногда named type parameter связывает несколько arguments лучше:
+
+```kotlin
+fun <T> transfer(
+    source: List<T>,
+    destination: MutableList<in T>
+) {
+    destination.addAll(source)
+}
+```
+
+Один `T` связывает element source и то, что destination обязан принять.
+
+```kotlin
+val lessons = listOf(Lesson("Variance"))
+val contents = mutableListOf<Content>()
+transfer(lessons, contents)
+```
+
+## Variance и nullability
+
+`Producer<String>` subtype `Producer<String?>`, потому что String subtype String? и Producer covariant.
+
+```kotlin
+val nonNull: Producer<String> = object : Producer<String> {
+    override fun produce(): String = "Kotlin"
+}
+
+val nullable: Producer<String?> = nonNull
+```
+
+Contravariance идёт обратно:
+
+```kotlin
+val nullableConsumer: Consumer<String?> = object : Consumer<String?> {
+    override fun consume(value: String?) {
+        println(value ?: "null")
+    }
+}
+
+val nonNullConsumer: Consumer<String> = nullableConsumer
+```
+
+Consumer, способный принять null и String, точно принимает non-null String.
+
+## Variance и mutable collections
+
+`MutableList<T>` invariant, потому что и читает, и пишет T. API method может выбрать ограниченный view:
+
+```kotlin
+fun lessonTitles(items: List<Content>): List<String> {
+    return items.map(Content::title)
+}
+
+fun appendLessons(
+    target: MutableCollection<in Lesson>,
+    lessons: Iterable<Lesson>
+) {
+    target.addAll(lessons)
+}
+```
+
+Не делай mutable generic type covariant через unsafe tricks.
+
+## Variance и inheritance API
+
+```kotlin
+interface Event
+data class LessonOpened(val id: Int) : Event
+
+interface EventSource<out E : Event> {
+    fun next(): E?
+}
+
+interface EventHandler<in E : Event> {
+    fun handle(event: E)
+}
+```
+
+General handler может обработать specialized event; specialized source может использоваться как general source.
+
+## Практический пример: type-safe event pipeline
+
+```kotlin
+sealed interface CourseEvent
+
+data class LessonOpened(val lessonId: Int) : CourseEvent
+data class LessonCompleted(val lessonId: Int, val score: Int) : CourseEvent
+
+interface EventSource<out E> {
+    fun read(): List<E>
+}
+
+interface EventSink<in E> {
+    fun publish(event: E)
+}
+
+class ListEventSource<E>(
+    private val events: List<E>
+) : EventSource<E> {
+    override fun read(): List<E> = events.toList()
+}
+
+class LoggingCourseEventSink : EventSink<CourseEvent> {
+    override fun publish(event: CourseEvent) {
+        println("Событие: $event")
+    }
+}
+
+fun <E> forward(
+    source: EventSource<out E>,
+    sink: EventSink<in E>
+) {
+    source.read().forEach(sink::publish)
+}
+
+fun main() {
+    val openedSource: EventSource<LessonOpened> = ListEventSource(
+        listOf(LessonOpened(35), LessonOpened(36))
+    )
+    val generalSource: EventSource<CourseEvent> = openedSource
+
+    val generalSink: EventSink<CourseEvent> = LoggingCourseEventSink()
+    val openedSink: EventSink<LessonOpened> = generalSink
+
+    forward(openedSource, generalSink)
+    println(generalSource.read())
+    openedSink.publish(LessonOpened(35))
+}
+```
+
+В примере:
+
+- source covariant, потому что только отдаёт events;
+- sink contravariant, потому что только принимает events;
+- assignment directions соответствуют substitutability;
+- `forward` связывает producer и consumer одним `E`;
+- projections в `forward` документируют flexible inputs, хотя declaration-site variance уже даёт большую часть поведения;
+- mutable storage не выходит наружу.
+
+## Итоги
+
+- generic types invariant по умолчанию;
+- covariance `out` сохраняет направление subtype для producers;
+- contravariance `in` переворачивает направление для consumers;
+- type, читающий и записывающий T, обычно invariant;
+- function parameter contravariant, result covariant;
+- declaration-site variance действует на весь generic type;
+- use-site projection ограничивает конкретное usage;
+- `out` projection разрешает чтение и запрещает небезопасную запись;
+- `in` projection разрешает запись subtype и сужает чтение до `Any?`;
+- star projection означает неизвестный argument, а не `Any?`;
+- captured type сохраняет неизвестную точную границу;
+- `@UnsafeVariance` требует ручного доказательства безопасности;
+- producer/consumer contracts часто стоит разделять.
+

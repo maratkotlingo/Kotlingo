@@ -1,0 +1,565 @@
+---
+title: "Перегрузка функций"
+description: "Разбираем overload resolution в Kotlin, наиболее специфичную сигнатуру, неоднозначные вызовы, nullable-типы, default arguments, generic-перегрузки и JVM-конфликты."
+order: 18
+category: "Функции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое перегрузка
+
+Перегрузка, или overloading, позволяет объявить несколько функций с одним именем, если компилятор способен различить их по сигнатурам в месте вызова.
+
+```kotlin
+fun formatScore(score: Int): String {
+    return "$score баллов"
+}
+
+fun formatScore(score: Double): String {
+    return "%.1f балла".format(score)
+}
+
+fun main() {
+    println(formatScore(95))
+    println(formatScore(95.5))
+}
+```
+
+Обе функции выражают одну операцию — форматирование оценки, но принимают разные типы.
+
+Перегрузка выбирается **на этапе компиляции** по статическим типам receiver и аргументов. Это не runtime-полиморфизм override-функций.
+
+## Чем могут различаться перегрузки
+
+Kotlin-функции с одним именем могут отличаться:
+
+- количеством параметров;
+- типами параметров;
+- порядком разных типов параметров;
+- наличием receiver у extension-функции;
+- generic-ограничениями, если после стирания и правил платформы сигнатуры остаются допустимыми.
+
+```kotlin
+fun openLesson(id: String) {
+    println("Открываем урок $id")
+}
+
+fun openLesson(id: String, preview: Boolean) {
+    println("Открываем урок $id; preview=$preview")
+}
+
+fun openLesson(index: Int) {
+    println("Открываем урок по индексу $index")
+}
+```
+
+## Возвращаемого типа недостаточно
+
+Нельзя перегрузить функцию только по результату.
+
+```kotlin
+// Эти две декларации конфликтовали бы.
+// fun currentScore(): Int = 100
+// fun currentScore(): Double = 100.0
+```
+
+Вызов `currentScore()` не содержит информации, по которой можно однозначно выбрать реализацию. Даже ожидаемый тип результата не используется как универсальный способ различения таких объявлений.
+
+Правильные варианты — разные имена или параметр, выражающий режим:
+
+```kotlin
+fun currentScorePoints(): Int = 100
+
+fun currentScoreRatio(): Double = 1.0
+```
+
+<MouseTrap title="Мышеловка: return type не делает сигнатуру уникальной">
+Если операции возвращают разные концепции, разные имена обычно точнее перегрузки. `scorePoints()` и `scoreRatio()` документируют единицы измерения прямо в вызове.
+</MouseTrap>
+
+## Набор кандидатов
+
+При встрече вызова компилятор сначала собирает доступные функции с подходящим именем и областью видимости. На набор влияют:
+
+- package и imports;
+- локальные объявления;
+- members статического типа receiver;
+- extension-функции в текущей области;
+- visibility;
+- число аргументов, defaults и `vararg`;
+- возможность сопоставить тип каждого аргумента.
+
+Затем Kotlin выбирает наиболее специфичный применимый кандидат. Полная спецификация учитывает множество деталей, но практическое правило такое: предпочтение получает функция, которая требует меньше обобщений и точнее соответствует типам вызова.
+
+## Наиболее специфичная перегрузка
+
+```kotlin
+fun describe(value: Any): String = "объект: $value"
+
+fun describe(value: String): String = "строка длиной ${value.length}: $value"
+
+fun main() {
+    println(describe("Kotlin"))
+}
+```
+
+Для литерала типа `String` применимы обе функции, но `String`-перегрузка специфичнее `Any`.
+
+Статический тип имеет значение:
+
+```kotlin
+fun main() {
+    val value: Any = "Kotlin"
+    println(describe(value))
+}
+```
+
+Выбирается `describe(Any)`, хотя runtime-объект является строкой. Перегрузка не выполняет динамический dispatch по фактическому типу аргумента.
+
+Если нужен runtime-выбор, используй полиморфизм или `when`:
+
+```kotlin
+fun describeRuntime(value: Any): String = when (value) {
+    is String -> "строка длиной ${value.length}: $value"
+    else -> "объект: $value"
+}
+```
+
+## Числовые типы и отсутствие неявного расширения
+
+Kotlin не выполняет неявное преобразование `Int` в `Long` или `Double` для обычного присваивания и вызова.
+
+```kotlin
+fun duration(milliseconds: Long): String = "$milliseconds мс"
+
+fun duration(seconds: Double): String = "$seconds с"
+
+fun main() {
+    println(duration(1_000L))
+    println(duration(1.5))
+}
+```
+
+`duration(1000)` не подходит ни под `Long`, ни под `Double` без явного преобразования или отдельной `Int`-перегрузки.
+
+Целочисленный литерал может адаптироваться к ожидаемому типу, если значение помещается и контекст однозначен:
+
+```kotlin
+fun bytes(value: Byte): String = "$value байт"
+
+fun main() {
+    println(bytes(100))
+}
+```
+
+Но при нескольких числовых перегрузках полагаться на тонкие правила литералов не стоит. Суффиксы и явные преобразования делают намерение прозрачным.
+
+## Перегрузка по количеству параметров
+
+```kotlin
+fun progress(completed: Int): String {
+    return "Завершено: $completed"
+}
+
+fun progress(completed: Int, total: Int): String {
+    require(total > 0) { "Общее число должно быть положительным" }
+    return "Завершено: $completed из $total"
+}
+```
+
+Это понятно, пока defaults не создают пересечение.
+
+```kotlin
+fun progress(completed: Int, total: Int = 108): String {
+    return "Завершено: $completed из $total"
+}
+```
+
+Теперь отдельная перегрузка `progress(Int)` конкурирует с функцией, где второй аргумент можно опустить. В простых случаях Kotlin выберет вариант без использования default, но API становится хрупким: callable references, будущие изменения и Java overloads усложняются.
+
+<CatTip title="Котосовет: не дублируй форму, уже покрытую default">
+Если короткая перегрузка лишь подставляет то же значение, оставь одну функцию с default. Создавай отдельную перегрузку, когда она имеет самостоятельную семантику, отличается алгоритмом или нужна для межъязыкового API.
+</CatTip>
+
+## Default arguments и неоднозначность
+
+Опасный дизайн возникает, когда несколько overload-кандидатов применимы после подстановки defaults.
+
+```kotlin
+// Такой API создаёт неоднозначный вызов configure("18").
+// fun configure(id: String, retries: Int = 3) = Unit
+// fun configure(id: String, verbose: Boolean = false) = Unit
+```
+
+Вызов с одним `String` подходит обеим функциям. Именование отсутствующего аргумента решает конкретный вызов, но сам API остаётся неудобным:
+
+```kotlin
+// configure("18", retries = 5)
+// configure("18", verbose = true)
+```
+
+Лучше разные имена или options object:
+
+```kotlin
+data class LessonConfiguration(
+    val retries: Int = 3,
+    val verbose: Boolean = false
+)
+
+fun configureLesson(id: String, options: LessonConfiguration = LessonConfiguration()) {
+    println("$id: $options")
+}
+```
+
+## `vararg` против фиксированной сигнатуры
+
+Фиксированная применимая перегрузка обычно предпочтительнее варианта с `vararg`.
+
+```kotlin
+fun tag(value: String): String = "одна метка: $value"
+
+fun tag(vararg values: String): String = "метки: ${values.joinToString()}"
+
+fun main() {
+    println(tag("kotlin"))
+    println(tag("kotlin", "functions"))
+}
+```
+
+Первый вызов выбирает фиксированную сигнатуру, второй — `vararg`.
+
+Это правило полезно для оптимизированного fast path, но две реализации должны оставаться семантически согласованными. Пользователь не ожидает, что `tag("a")` и `tag(*arrayOf("a"))` дадут принципиально разный эффект.
+
+## Nullable и non-null перегрузки
+
+Кажется естественным объявить варианты для `String` и `String?`, но на JVM их сигнатуры стираются к одному `java.lang.String`.
+
+```kotlin
+// На JVM эти функции имеют platform declaration clash.
+// fun normalize(value: String): String = value.trim()
+// fun normalize(value: String?): String = value?.trim().orEmpty()
+```
+
+Nullability хранится в Kotlin metadata и аннотациях, но не создаёт отдельный JVM-дескриптор. Выбери один контракт или разные имена:
+
+```kotlin
+fun normalize(value: String): String = value.trim()
+
+fun normalizeOrEmpty(value: String?): String = value?.trim().orEmpty()
+```
+
+Для разных базовых типов nullable-overloads возможны:
+
+```kotlin
+fun render(value: String?): String = value ?: "нет строки"
+
+fun render(value: Int?): String = value?.toString() ?: "нет числа"
+```
+
+Но вызов с `null` неоднозначен:
+
+```kotlin
+// render(null)
+```
+
+Нужно дать контекст:
+
+```kotlin
+val missingTitle: String? = null
+println(render(missingTitle))
+
+println(render(null as Int?))
+```
+
+<MouseTrap title="Мышеловка: литерал null подходит многим кандидатам">
+`null` имеет тип `Nothing?` и совместим с любым nullable-параметром. При нескольких несвязанных nullable-overloads компилятор не угадывает предметный смысл. Укажи тип или проектируй разные имена.
+</MouseTrap>
+
+## Перегрузка с subtype и nullable
+
+```kotlin
+fun inspect(value: Any?): String = "произвольное значение: $value"
+
+fun inspect(value: String?): String = "строка: ${value ?: "null"}"
+```
+
+`String?` является более специфичным, чем `Any?`, поэтому `inspect(null)` может выбрать `String?`-кандидат, если других равноспецифичных nullable типов нет. Добавление `inspect(Int?)` способно превратить ранее корректный вызов в неоднозначный. Это пример source incompatibility от расширения overload set.
+
+## Generic-перегрузки
+
+Обобщённая функция часто проигрывает конкретной:
+
+```kotlin
+fun <T> encode(value: T): String = "generic:$value"
+
+fun encode(value: String): String = "string:${value.trim()}"
+
+fun main() {
+    println(encode(" Kotlin "))
+    println(encode(42))
+}
+```
+
+Для `String` выбирается конкретная функция.
+
+### Стирание типов на JVM
+
+Нельзя без дополнительных мер перегрузить функции только аргументами одного erased generic-типа:
+
+```kotlin
+// Обе сигнатуры стираются примерно до summarize(List).
+// fun summarize(values: List<String>): String = values.joinToString()
+// fun summarize(values: List<Int>): String = values.sum().toString()
+```
+
+Используй разные имена:
+
+```kotlin
+fun summarizeTitles(values: List<String>): String = values.joinToString()
+
+fun summarizeScores(values: List<Int>): String = values.sum().toString()
+```
+
+Или различимый дополнительный параметр, если он имеет предметный смысл. Dummy-параметр только ради байткода ухудшает API.
+
+### `@JvmName`
+
+Для top-level или некоторых других допустимых деклараций `@JvmName` может развести JVM-имена, сохранив одно Kotlin-имя.
+
+```kotlin
+@JvmName("summarizeTitles")
+fun summarize(values: List<String>): String = values.joinToString()
+
+@JvmName("summarizeScores")
+fun summarize(values: List<Int>): String = values.sum().toString()
+```
+
+Kotlin-клиент видит `summarize`, Java — разные имена. Применимость аннотации зависит от вида декларации и backend. Используй её осознанно: документация для Java и Kotlin будет выглядеть по-разному.
+
+## Перегрузки и наследование
+
+Overload и override можно встретить одновременно.
+
+```kotlin
+open class Formatter {
+    open fun format(value: Any): String = "Any:$value"
+
+    fun format(value: String): String = "String:$value"
+}
+
+class DetailedFormatter : Formatter() {
+    override fun format(value: Any): String = "Detailed:$value"
+}
+
+fun main() {
+    val formatter: Formatter = DetailedFormatter()
+    val text: Any = "Kotlin"
+
+    println(formatter.format("Kotlin"))
+    println(formatter.format(text))
+}
+```
+
+В первом вызове overload resolution по статическим типам выбирает `format(String)`, которая не override и вызывается из базового класса. Во втором выбирается сигнатура `format(Any)`, а затем runtime dispatch вызывает override из `DetailedFormatter`.
+
+Порядок концептуально такой:
+
+1. на compile time выбирается сигнатура перегрузки;
+2. если выбранная member-функция виртуальна, на runtime выбирается её override.
+
+## Именованные аргументы помогают выбрать перегрузку
+
+```kotlin
+fun search(query: String, limit: Int): String =
+    "Ищем '$query', максимум $limit"
+
+fun search(query: String, category: String): String =
+    "Ищем '$query' в категории $category"
+
+fun main() {
+    println(search(query = "functions", limit = 10))
+    println(search(query = "functions", category = "Функции"))
+}
+```
+
+Имена параметров участвуют в применимости named-вызова. Но не превращай имена в единственное различие сигнатур: две функции с одинаковыми типами и порядком параметров всё равно конфликтуют на платформе и для позиционного вызова.
+
+## Callable references и overload set
+
+Ссылка `::functionName` может быть неоднозначной без ожидаемого функционального типа.
+
+```kotlin
+fun parse(value: String): Int = value.toInt()
+
+fun parse(value: String, radix: Int): Int = value.toInt(radix)
+
+fun main() {
+    val decimalParser: (String) -> Int = ::parse
+    val radixParser: (String, Int) -> Int = ::parse
+
+    println(decimalParser("42"))
+    println(radixParser("101010", 2))
+}
+```
+
+Ожидаемый тип сообщает, какую перегрузку выбрать. Без него `val parser = ::parse` не содержит достаточного контекста.
+
+## Lambda и неоднозначные функциональные типы
+
+Перегрузки, различающиеся только типом lambda-параметра, могут создавать неоднозначность и JVM clash.
+
+```kotlin
+// После стирания обе функции принимают Function1.
+// fun mapValue(transform: (String) -> String) = Unit
+// fun mapValue(transform: (Int) -> Int) = Unit
+```
+
+Даже если платформенный конфликт устранить, lambda без явного типа параметра может не дать компилятору выбрать кандидат. Разные предметные имена лучше:
+
+```kotlin
+fun mapTitle(transform: (String) -> String) {
+    println(transform("Kotlin"))
+}
+
+fun mapScore(transform: (Int) -> Int) {
+    println(transform(90))
+}
+```
+
+## Когда перегрузка уместна
+
+Хороший overload set:
+
+- представляет одну концептуальную операцию;
+- отличается естественными формами входа;
+- даёт одинаковые гарантии и эффекты;
+- не заставляет клиента приводить типы ради выбора;
+- остаётся предсказуемым при `null`, literals, defaults и lambdas.
+
+Пример делегирующих перегрузок:
+
+```kotlin
+data class LessonKey(val value: String)
+
+fun loadLesson(key: LessonKey): String {
+    require(key.value.isNotBlank()) { "Ключ урока не должен быть пустым" }
+    return "Загружен урок ${key.value}"
+}
+
+fun loadLesson(id: Int): String {
+    require(id > 0) { "Числовой id должен быть положительным" }
+    return loadLesson(LessonKey(id.toString()))
+}
+
+fun loadLesson(id: String): String {
+    return loadLesson(LessonKey(id.trim()))
+}
+```
+
+Основная реализация одна, поэтому валидация и поведение не расходятся.
+
+## Когда выбрать другое имя
+
+Используй разные имена, если:
+
+- результат имеет разные единицы или смысл;
+- эффекты отличаются;
+- `null` означает разные бизнес-события;
+- вызов требует поясняющих boolean flags;
+- overload resolution зависит от тонкого приведения;
+- варианты будут независимо развиваться.
+
+```kotlin
+fun findLessonOrNull(id: String): String? =
+    if (id == "18") "Перегрузка функций" else null
+
+fun requireLesson(id: String): String =
+    findLessonOrNull(id) ?: error("Урок $id не найден")
+```
+
+Разные имена честно показывают разные контракты ошибки.
+
+## Практический пример: разбор идентификаторов урока
+
+```kotlin
+@JvmInline
+value class LessonId(val value: Int) {
+    init {
+        require(value > 0) { "Идентификатор должен быть положительным" }
+    }
+}
+
+data class LessonReference(
+    val id: LessonId,
+    val slug: String?
+)
+
+fun parseLessonReference(id: LessonId): LessonReference {
+    return LessonReference(id = id, slug = null)
+}
+
+fun parseLessonReference(id: Int): LessonReference {
+    return parseLessonReference(LessonId(id))
+}
+
+fun parseLessonReference(raw: String): LessonReference {
+    val normalized = raw.trim().removePrefix("/kotlin/").removeSuffix("/")
+    require(normalized.isNotEmpty()) { "Ссылка на урок не должна быть пустой" }
+
+    val numberPart = normalized.takeWhile(Char::isDigit)
+    require(numberPart.isNotEmpty()) {
+        "Ссылка должна начинаться с числового идентификатора: $raw"
+    }
+
+    val id = numberPart.toIntOrNull()
+        ?: throw IllegalArgumentException("Идентификатор слишком велик: $numberPart")
+
+    val slug = normalized
+        .removePrefix(numberPart)
+        .removePrefix("-")
+        .ifEmpty { null }
+
+    return LessonReference(
+        id = LessonId(id),
+        slug = slug
+    )
+}
+
+fun main() {
+    val fromValue = parseLessonReference(LessonId(18))
+    val fromNumber = parseLessonReference(18)
+    val fromPath = parseLessonReference("/kotlin/18-function-overloading/")
+
+    println(fromValue)
+    println(fromNumber)
+    println(fromPath)
+}
+```
+
+Набор остаётся предсказуемым:
+
+- каждая форма входа имеет различимый статический тип;
+- `Int`-перегрузка делегирует основному value object;
+- строковая версия выполняет самостоятельный parsing;
+- nullable-overload отсутствует, поэтому `null` не создаёт неоднозначность;
+- нет пересекающихся defaults и `vararg`;
+- смысл результата одинаков для всех вариантов.
+
+## Итоги
+
+- перегрузка выбирается на compile time по статическим типам;
+- после выбора member-сигнатуры override может выполнить runtime dispatch;
+- return type сам по себе не различает перегрузки;
+- конкретный тип обычно специфичнее `Any` или generic-кандидата;
+- фиксированная сигнатура предпочтительнее применимого `vararg`;
+- пересекающиеся defaults делают вызовы неоднозначными;
+- nullable-типы могут конфликтовать после JVM erasure;
+- литерал `null` неоднозначен между несвязанными nullable-overloads;
+- generic-аргументы коллекций стираются на JVM и могут вызвать platform clash;
+- callable reference требует ожидаемого функционального типа для выбора overload;
+- хороший overload set моделирует одну операцию и делегирует общей реализации;
+- разные эффекты и бизнес-контракты заслуживают разных имён.
+

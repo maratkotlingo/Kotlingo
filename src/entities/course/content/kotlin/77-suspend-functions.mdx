@@ -1,0 +1,340 @@
+---
+title: "Suspend Functions"
+description: "Suspend functions в Kotlin: suspend keyword, suspension points, sequential style, non-blocking delay, conceptual continuations, suspend function types, main-safe design и отличие suspend от CoroutineScope."
+order: 77
+category: "Coroutines"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## `suspend` означает «может приостановиться»
+
+`suspend fun` — функция, которая может приостановить выполнение coroutine и позже продолжиться. Приостановка не блокирует thread.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.seconds
+
+suspend fun loadLessonTitle(slug: String): String {
+    // delay приостанавливает coroutine и освобождает thread для другой работы.
+    delay(1.seconds)
+
+    return "Урок $slug"
+}
+```
+
+Suspending function можно вызвать только:
+
+- из другой suspending function;
+- из coroutine builder/scope;
+- из `suspend main`.
+
+```kotlin
+suspend fun main() {
+    val title = loadLessonTitle("77-suspend-functions")
+
+    println(title)
+}
+```
+
+<CatTip>
+`suspend` — это не сон thread-а, а кошачья пауза coroutine: она свернулась, уступила место другим, а потом продолжила с того же места.
+</CatTip>
+
+## Suspension point
+
+Suspension point — место, где coroutine может приостановиться.
+
+```kotlin
+suspend fun loadLesson(slug: String): String {
+    val metadata = loadMetadata(slug)
+    val body = loadBody(slug)
+
+    return "$metadata\n$body"
+}
+
+suspend fun loadMetadata(slug: String): String {
+    delay(100)
+    return "metadata:$slug"
+}
+
+suspend fun loadBody(slug: String): String {
+    delay(100)
+    return "body:$slug"
+}
+```
+
+Каждый call suspending function может быть suspension point. Код вокруг него читается sequentially, но runtime может приостановить coroutine.
+
+## Sequential style
+
+Coroutines позволяют писать asynchronous code в последовательном стиле.
+
+```kotlin
+suspend fun renderLessonPage(slug: String): String {
+    val title = loadLessonTitle(slug)
+    val body = loadLessonBody(slug)
+    val comments = loadComments(slug)
+
+    return buildString {
+        appendLine(title)
+        appendLine(body)
+        appendLine("Комментарии: ${comments.size}")
+    }
+}
+```
+
+Это не обязательно concurrent execution. В примере calls идут один за другим. Для concurrency нужны builders вроде `async`, о которых будет следующий урок.
+
+```kotlin
+suspend fun loadLessonBody(slug: String): String {
+    delay(200)
+    return "Текст урока $slug"
+}
+
+suspend fun loadComments(slug: String): List<String> {
+    delay(200)
+    return listOf("Отличный урок")
+}
+```
+
+<MouseTrap>
+`suspend` сам по себе не запускает новую coroutine и не делает код параллельным. Он только разрешает функции приостанавливаться.
+</MouseTrap>
+
+## Suspend не равно background thread
+
+Suspending function может выполняться на current dispatcher. Если внутри нее blocking I/O, она все равно заблокирует thread.
+
+```kotlin
+suspend fun badReadFile(path: java.nio.file.Path): String {
+    // Это blocking I/O. Сам факт suspend не делает операцию non-blocking.
+    return java.nio.file.Files.readString(path)
+}
+```
+
+Лучше переключить dispatcher для blocking I/O.
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.nio.file.Files
+import java.nio.file.Path
+
+suspend fun readFile(path: Path): String = withContext(Dispatchers.IO) {
+    // Blocking I/O перенесен на dispatcher, предназначенный для I/O.
+    Files.readString(path)
+}
+```
+
+Android docs часто формулируют это как main-safe suspend functions: caller должен иметь возможность вызвать suspend function с main thread, а сама function отвечает за нужный dispatcher switch.
+
+## Conceptual continuation
+
+Компилятор превращает suspend function в state machine. Conceptually она получает continuation — объект, который знает, как продолжить выполнение после suspension.
+
+```kotlin
+suspend fun loadAndNormalize(slug: String): String {
+    val title = loadLessonTitle(slug)
+
+    return title.trim().uppercase()
+}
+```
+
+На уровне идеи:
+
+- function стартует;
+- доходит до suspension point;
+- сохраняет local state вроде `slug`;
+- возвращает управление runtime;
+- позже resume-ится и продолжает после suspension point.
+
+Не нужно писать continuations вручную в обычном коде. Но эта модель объясняет, почему local variables сохраняются между suspension points.
+
+## `suspend` function types
+
+Можно хранить suspending function в variable.
+
+```kotlin
+val loader: suspend (String) -> String = ::loadLessonTitle
+```
+
+Можно принимать suspend lambda.
+
+```kotlin
+suspend fun <T> measured(
+    name: String,
+    block: suspend () -> T
+): T {
+    println("Начинаем $name")
+
+    val result = block()
+
+    println("Завершили $name")
+
+    return result
+}
+
+suspend fun example() {
+    val title = measured("load title") {
+        loadLessonTitle("01-introduction")
+    }
+
+    println(title)
+}
+```
+
+Suspend function type с receiver:
+
+```kotlin
+class LessonSession(
+    val userId: String
+)
+
+val operation: suspend LessonSession.(String) -> String = { slug ->
+    // this — LessonSession.
+    "Пользователь $userId читает $slug"
+}
+```
+
+## Suspend function не имеет scope автоматически
+
+Внутри `suspend fun` нельзя просто вызвать `launch`, если нет `CoroutineScope`.
+
+```kotlin
+suspend fun wrong() {
+    // launch { }
+    // Ошибка: нет CoroutineScope receiver.
+}
+```
+
+Если нужно запустить child coroutines и дождаться их, используй `coroutineScope`.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
+suspend fun loadLessonData(slug: String): Pair<String, String> = coroutineScope {
+    val title = async {
+        loadLessonTitle(slug)
+    }
+    val body = async {
+        loadLessonBody(slug)
+    }
+
+    title.await() to body.await()
+}
+```
+
+Так child coroutines привязаны к текущему call и не утекут наружу.
+
+## Ошибки и cancellation
+
+Suspending function должна уважать cancellation. `delay`, `withContext`, `await` и многие suspending APIs cancellable.
+
+```kotlin
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
+
+suspend fun processManyLessons(slugs: List<String>) {
+    for (slug in slugs) {
+        // Проверяем cancellation в ручном CPU loop.
+        currentCoroutineContext().ensureActive()
+
+        println(loadLessonTitle(slug))
+    }
+}
+```
+
+Не глотай `CancellationException`.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+
+suspend fun loadSafely(slug: String): Result<String> {
+    return try {
+        Result.success(loadLessonTitle(slug))
+    } catch (exception: CancellationException) {
+        // Отмена должна продолжить распространяться.
+        throw exception
+    } catch (exception: Throwable) {
+        Result.failure(exception)
+    }
+}
+```
+
+## Production-пример: repository contract
+
+```kotlin
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val body: String
+)
+
+interface LessonRepository {
+    suspend fun load(slug: String): Lesson
+}
+
+class NetworkLessonRepository(
+    private val api: LessonApi
+) : LessonRepository {
+    override suspend fun load(slug: String): Lesson {
+        val response = api.fetchLesson(slug)
+
+        require(response.slug.isNotBlank()) {
+            "API вернул пустой slug"
+        }
+
+        return Lesson(
+            slug = response.slug,
+            title = response.title,
+            body = response.body
+        )
+    }
+}
+
+interface LessonApi {
+    suspend fun fetchLesson(slug: String): LessonResponse
+}
+
+data class LessonResponse(
+    val slug: String,
+    val title: String,
+    val body: String
+)
+```
+
+Repository объявляет `suspend`, потому что loading может ждать network/database. Caller получает sequential API без callbacks.
+
+## Практические правила
+
+Ставь `suspend`, если function может ждать asynchronous/cancellable operation.
+
+```kotlin
+suspend fun loadUser(): User
+```
+
+Не ставь `suspend` только потому, что function дорогая CPU-wise.
+
+```kotlin
+fun parseMarkdown(text: String): Document
+```
+
+Если CPU work долгий, вызывай его из coroutine через appropriate dispatcher.
+
+```kotlin
+suspend fun parseMarkdownOnDefault(text: String): Document = withContext(Dispatchers.Default) {
+    parseMarkdown(text)
+}
+```
+
+Делай suspend APIs main-safe там, где это ожидает architecture.
+
+<CatTip>
+`suspend` делает ожидание частью типа функции. Это честный контракт: «я могу приостановиться, вызывай меня из coroutine-aware места».
+</CatTip>
+
+

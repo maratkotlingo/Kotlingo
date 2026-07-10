@@ -1,0 +1,603 @@
+---
+title: "Data classes"
+description: "Подробно разбираем сгенерированные equals, hashCode, toString, copy и componentN, ограничения primary constructor, destructuring и риски mutable data classes."
+order: 27
+category: "Классы и объекты"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Класс, ориентированный на значение
+
+`data class` предназначен для объектов, чья идентичность определяется набором данных. Compiler генерирует стандартные операции сравнения, отображения, копирования и деструктуризации.
+
+```kotlin
+data class Lesson(
+    val id: Int,
+    val title: String,
+    val published: Boolean
+)
+```
+
+Для properties primary constructor генерируются:
+
+- `equals(other: Any?): Boolean`;
+- `hashCode(): Int`;
+- `toString(): String`;
+- `component1()`, `component2()`, `component3()`;
+- `copy(...)` с default arguments из текущего экземпляра.
+
+```kotlin
+fun main() {
+    val first = Lesson(27, "Data classes", published = true)
+    val second = Lesson(27, "Data classes", published = true)
+
+    println(first == second)
+    println(first)
+}
+```
+
+Два разных экземпляра равны по значению primary properties.
+
+## Ограничения primary constructor
+
+Data class должен иметь primary constructor хотя бы с одним параметром. Каждый его параметр обязан быть property через `val` или `var`.
+
+```kotlin
+data class LessonId(val value: Int)
+```
+
+Недопустимы формы:
+
+```kotlin
+// Нет параметров primary constructor.
+// data class Empty()
+
+// Параметр не объявляет property.
+// data class Invalid(value: Int)
+```
+
+Data class не может быть `abstract`, `open`, `sealed` или `inner`. Он может реализовывать interfaces и наследовать допустимый concrete/abstract base class, если constructor и generated members не конфликтуют.
+
+```kotlin
+interface Identifiable {
+    val id: Int
+}
+
+data class LessonSummary(
+    override val id: Int,
+    val title: String
+) : Identifiable
+```
+
+## `equals`
+
+Сгенерированный `equals` сравнивает runtime-compatible объекты и все properties primary constructor в объявленном порядке.
+
+```kotlin
+data class Progress(
+    val completed: Int,
+    val total: Int
+)
+
+fun main() {
+    val first = Progress(5, 10)
+    val second = Progress(5, 10)
+    val third = Progress(6, 10)
+
+    println(first == second)
+    println(first == third)
+}
+```
+
+Контракт равенства должен быть:
+
+- рефлексивным: `a == a`;
+- симметричным: `a == b` равно `b == a`;
+- транзитивным;
+- согласованным при неизменном состоянии;
+- ложным для `null`.
+
+Compiler реализация следует этому контракту, если equality properties также корректна.
+
+### Arrays внутри data class
+
+Array использует reference-based `equals`, а не сравнение элементов.
+
+```kotlin
+data class BinaryLesson(val bytes: ByteArray)
+
+fun main() {
+    val first = BinaryLesson(byteArrayOf(1, 2, 3))
+    val second = BinaryLesson(byteArrayOf(1, 2, 3))
+
+    println(first == second)
+}
+```
+
+Результат обычно `false`, потому что `ByteArray.equals` не является content comparison. Для value semantics:
+
+- храни immutable list;
+- создай wrapper с `contentEquals`/`contentHashCode`;
+- реализуй `equals` и `hashCode` вручную согласованно.
+
+```kotlin
+class ByteContent(bytes: ByteArray) {
+    private val bytes: ByteArray = bytes.copyOf()
+
+    override fun equals(other: Any?): Boolean {
+        return other is ByteContent && bytes.contentEquals(other.bytes)
+    }
+
+    override fun hashCode(): Int = bytes.contentHashCode()
+
+    override fun toString(): String = bytes.joinToString(prefix = "[", postfix = "]")
+}
+```
+
+## `hashCode`
+
+Equal objects обязаны иметь одинаковый hash code.
+
+```kotlin
+val first = Lesson(27, "Data classes", true)
+val second = Lesson(27, "Data classes", true)
+
+check(first == second)
+check(first.hashCode() == second.hashCode())
+```
+
+Hash-based collections используют сначала hash, затем equality.
+
+```kotlin
+val lessons = setOf(
+    Lesson(27, "Data classes", true),
+    Lesson(27, "Data classes", true)
+)
+
+println(lessons.size)
+```
+
+Set содержит один равный элемент.
+
+## Mutable property как hash key
+
+Mutable data class опасен в `HashSet`/`HashMap`, если изменить property, участвующую в `hashCode`.
+
+```kotlin
+data class MutableLesson(
+    val id: Int,
+    var title: String
+)
+
+fun main() {
+    val lesson = MutableLesson(27, "Data classes")
+    val set = hashSetOf(lesson)
+
+    lesson.title = "Изменённое название"
+
+    println(lesson in set)
+}
+```
+
+Объект физически остаётся в внутренней bucket structure, но новый hash может искать другой bucket. Lookup способен вернуть `false`.
+
+<MouseTrap title="Мышеловка: не меняй поля, участвующие в hashCode ключа">
+Для map/set keys используй immutable data classes с `val`. Если состояние должно меняться, ключом пусть будет стабильный `LessonId`, а mutable object хранится как value.
+</MouseTrap>
+
+## `toString`
+
+```kotlin
+val lesson = Lesson(27, "Data classes", published = true)
+println(lesson)
+```
+
+Результат похож на:
+
+```text
+Lesson(id=27, title=Data classes, published=true)
+```
+
+Это удобно для logs и debugging, но небезопасно для secrets:
+
+```kotlin
+data class Credentials(
+    val login: String,
+    val token: String
+)
+```
+
+Сгенерированный `toString` выведет token. Sensitive model должна не быть data class или override `toString` с masking.
+
+```kotlin
+data class SafeCredentials(
+    val login: String,
+    val token: String
+) {
+    override fun toString(): String {
+        return "SafeCredentials(login=$login, token=***)"
+    }
+}
+```
+
+Не используй `toString` как stable serialization format. Его структура не является wire/storage contract.
+
+## `copy`
+
+`copy` создаёт новый экземпляр, подставляя properties исходного объекта как defaults.
+
+```kotlin
+val draft = Lesson(27, "Data classes", published = false)
+val published = draft.copy(published = true)
+
+println(draft)
+println(published)
+```
+
+Исходный объект не меняется.
+
+Generated signature концептуально выглядит так:
+
+```kotlin
+fun copy(
+    id: Int = this.id,
+    title: String = this.title,
+    published: Boolean = this.published
+): Lesson
+```
+
+`copy` нельзя явно переопределить совместимой собственной реализацией. Если нужен другой semantic operation, дай предметное имя:
+
+```kotlin
+data class Publication(
+    val title: String,
+    val publishedAt: Long?
+) {
+    fun publish(now: Long): Publication {
+        check(publishedAt == null) { "Материал уже опубликован" }
+        return copy(publishedAt = now)
+    }
+}
+```
+
+`publish` проверяет transition, а raw `copy` остаётся механической операцией.
+
+## `copy` является shallow
+
+Nested mutable objects не копируются глубоко.
+
+```kotlin
+data class CourseDraft(
+    val title: String,
+    val lessons: MutableList<String>
+)
+
+fun main() {
+    val original = CourseDraft(
+        title = "Kotlin",
+        lessons = mutableListOf("Data classes")
+    )
+    val copied = original.copy(title = "Advanced Kotlin")
+
+    copied.lessons += "Sealed classes"
+
+    println(original.lessons)
+    println(copied.lessons)
+}
+```
+
+Обе модели ссылаются на один MutableList.
+
+Явная defensive copy:
+
+```kotlin
+val independent = original.copy(
+    title = "Independent Kotlin",
+    lessons = original.lessons.toMutableList()
+)
+```
+
+Лучше хранить immutable/read-only structures и контролировать source mutation:
+
+```kotlin
+data class SafeCourse(
+    val title: String,
+    val lessons: List<String>
+)
+
+fun safeCourse(title: String, lessons: List<String>): SafeCourse {
+    return SafeCourse(title, lessons.toList())
+}
+```
+
+<CatTip title="Котосовет: copy меняет форму, domain method меняет состояние">
+Используй `copy` в reducers, immutable UI state и простых transformations. Для business transitions создавай методы `publish`, `complete`, `cancel`, которые проверяют допустимость изменения.
+</CatTip>
+
+## `componentN`
+
+Для каждой primary property по порядку создаётся operator function:
+
+```kotlin
+val lesson = Lesson(27, "Data classes", published = true)
+
+println(lesson.component1())
+println(lesson.component2())
+println(lesson.component3())
+```
+
+Нумерация зависит от позиции, не имени:
+
+- `component1()` → `id`;
+- `component2()` → `title`;
+- `component3()` → `published`.
+
+Generated `componentN` нельзя заменить собственной несовместимой реализацией. Он может conflict с final member supertype, тогда data class declaration недопустима.
+
+## Destructuring
+
+```kotlin
+val (id, title, published) = Lesson(27, "Data classes", true)
+println("$id | $title | $published")
+```
+
+Это компилируется в вызовы `component1`, `component2`, `component3`.
+
+Пропуск через underscore:
+
+```kotlin
+val (_, title, published) = Lesson(27, "Data classes", true)
+println("$title | $published")
+```
+
+Пропущенный component не обязан вычисляться.
+
+### Destructuring в lambda
+
+```kotlin
+val lessonsById = mapOf(
+    27 to "Data classes",
+    28 to "Enum classes"
+)
+
+lessonsById.forEach { (id, title) ->
+    println("$id. $title")
+}
+```
+
+Map entry предоставляет `component1`/`component2`.
+
+### Риск позиционного контракта
+
+Если добавить/переставить primary properties, destructuring может изменить смысл. Особенно опасны одинаковые типы:
+
+```kotlin
+data class Name(val first: String, val last: String)
+```
+
+После перестановки code продолжит компилироваться, но значения поменяются местами. В public API явный property access устойчивее:
+
+```kotlin
+val name = Name("Иван", "Котов")
+println(name.first)
+println(name.last)
+```
+
+## Properties в теле data class
+
+Properties вне primary constructor не участвуют в generated equality, hash, string, copy и components.
+
+```kotlin
+data class LessonCache(val id: Int) {
+    var cachedTitle: String? = null
+}
+
+fun main() {
+    val first = LessonCache(27).apply { cachedTitle = "Data classes" }
+    val second = LessonCache(27).apply { cachedTitle = "Другое значение" }
+
+    println(first == second)
+    println(first)
+}
+```
+
+Объекты равны, а `toString` показывает только `id`.
+
+Это уместно для derived/cache state, который сознательно не определяет identity. Но невидимое mutable state способно удивить `copy`: оно не переносится как property body.
+
+```kotlin
+val copied = first.copy()
+println(copied.cachedTitle)
+```
+
+У нового объекта `cachedTitle` снова `null`.
+
+## Наследование generated methods
+
+Если superclass имеет final `equals`, `hashCode` или `toString`, compiler не генерирует override там, где это запрещено, и semantics может отличаться от ожидаемой data class. Open compatible methods могут быть override generated implementation.
+
+Практическое правило: data class лучше использовать как leaf value model с простым interface contract, а не в сложной class hierarchy.
+
+## Data class и validation
+
+`init` доступен как в обычном классе:
+
+```kotlin
+data class Score(val value: Int) {
+    init {
+        require(value in 0..100) { "Балл должен быть от 0 до 100" }
+    }
+}
+```
+
+`copy(value = -1)` также запускает constructor/init и упадёт. Это сохраняет invariant.
+
+Для parsing с failure используй factory:
+
+```kotlin
+data class LessonId private constructor(val value: Int) {
+    companion object {
+        fun parse(raw: String): LessonId? {
+            val value = raw.trim().toIntOrNull() ?: return null
+            return value.takeIf { it > 0 }?.let(::LessonId)
+        }
+    }
+}
+```
+
+В актуальном режиме согласованной видимости generated `copy` получает ту же visibility, что primary constructor. Старые Kotlin toolchains исторически генерировали public `copy`; при миграции опубликованной библиотеки учитывай `ConsistentCopyVisibility`, `ExposedCopyVisibility` и binary compatibility. Если сама операция копирования нежелательна, обычный class/value class выражает контракт точнее.
+
+## Data objects
+
+Для singleton-варианта существует `data object`, который генерирует value-like `toString` и equality semantics для singleton declaration. Он подробно рассматривается в теме об objects и часто используется вместе с sealed hierarchy.
+
+## Data class и serialization
+
+Data classes удобны для DTO, но `data` само по себе не определяет wire format. Serialization framework учитывает:
+
+- annotations;
+- имена properties;
+- defaults;
+- nullability;
+- unknown fields;
+- versioning strategy.
+
+Изменение constructor properties влияет и на generated API, и на serializer schema. Разделяй domain model и transport DTO, если они эволюционируют независимо.
+
+## Mutable data class: когда допустим
+
+Mutable data class иногда удобен для:
+
+- form state;
+- ORM/framework model с требованиями setters;
+- short-lived builder;
+- UI editing buffer.
+
+Но нужно установить правила:
+
+- не использовать mutable instance как hash key;
+- не разделять между threads без synchronization;
+- делать snapshots перед persistence/event publication;
+- не путать object identity с текущим набором fields.
+
+Immutable data class обычно безопаснее для domain events, commands, IDs и state snapshots.
+
+## Практический пример: неизменяемое состояние редактора
+
+```kotlin
+data class LessonEditorState(
+    val id: Int?,
+    val title: String,
+    val content: String,
+    val tags: Set<String>,
+    val published: Boolean,
+    val errors: List<String>
+) {
+    val canPublish: Boolean
+        get() = !published && errors.isEmpty()
+
+    fun withTitle(rawTitle: String): LessonEditorState {
+        val normalized = rawTitle.replace(Regex("""\s+"""), " ").trimStart()
+        return copy(
+            title = normalized,
+            errors = validate(
+                title = normalized,
+                content = content,
+                tags = tags
+            )
+        )
+    }
+
+    fun withContent(newContent: String): LessonEditorState {
+        return copy(
+            content = newContent,
+            errors = validate(
+                title = title,
+                content = newContent,
+                tags = tags
+            )
+        )
+    }
+
+    fun publish(): LessonEditorState {
+        check(canPublish) { "Нельзя опубликовать состояние с ошибками" }
+        return copy(published = true)
+    }
+
+    companion object {
+        fun empty(): LessonEditorState {
+            val initialErrors = validate("", "", emptySet())
+            return LessonEditorState(
+                id = null,
+                title = "",
+                content = "",
+                tags = emptySet(),
+                published = false,
+                errors = initialErrors
+            )
+        }
+
+        private fun validate(
+            title: String,
+            content: String,
+            tags: Set<String>
+        ): List<String> {
+            return buildList {
+                if (title.trim().length !in 3..120) {
+                    add("Название должно содержать от 3 до 120 символов")
+                }
+                if (content.isBlank()) {
+                    add("Содержание обязательно")
+                }
+                if (tags.isEmpty()) {
+                    add("Нужна хотя бы одна метка")
+                }
+            }
+        }
+    }
+}
+
+fun main() {
+    val initial = LessonEditorState.empty()
+    val edited = initial
+        .withTitle("Data classes")
+        .withContent("Value semantics, copy и destructuring")
+        .copy(tags = setOf("kotlin", "oop"))
+        .let { state -> state.withContent(state.content) }
+
+    val published = edited.publish()
+
+    println(initial)
+    println(published)
+    println("Один объект: ${initial === published}")
+}
+```
+
+Модель показывает:
+
+- immutable primary properties;
+- `copy` для snapshots;
+- domain methods для validation и transitions;
+- computed body property `canPublish`, не участвующую в equality;
+- immutable `Set`/`List` в публичном contract;
+- отсутствие mutation hash keys;
+- каждая версия state остаётся доступной независимо.
+
+## Итоги
+
+- data class моделирует value-based object;
+- все primary constructor parameters обязаны быть `val`/`var`;
+- generated members учитывают только primary properties;
+- `equals` и `hashCode` дают structural equality при корректных property types;
+- arrays требуют отдельной content semantics;
+- mutable equality properties опасны в hash collections;
+- `toString` не должен раскрывать secrets и не является serialization format;
+- `copy` создаёт новый объект, но выполняет shallow copy;
+- domain transitions лучше выражать named methods поверх `copy`;
+- `componentN` и destructuring зависят от порядка properties;
+- body properties исключены из equality/copy/components;
+- immutable data classes подходят DTO, events, state snapshots и value models.
+

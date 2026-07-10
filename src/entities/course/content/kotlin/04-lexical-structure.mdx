@@ -1,0 +1,815 @@
+---
+title: "Лексика языка"
+description: "Разбираем строительные кирпичики Kotlin-кода: токены, идентификаторы, ключевые слова, комментарии, KDoc, file annotations, точки с запятой и переносы строк."
+order: 4
+category: "Базовый синтаксис"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое лексика языка
+
+Лексика языка — это набор правил, по которым исходный текст превращается в понятные компилятору элементы: ключевые слова, имена, литералы, операторы, разделители, комментарии и пробелы. До того как Kotlin проверит типы, вызовы функций или наследование, компилятор должен понять, какие токены написаны в файле.
+
+Токен — минимальная значимая единица исходного кода. Например, в строке:
+
+```kotlin
+val lessonTitle = "Лексика языка"
+```
+
+компилятор видит такие токены:
+
+- `val` — ключевое слово;
+- `lessonTitle` — идентификатор;
+- `=` — оператор присваивания;
+- `"Лексика языка"` — строковый литерал.
+
+Пробелы между токенами часто нужны только для разделения. Комментарии компилятор читает как часть исходного файла, но не превращает в исполняемый код. Переносы строк в Kotlin важны сильнее, чем в Java, потому что точка с запятой обычно не пишется.
+
+<CatTip title="Кошачий нюх на синтаксис">
+Если компилятор ругается на странное место, ошибка может быть не там, где стоит красная подсветка. Иногда настоящая причина — незакрытая строка, незакрытый комментарий, лишний символ в имени или перенос строки, который изменил разбор выражения.
+</CatTip>
+
+## Структура файла глазами лексера
+
+Типичный Kotlin-файл читается сверху вниз:
+
+```kotlin
+@file:Suppress("MagicNumber")
+
+package academy.kotlingo.lexis
+
+import kotlin.math.PI
+
+const val DEFAULT_RADIUS: Double = 4.0
+
+fun circleArea(radius: Double): Double {
+    return PI * radius * radius
+}
+
+fun main() {
+    val area = circleArea(DEFAULT_RADIUS)
+    println("Площадь: $area")
+}
+```
+
+Здесь есть:
+
+- file annotation `@file:Suppress("MagicNumber")`;
+- директива `package`;
+- директива `import`;
+- top-level константа `DEFAULT_RADIUS`;
+- top-level функция `circleArea`;
+- top-level функция `main`;
+- локальная переменная `area`;
+- строковый шаблон `"$area"`.
+
+Для человека это маленькая программа. Для компилятора это поток токенов, из которого строится синтаксическое дерево.
+
+## Идентификаторы
+
+Идентификатор — имя объявления или параметра. Идентификаторами называют имена переменных, функций, классов, интерфейсов, объектов, type aliases, generic-параметров, пакетов и label-меток.
+
+Примеры обычных идентификаторов:
+
+```kotlin
+val lessonTitle = "Лексика"
+val completedLessons = 4
+
+fun normalizeTitle(title: String): String {
+    return title.trim()
+}
+
+class LessonRepository
+
+interface ProgressStore
+```
+
+### Правила обычных идентификаторов
+
+Обычный идентификатор:
+
+- может содержать буквы;
+- может содержать цифры, но не начинаться с цифры;
+- может содержать underscore `_`;
+- не может совпадать с hard keyword;
+- должен быть читаемым для людей, а не только допустимым для компилятора.
+
+Корректные имена:
+
+```kotlin
+val lesson1 = "Введение"
+val lesson_title = "Переменные"
+val maxRetryCount = 3
+val тема = "Кириллица допустима"
+```
+
+Некорректные имена:
+
+```kotlin
+// Имя не может начинаться с цифры.
+val 1lesson = "Ошибка"
+
+// hard keyword нельзя использовать как обычное имя.
+val class = "Ошибка"
+
+// Дефис воспринимается как оператор минус, а не как часть имени.
+val lesson-title = "Ошибка"
+```
+
+### Стиль именования
+
+Kotlin-компилятор не заставляет соблюдать стиль именования, но команда должна читать код без расшифровки.
+
+Обычно используют такие соглашения:
+
+- `camelCase` для локальных переменных, функций и свойств;
+- `PascalCase` для классов, интерфейсов, enum-классов, object declarations и type aliases;
+- `UPPER_SNAKE_CASE` для compile-time constants;
+- короткие generic-имена вроде `T`, `R`, `E`, когда смысл очевиден;
+- доменные generic-имена вроде `Entity`, `Command`, `Result`, когда короткая буква ухудшает читаемость.
+
+```kotlin
+const val MAX_VISIBLE_LESSONS = 10
+
+data class LessonCard(
+    val title: String,
+    val estimatedMinutes: Int
+)
+
+fun formatLessonTitle(rawTitle: String): String {
+    return rawTitle.trim()
+}
+```
+
+<MouseTrap title="Мышеловка: допустимое имя не всегда хорошее имя">
+Кириллица в идентификаторах допустима, но в продакшен-коде она может мешать поиску, интеграции с Java, автогенерации, shell-командам и командной договоренности. Для учебных примеров русские строки и комментарии полезны, но имена API чаще оставляют на английском.
+</MouseTrap>
+
+## Экранированные идентификаторы в обратных кавычках
+
+Kotlin позволяет заключать имя в обратные кавычки:
+
+```kotlin
+fun `открыть урок`() {
+    println("Урок открыт")
+}
+
+fun main() {
+    `открыть урок`()
+}
+```
+
+Такой идентификатор может содержать пробелы, ключевые слова и символы, которые обычное имя не принимает.
+
+### Когда это полезно
+
+Экранированные имена чаще всего используют в тестах:
+
+```kotlin
+class LessonTitleTest {
+    fun `trim удаляет пробелы по краям названия`() {
+        val rawTitle = "  Лексика языка  "
+
+        val normalizedTitle = rawTitle.trim()
+
+        kotlin.test.assertEquals(
+            expected = "Лексика языка",
+            actual = normalizedTitle
+        )
+    }
+}
+```
+
+Такие имена хорошо читаются в test reports.
+
+Еще один сценарий — interop с Java API, где метод называется Kotlin keyword:
+
+```kotlin
+fun main() {
+    val javaLikeApi = JavaLikeApi()
+
+    // Метод с именем is в Kotlin нужно вызвать через обратные кавычки.
+    println(javaLikeApi.`is`("ready"))
+}
+
+class JavaLikeApi {
+    fun `is`(value: String): Boolean {
+        return value.isNotBlank()
+    }
+}
+```
+
+### Когда это вредно
+
+Не стоит строить обычный бизнес-код на именах с пробелами:
+
+```kotlin
+fun `создать пользователя если почта корректна и тариф активен`() {
+    println("Слишком длинное имя функции")
+}
+```
+
+Такой стиль ухудшает навигацию, автодополнение, refactoring и читаемость вызовов. Для обычного кода лучше:
+
+```kotlin
+fun createUserWhenEmailIsValidAndPlanIsActive() {
+    println("Имя длинное, но предсказуемое для API")
+}
+```
+
+## Hard keywords
+
+Hard keyword — слово, которое нельзя использовать как обычный идентификатор без обратных кавычек. Эти слова встроены в грамматику языка.
+
+К hard keywords относятся:
+
+- `as`;
+- `break`;
+- `class`;
+- `continue`;
+- `do`;
+- `else`;
+- `false`;
+- `for`;
+- `fun`;
+- `if`;
+- `in`;
+- `interface`;
+- `is`;
+- `null`;
+- `object`;
+- `package`;
+- `return`;
+- `super`;
+- `this`;
+- `throw`;
+- `true`;
+- `try`;
+- `typealias`;
+- `typeof`;
+- `val`;
+- `var`;
+- `when`;
+- `while`.
+
+Некоторые из них ты уже видел:
+
+```kotlin
+fun main() {
+    val score = 90
+
+    if (score in 80..100) {
+        println(true)
+    } else {
+        println(false)
+    }
+}
+```
+
+Здесь `fun`, `val`, `if`, `in`, `else`, `true`, `false` — не имена, а часть синтаксиса.
+
+## Soft keywords
+
+Soft keyword — слово, которое имеет специальный смысл только в конкретном синтаксическом контексте. В других местах его можно использовать как обычное имя, хотя часто это плохая идея для читаемости.
+
+Важные soft keywords:
+
+- `by`;
+- `catch`;
+- `constructor`;
+- `delegate`;
+- `dynamic`;
+- `field`;
+- `file`;
+- `finally`;
+- `get`;
+- `import`;
+- `init`;
+- `param`;
+- `property`;
+- `receiver`;
+- `set`;
+- `setparam`;
+- `where`;
+- `actual`;
+- `abstract`;
+- `annotation`;
+- `companion`;
+- `const`;
+- `crossinline`;
+- `data`;
+- `enum`;
+- `expect`;
+- `external`;
+- `final`;
+- `infix`;
+- `inline`;
+- `inner`;
+- `internal`;
+- `lateinit`;
+- `noinline`;
+- `open`;
+- `operator`;
+- `out`;
+- `override`;
+- `private`;
+- `protected`;
+- `public`;
+- `reified`;
+- `sealed`;
+- `suspend`;
+- `tailrec`;
+- `vararg`;
+- `value`;
+- `context`.
+
+Пример:
+
+```kotlin
+class Lesson(
+    val title: String
+) {
+    val description: String
+        get() = "Урок: $title"
+}
+```
+
+`get` имеет специальный смысл в объявлении getter. Но как локальное имя оно может быть допустимым:
+
+```kotlin
+fun main() {
+    val get = "Это плохое имя для переменной, но оно допустимо"
+    println(get)
+}
+```
+
+Лучше так не писать. Мягкость keyword не означает, что оно хорошо подходит как имя.
+
+## Modifier keywords
+
+Многие soft keywords являются модификаторами. Модификатор меняет свойства объявления.
+
+```kotlin
+public data class Lesson(
+    val title: String
+)
+
+internal sealed interface LoadState
+
+private const val DEFAULT_TITLE = "Без названия"
+```
+
+Разбор:
+
+- `public` задает видимость;
+- `data` просит компилятор сгенерировать методы value-класса данных;
+- `internal` ограничивает видимость модулем;
+- `sealed` закрывает иерархию наследников;
+- `private` ограничивает видимость файлом или классом;
+- `const` делает значение compile-time constant.
+
+Модификаторы часто можно комбинировать, но не произвольно. Например, `data sealed class` невозможен, потому что data class не должен быть sealed. Компилятор проверяет такие противоречия.
+
+## Специальные идентификаторы
+
+### `field`
+
+`field` доступен внутри custom getter или setter свойства и означает backing field.
+
+```kotlin
+class LessonProgress {
+    var percent: Int = 0
+        set(value) {
+            // field — специальное имя backing field.
+            field = value.coerceIn(0, 100)
+        }
+}
+
+fun main() {
+    val progress = LessonProgress()
+
+    progress.percent = 130
+
+    println(progress.percent)
+}
+```
+
+Снаружи `field` не существует.
+
+### `it`
+
+`it` — не keyword, а автоматически созданное имя единственного параметра lambda, если ты не дал параметру явное имя.
+
+```kotlin
+fun main() {
+    val titles = listOf("Лексика", "Типы", "Числа")
+
+    val shortTitles = titles.filter {
+        // it здесь означает текущую строку.
+        it.length <= 6
+    }
+
+    println(shortTitles)
+}
+```
+
+В длинных lambdas лучше давать имя:
+
+```kotlin
+fun main() {
+    val titles = listOf("Лексика", "Типы", "Числа")
+
+    val normalizedTitles = titles.map { title ->
+        title.trim().lowercase()
+    }
+
+    println(normalizedTitles)
+}
+```
+
+### `_`
+
+Underscore может использоваться как пропуск имени там, где значение не нужно.
+
+```kotlin
+fun main() {
+    val lessonToMinutes = mapOf(
+        "Лексика" to 40,
+        "Типы" to 55
+    )
+
+    lessonToMinutes.forEach { (title, _) ->
+        // Минуты намеренно игнорируются.
+        println(title)
+    }
+}
+```
+
+`_` помогает показать намерение: значение существует, но текущему коду оно не нужно.
+
+## Комментарии
+
+Kotlin поддерживает три основных вида комментариев:
+
+- line comment;
+- block comment;
+- KDoc comment.
+
+### Line comment
+
+Line comment начинается с `//` и продолжается до конца строки.
+
+```kotlin
+fun main() {
+    // Создаем название урока для демонстрации.
+    val title = "Лексика языка"
+
+    println(title)
+}
+```
+
+Line comment хорош для коротких пояснений рядом с кодом. Не стоит писать комментарии, которые просто повторяют синтаксис:
+
+```kotlin
+fun main() {
+    // Создаем переменную title.
+    val title = "Лексика языка"
+
+    println(title)
+}
+```
+
+Такой комментарий не помогает. Лучше объяснять причину, ограничение или неочевидное решение.
+
+### Block comment
+
+Block comment начинается с `/*` и заканчивается `*/`.
+
+```kotlin
+fun main() {
+    /*
+     * Этот блок объясняет демонстрационный сценарий.
+     * В реальном коде длинные комментарии лучше держать рядом
+     * с неочевидным алгоритмом или важным архитектурным решением.
+     */
+    val title = "Лексика языка"
+
+    println(title)
+}
+```
+
+Kotlin поддерживает вложенные block comments:
+
+```kotlin
+fun main() {
+    /*
+     * Внешний комментарий.
+     *
+     * /* Вложенный комментарий. */
+     */
+    println("Комментарии закрыты корректно")
+}
+```
+
+Это удобно, когда нужно временно закомментировать кусок кода, внутри которого уже есть block comment.
+
+<MouseTrap title="Мышеловка: комментарий не должен чинить плохое имя">
+Если функция называется `process`, а комментарий объясняет, что она валидирует название урока и сохраняет прогресс, проблема не в отсутствии комментария. Проблема в имени и, возможно, в слишком широкой ответственности функции.
+</MouseTrap>
+
+## KDoc
+
+KDoc — документационный комментарий Kotlin. Он начинается с `/**` и заканчивается `*/`. IDE и генераторы документации используют KDoc для подсказок и API-документации.
+
+```kotlin
+/**
+ * Описывает учебный урок.
+ *
+ * @property title название урока, видимое пользователю.
+ * @property estimatedMinutes примерная длительность урока в минутах.
+ */
+data class Lesson(
+    val title: String,
+    val estimatedMinutes: Int
+)
+
+/**
+ * Форматирует урок для отображения в консоли.
+ *
+ * @param lesson урок, который нужно показать.
+ * @return строка с названием и длительностью.
+ */
+fun formatLesson(lesson: Lesson): String {
+    return "${lesson.title}: ${lesson.estimatedMinutes} мин."
+}
+```
+
+### Частые KDoc-теги
+
+KDoc поддерживает теги:
+
+- `@param` описывает параметр функции или generic-параметр;
+- `@return` описывает возвращаемое значение;
+- `@property` описывает свойство primary constructor;
+- `@receiver` описывает receiver extension-функции;
+- `@throws` или `@exception` описывает исключение;
+- `@sample` ссылается на пример;
+- `@see` добавляет ссылку на связанный API;
+- `@since` фиксирует версию появления API;
+- `@suppress` скрывает элемент из сгенерированной документации.
+
+Пример для extension-функции:
+
+```kotlin
+/**
+ * Превращает название урока в простой slug.
+ *
+ * @receiver исходное название урока.
+ * @return строка в нижнем регистре с дефисами вместо пробелов.
+ */
+fun String.toLessonSlug(): String {
+    return trim()
+        .lowercase()
+        .replace(Regex("\\s+"), "-")
+}
+```
+
+KDoc должен объяснять контракт. Если в KDoc написано "возвращает строку", это почти ничего не добавляет. Лучше объяснить формат, ограничения, nullable-поведение, исключения и инварианты.
+
+## Аннотации файла
+
+File annotation применяется ко всему файлу. Она пишется до `package` и импортов:
+
+```kotlin
+@file:JvmName("LessonFormatting")
+@file:Suppress("MagicNumber")
+
+package academy.kotlingo.lexis
+
+fun main() {
+    println("Файл настроен через file annotations")
+}
+```
+
+Частые file annotations:
+
+- `@file:JvmName("Name")` меняет JVM-имя класса, в который попадают top-level объявления;
+- `@file:JvmMultifileClass` участвует в объединении top-level объявлений из нескольких файлов под одним JVM facade;
+- `@file:Suppress("DiagnosticName")` подавляет диагностику на уровне файла;
+- `@file:OptIn(ExperimentalApi::class)` включает experimental API для всего файла.
+
+Пример с `OptIn`:
+
+```kotlin
+@file:OptIn(ExperimentalStdlibApi::class)
+
+package academy.kotlingo.lexis
+
+fun main() {
+    val hex = 255.toHexString()
+    println(hex)
+}
+```
+
+Такой opt-in не стоит добавлять без причины: он распространяется на весь файл. Иногда безопаснее поставить аннотацию на конкретную функцию.
+
+## Точки с запятой
+
+В Kotlin точка с запятой обычно не нужна:
+
+```kotlin
+fun main() {
+    val title = "Лексика"
+    println(title)
+}
+```
+
+Но она допустима:
+
+```kotlin
+fun main() {
+    val title = "Лексика";
+    println(title);
+}
+```
+
+Так писать не принято. Точка с запятой нужна только если ты помещаешь несколько инструкций в одну строку:
+
+```kotlin
+fun main() {
+    val title = "Лексика"; println(title)
+}
+```
+
+Даже этот вариант лучше разнести на две строки.
+
+## Переносы строк
+
+Kotlin учитывает переносы строк при разборе выражений. Обычно перенос внутри скобок безопасен:
+
+```kotlin
+fun main() {
+    val title = listOf(
+        "Лексика",
+        "Типы",
+        "Числа"
+    ).joinToString(separator = " -> ")
+
+    println(title)
+}
+```
+
+Цепочки вызовов часто переносят перед точкой:
+
+```kotlin
+fun normalizeTitle(rawTitle: String): String {
+    return rawTitle
+        .trim()
+        .lowercase()
+        .replace(Regex("\\s+"), "-")
+}
+```
+
+Такой стиль хорошо читается: каждый шаг преобразования на отдельной строке.
+
+Опасный перенос:
+
+```kotlin
+fun score(): Int {
+    return
+        100
+}
+```
+
+В Kotlin `return` ожидает выражение в той же синтаксической конструкции. Такой код не означает "вернуть 100" так, как новичок может ожидать. Правильно:
+
+```kotlin
+fun score(): Int {
+    return 100
+}
+```
+
+или:
+
+```kotlin
+fun score(): Int =
+    100
+```
+
+## Labels
+
+Label — имя с символом `@`, которое помечает выражение. Labels встречаются с `return`, `break`, `continue` и lambdas.
+
+```kotlin
+fun main() {
+    val titles = listOf("", "Лексика", "Типы")
+
+    titles.forEach lessonLoop@{ title ->
+        if (title.isBlank()) {
+            // Возвращаемся из lambda, а не из main.
+            return@lessonLoop
+        }
+
+        println(title)
+    }
+}
+```
+
+Label — тоже часть лексики: у него есть имя, и это имя должно быть допустимым идентификатором.
+
+## Практический пример: читаемый Kotlin-файл
+
+```kotlin
+@file:Suppress("MagicNumber")
+
+package academy.kotlingo.lexis
+
+import kotlin.math.roundToInt
+
+/**
+ * Хранит краткую информацию об уроке.
+ *
+ * @property title название урока.
+ * @property rawCompletionPercent прогресс до нормализации.
+ */
+data class LessonProgress(
+    val title: String,
+    val rawCompletionPercent: Double
+) {
+    val completionPercent: Int
+        get() {
+            // coerceIn защищает отображение от значений меньше 0 и больше 100.
+            return rawCompletionPercent
+                .roundToInt()
+                .coerceIn(0, 100)
+        }
+}
+
+/**
+ * Возвращает человекочитаемую подпись прогресса.
+ *
+ * @param progress прогресс конкретного урока.
+ * @return строка для консольного вывода.
+ */
+fun formatProgress(progress: LessonProgress): String {
+    val normalizedTitle = progress.title.trim()
+
+    require(normalizedTitle.isNotBlank()) {
+        "Название урока не должно быть пустым"
+    }
+
+    return "$normalizedTitle: ${progress.completionPercent}%"
+}
+
+fun main() {
+    val progressItems = listOf(
+        LessonProgress(
+            title = " Лексика языка ",
+            rawCompletionPercent = 37.8
+        ),
+        LessonProgress(
+            title = "Базовые типы",
+            rawCompletionPercent = 104.2
+        )
+    )
+
+    progressItems.forEach lessonLoop@{ progress ->
+        if (progress.title.isBlank()) {
+            // Пустой урок пропускается без выхода из main.
+            return@lessonLoop
+        }
+
+        println(formatProgress(progress))
+    }
+}
+```
+
+Почему этот файл лексически аккуратен:
+
+- file annotation стоит до package;
+- package написан до imports;
+- imports явные и короткие;
+- KDoc объясняет контракт, а не пересказывает синтаксис;
+- имена используют `PascalCase`, `camelCase` и понятные доменные слова;
+- цепочка вызовов разбита по строкам;
+- комментарий объясняет причину `return@lessonLoop`;
+- строковый шаблон используется там, где он улучшает читаемость.
+
+## Итоги
+
+Лексика Kotlin задает базовую дисциплину чтения кода:
+
+- код состоит из токенов;
+- идентификаторы должны быть допустимыми и понятными;
+- hard keywords нельзя использовать как обычные имена;
+- soft keywords имеют специальный смысл только в отдельных местах;
+- обратные кавычки полезны для тестов и interop, но вредны как обычный стиль API;
+- комментарии должны объяснять намерение, ограничение или неочевидность;
+- KDoc документирует контракт публичного API;
+- file annotations пишутся до `package`;
+- точки с запятой почти всегда лишние;
+- переносы строк помогают читать цепочки, но могут менять разбор выражений.
+

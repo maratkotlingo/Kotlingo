@@ -1,0 +1,641 @@
+---
+title: "Введение в Kotlin и экосистему"
+description: "Разбираем, что такое Kotlin, где он применяется, из каких частей состоит экосистема и как мыслить о языке до первой строки кода."
+order: 1
+category: "Основы"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое Kotlin
+
+Kotlin — это статически типизированный язык программирования, созданный JetBrains для практичной разработки: серверной, Android, десктопной, браузерной, native и мультиплатформенной. Статическая типизация означает, что компилятор знает типы выражений до запуска программы и может остановить ошибку раньше, чем код попадет в продакшен.
+
+Главная идея Kotlin: писать меньше шумного кода, но не терять строгость. Язык поддерживает объектно-ориентированный стиль, функциональный стиль, безопасную работу с `null`, лаконичные data-модели, расширения существующих типов, корутины, DSL и удобную интеграцию с Java.
+
+На момент создания этого курса, 8 июля 2026 года, актуальная стабильная ветка языка — Kotlin 2.4.x. В уроках мы будем явно отмечать места, где поведение зависит от версии языка, экспериментального флага или платформы.
+
+<CatTip title="Purr-fect ориентир">
+  Kotlin удобно изучать как язык с несколькими слоями. Первый слой — синтаксис и
+  типы. Второй — стандартная библиотека. Третий — платформы: JVM, Android, JS,
+  Wasm, Native и Multiplatform. Четвертый — инструменты: Gradle, IDE, тесты,
+  линтеры, профилирование.
+</CatTip>
+
+## Почему Kotlin называют прагматичным языком
+
+Kotlin не пытается быть самым минималистичным языком. Он стремится закрыть реальные проблемы разработки:
+
+- уменьшить количество шаблонного кода;
+- сделать `null` явной частью типа;
+- сохранить совместимость с существующими Java-библиотеками;
+- дать выразительные коллекции и функции высшего порядка;
+- поддержать асинхронный код через корутины;
+- позволить писать общий код для нескольких платформ;
+- оставаться читаемым в больших командах.
+
+Прагматичность Kotlin особенно заметна в сравнении с Java. Например, простая модель данных в Java часто требует конструктора, getter-методов, `equals`, `hashCode` и `toString`. В Kotlin это может быть одна `data class`, при этом методы будут сгенерированы компилятором.
+
+```kotlin
+// Data class описывает значение, а не "контейнер с ручными методами".
+data class Lesson(
+    val title: String,
+    val minutes: Int,
+    val completed: Boolean
+)
+
+fun main() {
+    // Создаем неизменяемую ссылку на урок.
+    val firstLesson = Lesson(
+        title = "Введение в Kotlin",
+        minutes = 35,
+        completed = false
+    )
+
+    // copy создает новый объект с измененным полем, не ломая исходный объект.
+    val completedLesson = firstLesson.copy(completed = true)
+
+    // toString сгенерирован компилятором и удобен для отладки.
+    println(firstLesson)
+    println(completedLesson)
+}
+```
+
+Этот пример показывает сразу несколько идей языка:
+
+- `data class` подходит для хранения данных;
+- `val` делает ссылку неизменяемой;
+- named arguments делают вызов конструктора читаемым;
+- `copy` помогает обновлять состояние без мутации исходного объекта;
+- `println` выводит строковое представление значения.
+
+## Из чего состоит Kotlin-экосистема
+
+Когда говорят "Kotlin", обычно смешивают несколько сущностей. Их важно различать с самого начала.
+
+### Язык
+
+Язык — это синтаксис, типовая система и правила компиляции. К языку относятся `val`, `var`, `fun`, `class`, `if`, `when`, nullable-типы, generics, lambdas, extension-функции, data classes, sealed classes, value classes, context parameters и другие конструкции.
+
+### Компилятор
+
+Компилятор читает исходный код `.kt`, проверяет его и превращает в исполняемую форму для выбранной платформы. Современный Kotlin использует фронтенд K2: он отвечает за анализ кода, вывод типов, диагностику ошибок и подготовку промежуточного представления.
+
+Упрощенная цепочка выглядит так:
+
+- исходный код `.kt`;
+- лексический и синтаксический анализ;
+- разрешение имен и типов;
+- проверка правил языка;
+- промежуточное представление;
+- backend для JVM, JS, Wasm или Native;
+- итоговый артефакт: байткод, JavaScript, WebAssembly-модуль, native-бинарник или библиотека.
+
+### Стандартная библиотека
+
+Стандартная библиотека — это набор типов и функций, доступных почти в каждом Kotlin-проекте: `String`, `List`, `Map`, `Result`, ranges, collection-операторы, `run`, `let`, `also`, `apply`, `use`, `lazy`, `TODO`, `require`, `check` и многое другое.
+
+Стандартная библиотека не заменяет платформенные API. На JVM ты все еще можешь использовать `java.time`, `java.nio.file`, JDBC, Spring, Ktor и другие библиотеки. На Android — Android SDK. В Kotlin/JS — браузерные и npm API. В Multiplatform часть кода остается общей, а часть пишется под конкретную платформу.
+
+### Плагины компилятора
+
+Плагины компилятора расширяют стандартную компиляцию. Самые известные примеры:
+
+- `kotlinx.serialization` генерирует код сериализации;
+- Compose compiler преобразует UI-код Compose;
+- `all-open` автоматически делает классы открытыми для фреймворков;
+- `no-arg` добавляет пустые конструкторы для инструментов, которым они нужны;
+- KSP обрабатывает символы и генерирует код на этапе сборки.
+
+### Система сборки
+
+В продакшене Kotlin чаще всего собирают через Gradle. Gradle подключает Kotlin plugin, скачивает зависимости, запускает компиляцию, тесты, линтеры, упаковку и публикацию.
+
+Минимальный `build.gradle.kts` для JVM-проекта может выглядеть так:
+
+```kotlin
+plugins {
+    // Подключаем Kotlin-плагин для JVM-проекта.
+    kotlin("jvm") version "2.4.0"
+
+    // application добавляет задачу run для запуска main-функции.
+    application
+}
+
+repositories {
+    // Maven Central содержит Kotlin-библиотеки и большинство JVM-зависимостей.
+    mavenCentral()
+}
+
+dependencies {
+    // kotlin.test дает общий API для тестов.
+    testImplementation(kotlin("test"))
+}
+
+kotlin {
+    // JVM toolchain фиксирует версию JDK, чтобы сборка была воспроизводимой.
+    jvmToolchain(21)
+}
+
+application {
+    // Указываем сгенерированное JVM-имя файла, где находится main.
+    mainClass.set("MainKt")
+}
+
+tasks.test {
+    // Включаем JUnit Platform для современных JVM-тестов.
+    useJUnitPlatform()
+}
+```
+
+<MouseTrap title="Мышеловка: язык и Gradle — не одно и то же">
+  Если в проекте не запускается сборка, это не всегда ошибка Kotlin. Причина
+  может быть в версии Gradle, JDK, Kotlin Gradle Plugin, Android Gradle Plugin,
+  настройке репозиториев или конфликте зависимостей. Хорошая диагностика
+  начинается с разделения: ошибка компиляции языка, ошибка сборки, ошибка IDE
+  или ошибка runtime.
+</MouseTrap>
+
+## Где применяется Kotlin
+
+### Kotlin/JVM
+
+Kotlin/JVM компилируется в JVM-байткод. Это главный путь для backend-разработки, Android и многих внутренних сервисов. JVM-таргет дает доступ к огромной Java-экосистеме: Spring, Micronaut, Quarkus, Ktor, Hibernate, Kafka clients, Testcontainers, JUnit и другим инструментам.
+
+Когда выбирать Kotlin/JVM:
+
+- нужен серверный сервис;
+- уже есть Java-инфраструктура;
+- важны зрелые библиотеки;
+- нужен Android;
+- нужна интеграция с JVM-мониторингом, профилированием и деплоем.
+
+### Kotlin/Android
+
+Android-разработка — одна из самых сильных областей Kotlin. Язык хорошо подходит для UI-состояния, асинхронности, data-моделей, sealed-состояний экранов, extension-функций и DSL. Многие современные Android API проектируются с учетом Kotlin.
+
+### Kotlin/JS
+
+Kotlin/JS компилирует Kotlin в JavaScript. Его используют для браузерных приложений, Node.js и shared logic между frontend и backend. Kotlin/JS особенно полезен, когда команда хочет разделять доменную модель и валидацию между платформами.
+
+### Kotlin/Wasm
+
+Kotlin/Wasm компилирует код в WebAssembly. Это направление развивается для производительных браузерных приложений и переносимых runtime-сценариев. У Wasm есть ограничения и быстро меняющийся tooling, поэтому его стоит изучать после базового Kotlin и понимания Gradle.
+
+### Kotlin/Native
+
+Kotlin/Native компилирует код в native-бинарники без JVM. Он используется для iOS, macOS, Linux, Windows и embedded-сценариев. Важная часть Native — interop с C, Objective-C и Swift.
+
+### Kotlin Multiplatform
+
+Kotlin Multiplatform позволяет держать общий код в `commonMain`, а платформенные реализации — в отдельных source sets. Общими обычно делают:
+
+- доменные модели;
+- валидацию;
+- бизнес-правила;
+- сериализацию;
+- сетевые контракты;
+- часть работы с датами, деньгами и состояниями;
+- тесты общей логики.
+
+Платформенными обычно остаются:
+
+- UI;
+- файловая система;
+- сеть, если нужны разные клиенты;
+- база данных;
+- доступ к устройствам;
+- platform-specific permissions;
+- системные API.
+
+## Kotlin как язык выражений
+
+В Kotlin многие конструкции являются выражениями, то есть возвращают значение. Это влияет на стиль кода.
+
+```kotlin
+fun describeScore(score: Int): String {
+    // if возвращает строку, поэтому результат можно сразу сохранить в val.
+    val status = if (score >= 80) {
+        "отличный результат"
+    } else if (score >= 50) {
+        "хорошая база"
+    } else {
+        "нужно повторить тему"
+    }
+
+    return status
+}
+
+fun main() {
+    val score = 87
+    println(describeScore(score))
+}
+```
+
+Это не просто "короткий синтаксис". Когда `if` или `when` возвращают значение, код часто становится ближе к предметной области: мы описываем, какое значение получить, а не как пошагово менять переменную.
+
+## Главные свойства Kotlin, которые нужно помнить с первого дня
+
+### Строгая null-safety
+
+Тип `String` не может хранить `null`, а `String?` может. Это различие встроено в типовую систему.
+
+```kotlin
+fun printNickname(nickname: String?) {
+    // Безопасный вызов вернет null, если nickname равен null.
+    val length: Int? = nickname?.length
+
+    // Elvis-оператор подставит значение по умолчанию.
+    val visibleName = nickname ?: "без имени"
+
+    println("Имя: $visibleName")
+    println("Длина: ${length ?: 0}")
+}
+
+fun main() {
+    printNickname("Барсик")
+    printNickname(null)
+}
+```
+
+### Вывод типов
+
+Kotlin часто понимает тип сам, но это не делает язык динамическим.
+
+```kotlin
+fun main() {
+    // Компилятор выводит тип String.
+    val language = "Kotlin"
+
+    // Компилятор выводит тип Int.
+    val releaseYear = 2011
+
+    // Типы уже известны на этапе компиляции.
+    println("$language впервые появился публично в $releaseYear году")
+}
+```
+
+### Extension-функции
+
+Extension-функция добавляет удобный вызов к существующему типу, не меняя сам тип.
+
+```kotlin
+// Добавляем доменную операцию к String.
+fun String.asLessonSlug(): String {
+    return lowercase()
+        .trim()
+        .replace(" ", "-")
+        .replace("ё", "e")
+}
+
+fun main() {
+    val title = " Введение в Kotlin "
+    println(title.asLessonSlug())
+}
+```
+
+Extension-функция не "вшивается" в класс. Она компилируется как обычная функция, а красивый синтаксис вызова помогает читать код.
+
+### Data classes и sealed hierarchies
+
+Data classes удобны для значений, sealed classes и sealed interfaces — для закрытых наборов состояний.
+
+```kotlin
+sealed interface LessonState {
+    data object Locked : LessonState
+    data class Available(val title: String) : LessonState
+    data class Completed(val title: String, val score: Int) : LessonState
+}
+
+fun renderState(state: LessonState): String {
+    // when exhaustive: компилятор знает все варианты sealed-иерархии.
+    return when (state) {
+        LessonState.Locked -> "Урок пока закрыт"
+        is LessonState.Available -> "Можно начать: ${state.title}"
+        is LessonState.Completed -> "Пройдено: ${state.title}, результат ${state.score}"
+    }
+}
+
+fun main() {
+    val state: LessonState = LessonState.Completed(
+        title = "Переменные",
+        score = 95
+    )
+
+    println(renderState(state))
+}
+```
+
+## Базовые элементы, которые ты встретишь сразу
+
+### `fun`
+
+`fun` объявляет функцию. Функция может быть top-level, member-функцией класса, local-функцией внутри другой функции или extension-функцией.
+
+```kotlin
+fun greet(name: String): String {
+    return "Привет, $name!"
+}
+```
+
+### `val`
+
+`val` объявляет неизменяемую ссылку. После инициализации нельзя присвоить этой переменной другое значение.
+
+```kotlin
+val language = "Kotlin"
+```
+
+### `var`
+
+`var` объявляет изменяемую переменную. Ее можно переназначать, если новое значение подходит по типу.
+
+```kotlin
+var attempts = 0
+attempts = attempts + 1
+```
+
+### `class`
+
+`class` объявляет тип с состоянием и поведением.
+
+```kotlin
+class ProgressCounter {
+    private var completedLessons = 0
+
+    fun completeOneLesson() {
+        completedLessons += 1
+    }
+
+    fun currentValue(): Int {
+        return completedLessons
+    }
+}
+```
+
+### `object`
+
+`object` объявляет singleton или anonymous object. Singleton создается один раз и имеет одно глобально доступное значение.
+
+```kotlin
+object CourseConfig {
+    val defaultLanguage: String = "ru"
+    val lessonsPerBatch: Int = 3
+}
+```
+
+### `interface`
+
+`interface` описывает контракт. Класс может реализовать несколько интерфейсов.
+
+```kotlin
+interface LessonRepository {
+    fun findTitleById(id: Int): String?
+}
+```
+
+### `data class`
+
+`data class` предназначен для значений. Компилятор генерирует `equals`, `hashCode`, `toString`, `copy` и `componentN`.
+
+```kotlin
+data class UserProgress(
+    val userId: String,
+    val completedLessons: Int
+)
+```
+
+### `sealed`
+
+`sealed` ограничивает наследников и помогает моделировать закрытые наборы вариантов.
+
+```kotlin
+sealed interface LoadResult {
+    data class Success(val text: String) : LoadResult
+    data class Failure(val reason: String) : LoadResult
+}
+```
+
+## Базовые функции стандартной библиотеки
+
+### `println(value: Any?)`
+
+Печатает значение и перевод строки. Полезна для первых программ, CLI-утилит и временной диагностики.
+
+```kotlin
+fun main() {
+    println("Kotlin готов к работе")
+}
+```
+
+### `print(value: Any?)`
+
+Печатает значение без перевода строки. Удобно для приглашения к вводу в консоли.
+
+```kotlin
+fun main() {
+    print("Введите имя: ")
+    val name = readln()
+    println("Привет, $name")
+}
+```
+
+### `readln()`
+
+Читает строку из стандартного ввода. Если ввод завершен и строки нет, бросает исключение.
+
+```kotlin
+fun main() {
+    val answer = readln()
+    println("Вы ввели: $answer")
+}
+```
+
+### `readlnOrNull()`
+
+Читает строку или возвращает `null`, если строки нет. Это безопаснее для CLI-кода, который может получать пустой поток ввода.
+
+```kotlin
+fun main() {
+    val input = readlnOrNull()
+    val visibleInput = input ?: "ввод отсутствует"
+    println(visibleInput)
+}
+```
+
+### `require(condition)`
+
+Проверяет аргументы функции. Если условие ложно, бросает `IllegalArgumentException`.
+
+```kotlin
+fun createLesson(title: String) {
+    require(title.isNotBlank()) {
+        "Название урока не должно быть пустым"
+    }
+
+    println("Создан урок: $title")
+}
+```
+
+### `check(condition)`
+
+Проверяет состояние объекта или системы. Если условие ложно, бросает `IllegalStateException`.
+
+```kotlin
+class LessonPlayer {
+    private var loaded = false
+
+    fun load() {
+        loaded = true
+    }
+
+    fun play() {
+        check(loaded) {
+            "Нельзя запустить урок до загрузки"
+        }
+
+        println("Урок запущен")
+    }
+}
+```
+
+### `error(message)`
+
+Создает `IllegalStateException`. Полезно для веток, которые означают нарушенное состояние.
+
+```kotlin
+fun renderDifficulty(code: String): String {
+    return when (code) {
+        "basic" -> "Начальный"
+        "middle" -> "Средний"
+        "advanced" -> "Продвинутый"
+        else -> error("Неизвестный код сложности: $code")
+    }
+}
+```
+
+### `TODO(reason)`
+
+`TODO` бросает `NotImplementedError`. В учебных примерах этого курса мы не используем `TODO` как заглушку в финальном коде, потому что каждый пример должен быть исполняемым и завершенным. Знать функцию полезно, потому что она встречается в IDE-generated коде и временных прототипах.
+
+## Ментальная модель Kotlin-проекта
+
+Kotlin-проект можно представить как набор слоев:
+
+- исходники: `.kt`, `.kts`, иногда `.java`;
+- source sets: `main`, `test`, `commonMain`, `jvmMain`, `androidMain`, `iosMain`;
+- зависимости: стандартная библиотека, платформенные библиотеки, сторонние пакеты;
+- компиляция: Kotlin compiler и backend выбранной платформы;
+- тестирование: unit, integration, UI, contract tests;
+- упаковка: jar, apk, aar, npm package, framework, native binary;
+- публикация или запуск.
+
+Простой JVM-проект часто имеет такую структуру:
+
+```text
+kotlingo-cli
+├── build.gradle.kts
+├── settings.gradle.kts
+└── src
+    ├── main
+    │   └── kotlin
+    │       └── Main.kt
+    └── test
+        └── kotlin
+            └── MainTest.kt
+```
+
+Здесь `src/main/kotlin` содержит код приложения, а `src/test/kotlin` — тесты. Название папки может совпадать с package-структурой, но Kotlin не требует жесткого совпадения пути и `package`, как это принято в Java. В командах все равно обычно сохраняют совпадение, потому что так легче искать код.
+
+## Полный первый пример
+
+Ниже — маленькая, но цельная программа. Она показывает функции, data class, проверки входных данных, работу со списком и форматирование результата.
+
+```kotlin
+data class KotlinTopic(
+    val title: String,
+    val minutes: Int,
+    val completed: Boolean
+)
+
+fun completionLabel(topic: KotlinTopic): String {
+    // when возвращает строку, поэтому результат можно вернуть напрямую.
+    return when {
+        topic.completed -> "пройдено"
+        topic.minutes <= 20 -> "короткий урок"
+        else -> "нужно запланировать время"
+    }
+}
+
+fun formatTopic(index: Int, topic: KotlinTopic): String {
+    // require защищает публичную функцию от некорректного индекса.
+    require(index >= 0) {
+        "Индекс темы не может быть отрицательным"
+    }
+
+    val number = index + 1
+    val label = completionLabel(topic)
+
+    return "$number. ${topic.title}: ${topic.minutes} мин., $label"
+}
+
+fun main() {
+    val topics = listOf(
+        KotlinTopic(
+            title = "Введение в Kotlin",
+            minutes = 35,
+            completed = true
+        ),
+        KotlinTopic(
+            title = "Первая программа",
+            minutes = 45,
+            completed = false
+        ),
+        KotlinTopic(
+            title = "Переменные и типы",
+            minutes = 55,
+            completed = false
+        )
+    )
+
+    topics.forEachIndexed { index, topic ->
+        println(formatTopic(index, topic))
+    }
+}
+```
+
+Разбор по блокам:
+
+- `data class KotlinTopic` описывает одну учебную тему;
+- `completionLabel` превращает состояние темы в человекочитаемую подпись;
+- `formatTopic` форматирует строку и проверяет инвариант индекса;
+- `main` создает список тем и печатает их;
+- `forEachIndexed` дает и индекс, и элемент списка;
+- все значения, которые не должны переназначаться, объявлены через `val`.
+
+## Как читать официальную документацию
+
+Официальная документация Kotlin полезна, но ее легче читать, если различать типы страниц:
+
+- language guide объясняет синтаксис и правила языка;
+- standard library API показывает конкретные функции, классы и overloads;
+- release notes описывают изменения версий;
+- compatibility guides объясняют потенциально ломающие изменения;
+- Gradle docs показывают настройки сборки;
+- multiplatform docs объясняют source sets и targets.
+
+Для курса важно не просто выучить синтаксис, а научиться проверять поведение по первоисточнику. Kotlin развивается, и некоторые темы вроде context parameters, Wasm и compiler plugins требуют внимания к версии.
+
+## Итоги
+
+После этого урока у тебя должна сложиться карта:
+
+- Kotlin — статически типизированный язык с упором на безопасность, выразительность и совместимость;
+- язык, стандартная библиотека, компилятор, плагины и Gradle — разные части экосистемы;
+- Kotlin работает на JVM, Android, JS, Wasm, Native и в Multiplatform-проектах;
+- первые ключевые конструкции: `fun`, `val`, `var`, `class`, `object`, `interface`, `data class`, `sealed`;
+- первые полезные функции: `println`, `print`, `readln`, `readlnOrNull`, `require`, `check`, `error`;
+- хороший Kotlin-код обычно делает состояния явными, использует `val` по умолчанию и позволяет компилятору помогать.
+

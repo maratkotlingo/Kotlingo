@@ -1,0 +1,739 @@
+---
+title: "Строки и символы"
+description: "Разбираем String, Char, строковые шаблоны, raw strings, trimIndent, trimMargin, Unicode, escape-последовательности, surrogate pairs, основные операции строк и Regex."
+order: 7
+category: "Базовый синтаксис"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему строки сложнее, чем кажутся
+
+Строка — один из самых частых типов в приложениях. Через строки проходят имена, email, JSON, SQL, URL, текст интерфейса, логи, коды ошибок, локализация, шаблоны и пользовательский ввод. Ошибки в строках редко выглядят как "не скомпилировалось"; чаще это неверное сравнение, потерянный пробел, неправильная нормализация, неожиданный Unicode-символ или regex, который принимает лишнее.
+
+В Kotlin:
+
+- `String` хранит неизменяемый текст;
+- `Char` хранит один UTF-16 code unit;
+- строки поддерживают templates;
+- raw strings помогают писать многострочный текст;
+- стандартная библиотека дает много безопасных операций;
+- `Regex` подходит для формальных текстовых шаблонов, но требует аккуратности.
+
+```kotlin
+fun main() {
+    val title = "Строки и символы"
+    val minutes = 70
+
+    println("Урок: $title, длительность: $minutes мин.")
+}
+```
+
+## `Char`
+
+`Char` записывается в одинарных кавычках:
+
+```kotlin
+fun main() {
+    val letter: Char = 'K'
+    val digit: Char = '7'
+    val space: Char = ' '
+
+    println(letter)
+    println(digit)
+    println(space.isWhitespace())
+}
+```
+
+`Char` не является маленькой строкой. Это отдельный тип.
+
+Важные свойства и методы `Char`:
+
+- `code` возвращает числовой UTF-16 code unit;
+- `isDigit()` проверяет цифру;
+- `isLetter()` проверяет букву;
+- `isLetterOrDigit()` проверяет букву или цифру;
+- `isWhitespace()` проверяет whitespace;
+- `isUpperCase()` проверяет верхний регистр;
+- `isLowerCase()` проверяет нижний регистр;
+- `uppercaseChar()` возвращает uppercase-символ, если возможно;
+- `lowercaseChar()` возвращает lowercase-символ, если возможно;
+- `digitToInt()` превращает цифровой символ в число или бросает исключение;
+- `digitToIntOrNull()` превращает цифровой символ в число или возвращает `null`;
+- `toString()` превращает `Char` в `String`.
+
+```kotlin
+fun parseShortcut(input: Char): Char? {
+    if (!input.isLetterOrDigit()) {
+        return null
+    }
+
+    return input.uppercaseChar()
+}
+
+fun main() {
+    val shortcut = parseShortcut('k')
+
+    println(shortcut ?: "Горячая клавиша некорректна")
+}
+```
+
+## Escape-последовательности
+
+В обычных строках и `Char` можно использовать escape-последовательности:
+
+- `\t` — tab;
+- `\b` — backspace;
+- `\n` — newline;
+- `\r` — carriage return;
+- `\'` — одинарная кавычка;
+- `\"` — двойная кавычка;
+- `\\` — обратный слеш;
+- `\$` — знак доллара без string template;
+- `\uXXXX` — Unicode code unit в hex-форме.
+
+```kotlin
+fun main() {
+    val line = "Первая строка\nВторая строка"
+    val quoted = "Он сказал: \"Kotlin\""
+    val path = "C:\\Users\\Student\\Kotlingo"
+    val dollar = "Цена: \$10"
+    val letter = '\u004B'
+
+    println(line)
+    println(quoted)
+    println(path)
+    println(dollar)
+    println(letter)
+}
+```
+
+<MouseTrap title="Мышеловка: обратный слеш в путях">
+В обычной строке Windows-путь требует экранирования `\\`. Если путь пишется руками и содержит много обратных слешей, raw string часто читается лучше. Но в реальном приложении пути лучше собирать через `Path`/`File`, а не конкатенацией строк.
+</MouseTrap>
+
+## `String`
+
+`String` — неизменяемая последовательность UTF-16 code units. Неизменяемость означает, что операции возвращают новую строку.
+
+```kotlin
+fun main() {
+    val rawTitle = "  Kotlin Strings  "
+    val trimmedTitle = rawTitle.trim()
+
+    println(rawTitle)
+    println(trimmedTitle)
+}
+```
+
+`rawTitle` не изменился. `trim()` вернул новое значение.
+
+## Индексы и длина
+
+`length` возвращает количество UTF-16 code units, а не обязательно количество видимых пользователю символов.
+
+```kotlin
+fun main() {
+    val title = "Kotlin"
+
+    println(title.length)
+    println(title[0])
+    println(title.lastIndex)
+    println(title.indices)
+}
+```
+
+Важные свойства:
+
+- `length` — длина в UTF-16 code units;
+- `indices` — диапазон допустимых индексов;
+- `lastIndex` — индекс последнего code unit.
+
+Безопасный доступ:
+
+```kotlin
+fun charAtOrNull(text: String, index: Int): Char? {
+    if (index !in text.indices) {
+        return null
+    }
+
+    return text[index]
+}
+
+fun main() {
+    println(charAtOrNull("Kotlin", 2))
+    println(charAtOrNull("Kotlin", 99) ?: "Нет символа")
+}
+```
+
+Прямой доступ `text[index]` бросит исключение, если индекс неверный.
+
+## Unicode и surrogate pairs
+
+Kotlin `String` на JVM хранит UTF-16. Некоторые видимые символы занимают два `Char`: high surrogate и low surrogate.
+
+```kotlin
+fun main() {
+    val cat = "🐱"
+
+    println(cat.length)
+    println(cat[0].code)
+    println(cat[1].code)
+}
+```
+
+Визуально это один символ, но `length` может быть `2`.
+
+Что это значит практически:
+
+- не режь пользовательский текст наивно по `Char`, если важны emoji и сложные Unicode-графемы;
+- для UI-лимитов "количество символов" может отличаться от `length`;
+- для протоколов и storage часто важны bytes, а не `length`;
+- case conversion зависит от locale и Unicode-правил.
+
+Kotlin standard library удобна для большинства операций, но сложная Unicode-сегментация требует специальных библиотек или платформенных API.
+
+<CatTip title="Кошачья осторожность с Unicode">
+Если ограничение звучит как "20 символов для пользователя", уточняй, что считается символом: UTF-16 code units, Unicode code points, grapheme clusters или bytes в конкретной кодировке. Для разных задач правильный ответ разный.
+</CatTip>
+
+## String templates
+
+String template вставляет значение в строку.
+
+```kotlin
+fun main() {
+    val title = "Строки"
+    val minutes = 70
+
+    println("Урок $title длится $minutes минут")
+}
+```
+
+Если нужно выражение, используй `${...}`:
+
+```kotlin
+fun main() {
+    val completed = 5
+    val total = 8
+
+    println("Осталось уроков: ${total - completed}")
+}
+```
+
+Для свойства после имени часто тоже нужны фигурные скобки:
+
+```kotlin
+fun main() {
+    val title = "Kotlin"
+
+    println("Длина: ${title.length}")
+}
+```
+
+Если нужен буквальный `$`, экранируй:
+
+```kotlin
+fun main() {
+    val price = "Цена: \$10"
+
+    println(price)
+}
+```
+
+## Raw strings
+
+Raw string пишется в тройных кавычках. В ней не нужно экранировать обычные кавычки и обратные слеши.
+
+```kotlin
+fun main() {
+    val json = """
+        {
+          "course": "kotlingo",
+          "language": "ru"
+        }
+    """.trimIndent()
+
+    println(json)
+}
+```
+
+Raw string полезна для:
+
+- JSON-примеров;
+- SQL;
+- многострочного текста;
+- регулярных выражений с обратными слешами;
+- шаблонов;
+- тестовых fixtures.
+
+В raw string string templates все равно работают:
+
+```kotlin
+fun main() {
+    val course = "kotlingo"
+
+    val message = """
+        Добро пожаловать в $course.
+        Сегодня изучаем строки.
+    """.trimIndent()
+
+    println(message)
+}
+```
+
+Если в raw string нужен буквальный `$`, можно использовать выражение:
+
+```kotlin
+fun main() {
+    val template = """
+        Цена: ${'$'}10
+    """.trimIndent()
+
+    println(template)
+}
+```
+
+## `trimIndent()`
+
+`trimIndent()` убирает общий минимальный отступ у непустых строк и удаляет пустую первую/последнюю строку.
+
+```kotlin
+fun main() {
+    val text = """
+        Первая строка
+        Вторая строка
+            Строка с дополнительным отступом
+    """.trimIndent()
+
+    println(text)
+}
+```
+
+Используй `trimIndent()`, когда многострочный литерал вложен в код и тебе не нужен этот технический отступ в результате.
+
+## `trimMargin()`
+
+`trimMargin()` удаляет отступ до margin prefix. По умолчанию prefix — `|`.
+
+```kotlin
+fun main() {
+    val help = """
+        |Команды:
+        |  open <урок>
+        |  complete <урок>
+        |  help
+    """.trimMargin()
+
+    println(help)
+}
+```
+
+Можно задать другой prefix:
+
+```kotlin
+fun main() {
+    val text = """
+        #Заголовок
+        #Текст без технического отступа
+    """.trimMargin(marginPrefix = "#")
+
+    println(text)
+}
+```
+
+`trimMargin()` удобен, когда внутри текста важны разные отступы, но ты хочешь явно показать границу полезного контента.
+
+## Проверка пустоты
+
+Основные методы:
+
+- `isEmpty()` возвращает true, если длина строки равна 0;
+- `isNotEmpty()` возвращает true, если длина больше 0;
+- `isBlank()` возвращает true, если строка пустая или состоит только из whitespace;
+- `isNotBlank()` возвращает true, если есть хотя бы один non-whitespace символ;
+- `isNullOrEmpty()` работает для `String?`;
+- `isNullOrBlank()` работает для `String?`.
+
+```kotlin
+fun validateTitle(rawTitle: String?): String? {
+    if (rawTitle.isNullOrBlank()) {
+        return null
+    }
+
+    return rawTitle.trim()
+}
+
+fun main() {
+    println(validateTitle("  Строки  "))
+    println(validateTitle("   ") ?: "Название пустое")
+    println(validateTitle(null) ?: "Название отсутствует")
+}
+```
+
+Для пользовательского ввода почти всегда полезнее `isBlank()`, чем `isEmpty()`, потому что строка из пробелов тоже не является содержательным значением.
+
+## Нормализация строк
+
+Частые операции:
+
+- `trim()` убирает whitespace по краям;
+- `trimStart()` убирает whitespace слева;
+- `trimEnd()` убирает whitespace справа;
+- `lowercase()` переводит в нижний регистр;
+- `uppercase()` переводит в верхний регистр;
+- `replace(oldValue, newValue)` заменяет фрагменты;
+- `replaceFirst(oldValue, newValue)` заменяет первое вхождение;
+- `removePrefix(prefix)` удаляет prefix, если он есть;
+- `removeSuffix(suffix)` удаляет suffix, если он есть;
+- `removeSurrounding(prefix, suffix)` удаляет обрамление.
+
+```kotlin
+fun createSlug(rawTitle: String): String {
+    require(rawTitle.isNotBlank()) {
+        "Название не должно быть пустым"
+    }
+
+    return rawTitle
+        .trim()
+        .lowercase()
+        .replace("ё", "e")
+        .replace(Regex("\\s+"), "-")
+}
+
+fun main() {
+    println(createSlug("  Строки и символы  "))
+}
+```
+
+## Поиск и проверка фрагментов
+
+Основные методы:
+
+- `contains(other)`;
+- `startsWith(prefix)`;
+- `endsWith(suffix)`;
+- `indexOf(string)`;
+- `lastIndexOf(string)`;
+- `substring(startIndex)`;
+- `substring(startIndex, endIndex)`;
+- `substringBefore(delimiter)`;
+- `substringAfter(delimiter)`;
+- `substringBeforeLast(delimiter)`;
+- `substringAfterLast(delimiter)`.
+
+```kotlin
+fun parseLessonCode(code: String): Pair<String, String>? {
+    val normalizedCode = code.trim()
+
+    if (!normalizedCode.contains("-")) {
+        return null
+    }
+
+    val category = normalizedCode.substringBefore("-")
+    val number = normalizedCode.substringAfter("-")
+
+    if (category.isBlank() || number.isBlank()) {
+        return null
+    }
+
+    return category to number
+}
+
+fun main() {
+    val parsed = parseLessonCode("basics-07")
+
+    if (parsed == null) {
+        println("Код некорректен")
+        return
+    }
+
+    println("Категория: ${parsed.first}")
+    println("Номер: ${parsed.second}")
+}
+```
+
+## Разбиение и объединение
+
+Основные методы:
+
+- `split(delimiter)`;
+- `split(regex)`;
+- `lines()`;
+- `chunked(size)`;
+- `windowed(size)`;
+- `joinToString()` у коллекций;
+- `buildString { ... }`;
+- `StringBuilder`.
+
+```kotlin
+fun parseTags(rawTags: String): List<String> {
+    return rawTags
+        .split(",")
+        .map { tag -> tag.trim() }
+        .filter { tag -> tag.isNotBlank() }
+        .distinct()
+}
+
+fun main() {
+    val tags = parseTags(" kotlin, basics, kotlin, strings ")
+
+    println(tags.joinToString(separator = " | "))
+}
+```
+
+`buildString` удобен, когда строка собирается по шагам:
+
+```kotlin
+fun buildLessonReport(title: String, minutes: Int, completed: Boolean): String {
+    return buildString {
+        append("Урок: ")
+        append(title.trim())
+        append('\n')
+        append("Длительность: ")
+        append(minutes)
+        append(" мин.")
+        append('\n')
+        append("Статус: ")
+        append(if (completed) "пройден" else "не пройден")
+    }
+}
+
+fun main() {
+    println(
+        buildLessonReport(
+            title = "Строки",
+            minutes = 70,
+            completed = false
+        )
+    )
+}
+```
+
+## Сравнение строк
+
+Обычное равенство:
+
+```kotlin
+fun main() {
+    val left = "Kotlin"
+    val right = "Kotlin"
+
+    println(left == right)
+}
+```
+
+`==` сравнивает содержимое через `equals`, а не ссылку.
+
+Игнорирование регистра:
+
+```kotlin
+fun main() {
+    val input = "kotlin"
+    val expected = "Kotlin"
+
+    println(input.equals(expected, ignoreCase = true))
+}
+```
+
+Сортировка:
+
+```kotlin
+fun main() {
+    val titles = listOf("Числа", "Строки", "Лексика")
+
+    val sortedTitles = titles.sorted()
+
+    println(sortedTitles)
+}
+```
+
+Для пользовательских языков и локализации сортировка может требовать locale-aware collator. Простое `sorted()` не всегда соответствует алфавитным ожиданиям конкретного языка.
+
+## Regex
+
+`Regex` описывает регулярное выражение. Он полезен, когда строка должна соответствовать формальному шаблону.
+
+```kotlin
+fun main() {
+    val lessonCodeRegex = Regex("[a-z]+-[0-9]+")
+
+    println(lessonCodeRegex.matches("basics-07"))
+    println(lessonCodeRegex.matches("Basics 07"))
+}
+```
+
+Важные методы `Regex`:
+
+- `matches(input)` проверяет всю строку;
+- `containsMatchIn(input)` проверяет наличие совпадения внутри строки;
+- `find(input)` возвращает первое совпадение или `null`;
+- `findAll(input)` возвращает последовательность совпадений;
+- `replace(input, replacement)` заменяет совпадения;
+- `split(input)` разбивает строку по regex;
+- `matchEntire(input)` возвращает результат, если вся строка совпала;
+- `toPattern()` на JVM возвращает Java Pattern.
+
+```kotlin
+fun extractLessonNumbers(text: String): List<Int> {
+    val numberRegex = Regex("lesson-(\\d+)")
+
+    return numberRegex
+        .findAll(text)
+        .mapNotNull { matchResult ->
+            matchResult.groupValues
+                .getOrNull(1)
+                ?.toIntOrNull()
+        }
+        .toList()
+}
+
+fun main() {
+    val text = "Открыты lesson-1, lesson-7 и lesson-42"
+
+    println(extractLessonNumbers(text))
+}
+```
+
+### Regex options
+
+Частые options:
+
+- `RegexOption.IGNORE_CASE`;
+- `RegexOption.MULTILINE`;
+- `RegexOption.DOT_MATCHES_ALL`;
+- `RegexOption.COMMENTS`;
+-
+`RegexOption.LITERAL`.
+
+```kotlin
+fun main() {
+    val kotlinRegex = Regex(
+        pattern = "kotlin",
+        option = RegexOption.IGNORE_CASE
+    )
+
+    println(kotlinRegex.containsMatchIn("Изучаем Kotlin"))
+    println(kotlinRegex.containsMatchIn("изучаем kotlin"))
+}
+```
+
+### Raw string для Regex
+
+Raw string часто делает regex читаемее:
+
+```kotlin
+fun main() {
+    val codeRegex = Regex("""[a-z]+-\d+""")
+
+    println(codeRegex.matches("basics-07"))
+}
+```
+
+В обычной строке пришлось бы писать `"\\d+"`.
+
+<MouseTrap title="Мышеловка: matches и containsMatchIn — разные проверки">
+`matches` требует, чтобы вся строка соответствовала regex. `containsMatchIn` ищет совпадение внутри строки. Если перепутать эти методы, валидатор может начать принимать лишний текст или отвергать корректный ввод.
+</MouseTrap>
+
+## Практический пример: разбор командной строки
+
+```kotlin
+data class LessonCommand(
+    val action: String,
+    val lessonCode: String,
+    val title: String
+)
+
+fun normalizeSpaces(text: String): String {
+    return text
+        .trim()
+        .replace(Regex("\\s+"), " ")
+}
+
+fun parseLessonCommand(rawInput: String): LessonCommand? {
+    val normalizedInput = normalizeSpaces(rawInput)
+
+    if (normalizedInput.isBlank()) {
+        return null
+    }
+
+    val commandRegex = Regex("""(open|complete)\s+([a-z]+-\d+)\s+"(.+)"""")
+    val match = commandRegex.matchEntire(normalizedInput) ?: return null
+
+    val action = match.groupValues[1]
+    val lessonCode = match.groupValues[2]
+    val rawTitle = match.groupValues[3]
+    val title = rawTitle.trim()
+
+    if (title.isBlank()) {
+        return null
+    }
+
+    return LessonCommand(
+        action = action,
+        lessonCode = lessonCode,
+        title = title
+    )
+}
+
+fun formatCommand(command: LessonCommand): String {
+    val actionLabel = when (command.action) {
+        "open" -> "открыть"
+        "complete" -> "завершить"
+        else -> "неизвестное действие"
+    }
+
+    return buildString {
+        append("Действие: ")
+        append(actionLabel)
+        append('\n')
+        append("Код урока: ")
+        append(command.lessonCode)
+        append('\n')
+        append("Название: ")
+        append(command.title)
+    }
+}
+
+fun main() {
+    val input = """open basics-07 "Строки и символы""""
+    val command = parseLessonCommand(input)
+
+    if (command == null) {
+        println("Команда некорректна")
+        return
+    }
+
+    println(formatCommand(command))
+}
+```
+
+Разбор:
+
+- `normalizeSpaces` убирает лишние пробелы;
+- raw string делает regex компактнее;
+- `matchEntire` требует полного соответствия команды;
+- группы `groupValues[1]`, `groupValues[2]`, `groupValues[3]` достают action, code и title;
+- `buildString` собирает многострочный отчет;
+- все комментарии и сообщения объясняют поведение по-русски.
+
+## Итоги
+
+После этого урока ты должен уверенно работать со строками:
+
+- `Char` — не строка, а UTF-16 code unit;
+- `String.length` не всегда совпадает с количеством видимых символов;
+- обычные строки используют escape-последовательности;
+- raw strings удобны для JSON, SQL, regex и многострочного текста;
+- `trimIndent()` убирает общий технический отступ;
+- `trimMargin()` удаляет отступ до margin prefix;
+- string templates позволяют вставлять значения и выражения;
+- `isBlank()` чаще полезнее для пользовательского ввода, чем `isEmpty()`;
+- `substringBefore` и `substringAfter` часто читаются лучше ручных индексов;
+- `buildString` подходит для пошаговой сборки текста;
+- `Regex.matches` проверяет всю строку, а `containsMatchIn` ищет фрагмент;
+- Unicode требует осторожности, если код считает символы для пользователя.
+

@@ -1,0 +1,574 @@
+---
+title: "Enum classes"
+description: "Изучаем enum-константы, свойства и анонимные тела, entries API, valueOf, name и ordinal, исчерпывающий when, сериализацию и выбор между enum и sealed hierarchy."
+order: 28
+category: "Классы и объекты"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Закрытый набор однотипных констант
+
+Enum class описывает конечный набор singleton-экземпляров одного типа.
+
+```kotlin
+enum class Difficulty {
+    BEGINNER,
+    INTERMEDIATE,
+    ADVANCED,
+    EXPERT
+}
+```
+
+Каждая запись создаётся ровно один раз и доступна через имя класса:
+
+```kotlin
+val difficulty: Difficulty = Difficulty.ADVANCED
+println(difficulty)
+```
+
+Enum подходит, когда варианты:
+
+- известны заранее;
+- имеют одинаковую структуру;
+- представляют символические категории или режимы;
+- не требуют разных payload-типов для каждого случая;
+- логически являются единственным экземпляром каждого варианта.
+
+## Синтаксис constants
+
+Константы перечисляются через запятую. Если после них есть members класса, список заканчивается точкой с запятой.
+
+```kotlin
+enum class PublicationStatus {
+    DRAFT,
+    REVIEW,
+    PUBLISHED,
+    ARCHIVED;
+
+    fun isVisible(): Boolean {
+        return this == PUBLISHED
+    }
+}
+```
+
+Без members semicolon не нужен.
+
+Convention — `UPPER_SNAKE_CASE`, потому что entries являются constants/singletons.
+
+## Constructor и properties
+
+Enum class может иметь primary constructor. Каждая constant передаёт arguments.
+
+```kotlin
+enum class Difficulty(
+    val displayName: String,
+    val recommendedHours: Int
+) {
+    BEGINNER("Начальный", 10),
+    INTERMEDIATE("Средний", 25),
+    ADVANCED("Продвинутый", 50),
+    EXPERT("Эксперт", 100)
+}
+
+fun main() {
+    val level = Difficulty.INTERMEDIATE
+    println("${level.displayName}: ${level.recommendedHours} ч.")
+}
+```
+
+Enum constructor не вызывается client code и не создаёт произвольные новые instances. Все instances объявлены constants.
+
+Constructor effectively private; явно создавать `Difficulty(...)` нельзя.
+
+## Members enum class
+
+```kotlin
+enum class LessonState {
+    LOCKED,
+    AVAILABLE,
+    IN_PROGRESS,
+    COMPLETED;
+
+    fun canOpen(): Boolean {
+        return this != LOCKED
+    }
+
+    fun canComplete(): Boolean {
+        return this == AVAILABLE || this == IN_PROGRESS
+    }
+}
+```
+
+Внутри methods можно сравнивать `this` с constants. Methods доступны у любого entry.
+
+Computed property:
+
+```kotlin
+enum class AccessLevel {
+    GUEST,
+    STUDENT,
+    MENTOR,
+    ADMIN;
+
+    val canEditLessons: Boolean
+        get() = this == MENTOR || this == ADMIN
+}
+```
+
+## Abstract member и anonymous class bodies
+
+Enum может объявить abstract function, а каждая constant предоставить собственную реализацию через anonymous class body.
+
+```kotlin
+enum class ScorePolicy {
+    STRICT {
+        override fun passed(score: Int): Boolean = score >= 80
+    },
+    STANDARD {
+        override fun passed(score: Int): Boolean = score >= 60
+    },
+    PRACTICE {
+        override fun passed(score: Int): Boolean = score >= 1
+    };
+
+    abstract fun passed(score: Int): Boolean
+}
+
+fun main() {
+    println(ScorePolicy.STRICT.passed(75))
+    println(ScorePolicy.STANDARD.passed(75))
+}
+```
+
+Каждый entry с body является anonymous subclass enum class. Это удобно для небольшого variant-specific behaviour.
+
+Если различия разрастаются, лучше strategies/objects или sealed hierarchy: огромные bodies превращают enum в трудный для тестирования монолит.
+
+## Override общего default
+
+```kotlin
+enum class OutputFormat {
+    TEXT,
+    HTML {
+        override fun wrap(content: String): String {
+            return "<article>$content</article>"
+        }
+    };
+
+    open fun wrap(content: String): String = content
+}
+```
+
+Member должен быть `open`, если отдельная constant override его. Enum class в целом нельзя наследовать извне.
+
+## Реализация interface
+
+```kotlin
+fun interface TitleFormatter {
+    fun format(title: String): String
+}
+
+enum class BuiltInTitleFormatter : TitleFormatter {
+    PLAIN {
+        override fun format(title: String): String = title.trim()
+    },
+    UPPERCASE {
+        override fun format(title: String): String = title.trim().uppercase()
+    },
+    MARKDOWN {
+        override fun format(title: String): String = "## ${title.trim()}"
+    }
+}
+```
+
+Enum values можно передавать как implementation interface.
+
+## `name`
+
+Каждый enum entry наследует property `name: String`, равную identifier в исходном коде.
+
+```kotlin
+println(Difficulty.BEGINNER.name)
+```
+
+Результат — `BEGINNER`, а не `displayName`.
+
+`name` полезен для diagnostics и технических mappings, но превращается в external contract, если сохранять его в database/JSON. Переименование source constant тогда ломает compatibility.
+
+Стабильный внешний код лучше задать явно:
+
+```kotlin
+enum class ApiDifficulty(val code: String) {
+    BEGINNER("beginner"),
+    INTERMEDIATE("intermediate"),
+    ADVANCED("advanced"),
+    EXPERT("expert");
+
+    companion object {
+        private val byCode = entries.associateBy(ApiDifficulty::code)
+
+        fun fromCode(code: String): ApiDifficulty? {
+            return byCode[code.trim().lowercase()]
+        }
+    }
+}
+```
+
+Теперь source name можно менять отдельно от wire code, если API code остаётся прежним.
+
+<CatTip title="Котосовет: внешний код должен быть явным property">
+Не используй `name` как незадокументированный database/API contract. Поле `code` выражает стабильность намеренно и позволяет aliases/migrations.
+</CatTip>
+
+## `ordinal`
+
+`ordinal` — zero-based позиция entry в declaration.
+
+```kotlin
+println(Difficulty.BEGINNER.ordinal)
+println(Difficulty.EXPERT.ordinal)
+```
+
+Добавление или перестановка constants меняет ordinals. Поэтому нельзя надёжно хранить `ordinal` в базе, передавать по API или использовать как business ID.
+
+```kotlin
+enum class Phase(val order: Int) {
+    FOUNDATION(10),
+    FUNCTIONS(20),
+    OOP(30),
+    GENERICS(40)
+}
+```
+
+Явный `order` можно эволюционировать контролируемо.
+
+<MouseTrap title="Мышеловка: ordinal не является стабильным идентификатором">
+Он описывает текущую позицию в исходном файле. Перестановка constants тихо изменит сохранённый смысл. Для persistence используй стабильный code/id.
+</MouseTrap>
+
+## Natural order и `Comparable`
+
+Enum наследует `Comparable` и сравнивается по declaration order.
+
+```kotlin
+println(Difficulty.ADVANCED > Difficulty.BEGINNER)
+val sorted = Difficulty.entries.sorted()
+```
+
+Если declaration order не совпадает с domain order или может меняться, сортируй по explicit property:
+
+```kotlin
+val sortedByHours = Difficulty.entries.sortedBy(Difficulty::recommendedHours)
+```
+
+## `entries`
+
+Современный Kotlin предоставляет статическую property `entries`, возвращающую специализированную read-only коллекцию `EnumEntries<T>`.
+
+```kotlin
+fun main() {
+    Difficulty.entries.forEach { difficulty ->
+        println("${difficulty.name}: ${difficulty.displayName}")
+    }
+}
+```
+
+Преимущества перед legacy `values()`:
+
+- возвращается stable list-like view;
+- repeated access не обязан создавать новый array;
+- API типизирован как `EnumEntries<Difficulty>`;
+- доступны `size`, indexing, iteration, collection operations.
+
+```kotlin
+val first = Difficulty.entries.first()
+val last = Difficulty.entries.last()
+val advanced = Difficulty.entries[2]
+```
+
+Entries находятся в declaration order.
+
+### Generic `enumEntries`
+
+В актуальном Kotlin reified helper позволяет получить entries generic enum type:
+
+```kotlin
+inline fun <reified T : Enum<T>> allEnumNames(): List<String> {
+    return enumEntries<T>().map { entry -> entry.name }
+}
+
+fun main() {
+    println(allEnumNames<Difficulty>())
+}
+```
+
+Для toolchain до появления `enumEntries` использовался `enumValues<T>()`, возвращающий array.
+
+## `values()`
+
+JVM-style generated `values()` остаётся доступным для compatibility:
+
+```kotlin
+val array: Array<Difficulty> = Difficulty.values()
+```
+
+Обычно он возвращает новый array/copy для защиты внутреннего списка constants. Для iteration и lookup в Kotlin предпочитай `entries`.
+
+## `valueOf`
+
+```kotlin
+val difficulty = Difficulty.valueOf("ADVANCED")
+```
+
+Поиск:
+
+- case-sensitive;
+- требует точного `name`;
+- при неизвестном имени выбрасывает `IllegalArgumentException`;
+- при null из Java boundary возможны отдельные nullability failures.
+
+```kotlin
+fun difficultyOrNull(raw: String): Difficulty? {
+    return Difficulty.entries.firstOrNull { entry ->
+        entry.name.equals(raw.trim(), ignoreCase = true)
+    }
+}
+```
+
+Для внешнего untrusted input безопаснее nullable parser по explicit code.
+
+Generic helper:
+
+```kotlin
+inline fun <reified T : Enum<T>> enumByNameOrNull(raw: String): T? {
+    return enumEntries<T>().firstOrNull { entry ->
+        entry.name.equals(raw.trim(), ignoreCase = true)
+    }
+}
+```
+
+Стандартная `enumValueOf<T>(name)` также выбрасывает при неизвестном имени.
+
+## Exhaustive `when`
+
+Compiler знает все enum constants, поэтому `when` может быть исчерпывающим без `else`.
+
+```kotlin
+fun badge(status: PublicationStatus): String = when (status) {
+    PublicationStatus.DRAFT -> "Черновик"
+    PublicationStatus.REVIEW -> "На проверке"
+    PublicationStatus.PUBLISHED -> "Опубликован"
+    PublicationStatus.ARCHIVED -> "В архиве"
+}
+```
+
+При добавлении нового entry compiler укажет все exhaustive `when`, которые нужно обновить. Это полезнее catch-all `else`, скрывающего новый вариант.
+
+Если `when` используется как statement, современные правила всё равно могут требовать exhaustiveness для enum/sealed в определённых контекстах; в качестве expression это обязательно.
+
+## Enum в `when` и behavior внутри enum
+
+Два подхода:
+
+```kotlin
+fun threshold(policy: ScorePolicy): Int = when (policy) {
+    ScorePolicy.STRICT -> 80
+    ScorePolicy.STANDARD -> 60
+    ScorePolicy.PRACTICE -> 1
+}
+```
+
+Или polymorphic member `policy.passed(score)`.
+
+Используй `when`, когда:
+
+- поведение относится к конкретному use case;
+- разные modules интерпретируют enum по-разному;
+- enum должен оставаться простым data symbol.
+
+Используй member/interface implementation, когда behavior intrinsic и одинаково нужен всем clients.
+
+## Enum lifecycle и singleton semantics
+
+Каждая constant — singleton. Сравнение identity допустимо, но `==` привычнее и не связывает code с representation:
+
+```kotlin
+if (difficulty == Difficulty.EXPERT) {
+    println("Экспертный уровень")
+}
+```
+
+Не храни mutable state внутри enum entry:
+
+```kotlin
+enum class UnsafeCounter {
+    GLOBAL;
+
+    var value: Int = 0
+}
+```
+
+Это process-wide shared mutable state с race conditions и test leakage. State должен жить в service/session/repository.
+
+## Parsing и aliases
+
+```kotlin
+enum class Language(val code: String, vararg aliases: String) {
+    RUSSIAN("ru", "rus", "russian"),
+    ENGLISH("en", "eng", "english");
+
+    private val acceptedValues: Set<String> =
+        (aliases.toSet() + code + name).mapTo(mutableSetOf()) { value ->
+            value.lowercase()
+        }
+
+    fun accepts(raw: String): Boolean {
+        return raw.trim().lowercase() in acceptedValues
+    }
+
+    companion object {
+        fun parse(raw: String): Language? {
+            return entries.firstOrNull { language -> language.accepts(raw) }
+        }
+    }
+}
+```
+
+Для большого enum линейный поиск лучше заменить precomputed map в companion, проверяя duplicate aliases при initialization.
+
+## Enum и sealed hierarchy
+
+Enum выигрывает, когда каждый вариант:
+
+- singleton;
+- имеет одинаковый набор properties;
+- не несёт уникальный runtime payload;
+- удобно перечисляется через `entries`;
+- имеет natural symbolic name.
+
+Sealed hierarchy выигрывает, когда варианты имеют разную форму:
+
+```kotlin
+sealed interface LoadState {
+    data object Loading : LoadState
+    data class Success(val title: String) : LoadState
+    data class Failure(val reason: String, val retryable: Boolean) : LoadState
+}
+```
+
+Enum не может создать отдельный `Success(title)` для каждого результата: entry один.
+
+<MouseTrap title="Мышеловка: enum entry не принимает payload при каждом использовании">
+Constructor arguments enum задаются один раз в declaration. Если вариант должен хранить данные конкретного события — response, error message, user id — используй sealed class/interface.
+</MouseTrap>
+
+## Enum и flags
+
+Набор независимых признаков не стоит моделировать одной enum с комбинациями `READ_WRITE_ADMIN`. Используй `Set<Permission>`:
+
+```kotlin
+enum class Permission {
+    READ,
+    WRITE,
+    PUBLISH,
+    ADMIN
+}
+
+val mentorPermissions: Set<Permission> = setOf(
+    Permission.READ,
+    Permission.WRITE,
+    Permission.PUBLISH
+)
+```
+
+Каждая permission остаётся independent dimension.
+
+## Практический пример: workflow публикации
+
+```kotlin
+enum class PublicationState(val code: String) {
+    DRAFT("draft"),
+    IN_REVIEW("in_review"),
+    PUBLISHED("published"),
+    ARCHIVED("archived");
+
+    fun canTransitionTo(target: PublicationState): Boolean {
+        return target in allowedTargets()
+    }
+
+    private fun allowedTargets(): Set<PublicationState> = when (this) {
+        DRAFT -> setOf(IN_REVIEW)
+        IN_REVIEW -> setOf(DRAFT, PUBLISHED)
+        PUBLISHED -> setOf(ARCHIVED)
+        ARCHIVED -> emptySet()
+    }
+
+    companion object {
+        private val byCode: Map<String, PublicationState> =
+            entries.associateBy(PublicationState::code)
+
+        fun fromCode(raw: String): PublicationState? {
+            return byCode[raw.trim().lowercase()]
+        }
+    }
+}
+
+data class Publication(
+    val lessonId: Int,
+    val state: PublicationState
+) {
+    fun transitionTo(target: PublicationState): Publication {
+        require(state.canTransitionTo(target)) {
+            "Переход ${state.code} -> ${target.code} запрещён"
+        }
+        return copy(state = target)
+    }
+}
+
+fun stateLabel(state: PublicationState): String = when (state) {
+    PublicationState.DRAFT -> "Черновик"
+    PublicationState.IN_REVIEW -> "На проверке"
+    PublicationState.PUBLISHED -> "Опубликован"
+    PublicationState.ARCHIVED -> "В архиве"
+}
+
+fun main() {
+    val draft = Publication(lessonId = 28, state = PublicationState.DRAFT)
+    val review = draft.transitionTo(PublicationState.IN_REVIEW)
+    val published = review.transitionTo(PublicationState.PUBLISHED)
+
+    println(stateLabel(published.state))
+    println(PublicationState.fromCode("in_review"))
+    println(PublicationState.entries.joinToString { it.code })
+}
+```
+
+В примере:
+
+- enum хранит стабильный external `code`;
+- lookup precomputed один раз;
+- transitions exhaustive и явно ограничены;
+- mutable singleton state отсутствует;
+- publication является immutable snapshot;
+- `when` без `else` напомнит обновить labels при новом state;
+- `ordinal` и `name` не используются для persistence.
+
+## Итоги
+
+- enum class задаёт конечный набор singleton constants;
+- properties constructor одинаковы по форме для всех entries;
+- anonymous body позволяет variant-specific override;
+- semicolon отделяет constants от members;
+- `name` отражает source identifier и может меняться при rename;
+- `ordinal` отражает позицию и не подходит как persistent ID;
+- `entries` предоставляет эффективную read-only коллекцию constants;
+- `values()` возвращает legacy array form;
+- `valueOf` требует точного имени и выбрасывает exception;
+- exhaustive `when` помогает безопасно добавлять constants;
+- enum не должен хранить shared mutable state;
+- explicit code лучше `name`/`ordinal` для API и database;
+- sealed hierarchy нужна вариантам с разными payload и структурой.
+

@@ -1,0 +1,731 @@
+---
+title: "StateFlow And SharedFlow"
+description: "StateFlow и SharedFlow: hot streams, state holder, MutableStateFlow, MutableSharedFlow, replay, buffer overflow strategies, stateIn, shareIn и моделирование UI state."
+order: 86
+category: "Coroutines"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Cold Flow и hot Flow
+
+Обычный `flow { }` — cold stream: он starts for each collector.
+
+`StateFlow` and `SharedFlow` — hot streams: instance exists independently from collectors.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+
+val currentLesson = MutableStateFlow("84-flow")
+
+// Значение существует даже без collector-а.
+val currentValue = currentLesson.value
+```
+
+Hot flow нужен, когда source represents ongoing state or events:
+
+- текущий UI state;
+- authentication state;
+- selected lesson;
+- connection status;
+- application events;
+- notifications;
+- progress, который должен видеть multiple collectors;
+- shared expensive upstream.
+
+<CatTip>
+Cold flow — кот выходит гулять только с collector-ом. Hot flow — кот уже живет в доме: collector может прийти позже и увидеть текущее состояние или новые события.
+</CatTip>
+
+## `StateFlow`
+
+`StateFlow<T>` represents read-only observable state with current value.
+
+Ключевые свойства:
+
+- всегда имеет current `value`;
+- требует initial value;
+- never completes normally;
+- replays latest value to new subscribers;
+- conflates equal values through equality;
+- updates are thread-safe;
+- cannot represent failure or completion implicitly;
+- designed for state, not one-time events.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
+class LessonProgressStore {
+    private val _state = MutableStateFlow(
+        LessonProgressState(
+            completed = 0,
+            total = 86
+        )
+    )
+
+    val state: StateFlow<LessonProgressState> = _state.asStateFlow()
+
+    fun markCompleted() {
+        _state.update { current ->
+            current.copy(completed = current.completed + 1)
+        }
+    }
+}
+
+data class LessonProgressState(
+    val completed: Int,
+    val total: Int
+)
+```
+
+Public API exposes `StateFlow`; private implementation keeps `MutableStateFlow`.
+
+<MouseTrap>
+Не отдавай `MutableStateFlow` наружу из store/view model/service. Иначе внешний код сможет менять state без правил владельца.
+</MouseTrap>
+
+## `MutableStateFlow.value`
+
+`value` reads or writes current state.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+
+class SelectedLessonStore {
+    private val selectedSlug = MutableStateFlow<String?>(null)
+
+    fun select(slug: String) {
+        selectedSlug.value = slug
+    }
+
+    fun clear() {
+        selectedSlug.value = null
+    }
+
+    fun current(): String? {
+        return selectedSlug.value
+    }
+}
+```
+
+For read-modify-write use `update`, not manual assignment like `value = value.copy(completed = completed + 1)`, when concurrent updates are possible.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
+
+class CounterStore {
+    private val counter = MutableStateFlow(0)
+
+    fun increment() {
+        counter.update { value ->
+            value + 1
+        }
+    }
+}
+```
+
+Related update functions:
+
+- `update` — atomically transform value and ignore previous value;
+- `getAndUpdate` — return old value and update;
+- `updateAndGet` — update and return new value;
+- `compareAndSet` — update only if current value equals expected value.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.updateAndGet
+
+class AttemptTracker {
+    private val attempts = MutableStateFlow(0)
+
+    fun nextAttemptNumber(): Int {
+        return attempts.updateAndGet { current ->
+            current + 1
+        }
+    }
+
+    fun resetAndReturnPrevious(): Int {
+        return attempts.getAndUpdate {
+            0
+        }
+    }
+}
+```
+
+## State equality conflation
+
+`StateFlow` suppresses emission when new value equals old value.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+
+data class UiState(
+    val title: String
+)
+
+fun equalityExample() {
+    val state = MutableStateFlow(UiState("Flow"))
+
+    // Новое значение equals старому, collector не обязан получить новый emission.
+    state.value = UiState("Flow")
+}
+```
+
+Это хорошо для state, но требует корректного `equals`.
+
+Если state содержит mutable collections, можно случайно не получить updates.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+
+data class BadState(
+    val items: MutableList<String>
+)
+
+fun mutableStateTrap() {
+    val state = MutableStateFlow(BadState(mutableListOf()))
+
+    // Плохо: мутируем list внутри current state.
+    state.value.items += "84-flow"
+
+    // StateFlow не видит нового immutable value.
+}
+```
+
+Правильно:
+
+```kotlin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
+
+data class GoodState(
+    val items: List<String>
+)
+
+fun immutableStateUpdate() {
+    val state = MutableStateFlow(GoodState(emptyList()))
+
+    state.update { current ->
+        current.copy(items = current.items + "84-flow")
+    }
+}
+```
+
+## UI state modeling
+
+Для UI state удобно использовать sealed hierarchy или data class with status fields.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class LessonViewModelLike(
+    private val scope: CoroutineScope,
+    private val repository: LessonRepository
+) {
+    private val _state = MutableStateFlow<LessonScreenState>(LessonScreenState.Idle)
+    val state: StateFlow<LessonScreenState> = _state.asStateFlow()
+
+    fun open(slug: String) {
+        scope.launch {
+            _state.value = LessonScreenState.Loading(slug)
+
+            try {
+                val lesson = repository.load(slug)
+
+                _state.value = LessonScreenState.Ready(lesson)
+            } catch (exception: CancellationException) {
+                // Отмену не превращаем в failed state.
+                throw exception
+            } catch (exception: RuntimeException) {
+                _state.value = LessonScreenState.Failed(
+                    "Не удалось открыть урок: ${exception.message}"
+                )
+            }
+        }
+    }
+
+    fun markCompleted() {
+        _state.update { current ->
+            if (current is LessonScreenState.Ready) {
+                current.copy(completed = true)
+            } else {
+                current
+            }
+        }
+    }
+}
+
+sealed interface LessonScreenState {
+    data object Idle : LessonScreenState
+
+    data class Loading(
+        val slug: String
+    ) : LessonScreenState
+
+    data class Ready(
+        val lesson: Lesson,
+        val completed: Boolean = false
+    ) : LessonScreenState
+
+    data class Failed(
+        val message: String
+    ) : LessonScreenState
+}
+
+class LessonRepository {
+    suspend fun load(slug: String): Lesson {
+        return Lesson(slug, "Урок $slug", "Текст")
+    }
+}
+
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val body: String
+)
+```
+
+## `stateIn`
+
+`stateIn` converts cold flow into `StateFlow` in a scope.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+
+class DashboardStateBuilder(
+    private val scope: CoroutineScope,
+    private val progress: Flow<Int>
+) {
+    val state: StateFlow<DashboardState> =
+        progress
+            .map { completed ->
+                DashboardState(
+                    completedLessons = completed,
+                    title = "Прогресс: $completed"
+                )
+            }
+            .stateIn(
+                scope = scope,
+                started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
+                initialValue = DashboardState(completedLessons = 0, title = "Загрузка")
+            )
+}
+
+data class DashboardState(
+    val completedLessons: Int,
+    val title: String
+)
+```
+
+`SharingStarted` controls when upstream starts and stops:
+
+- `Eagerly` — starts immediately;
+- `Lazily` — starts on first subscriber and then keeps running;
+- `WhileSubscribed` — runs while subscribers exist, with optional timeout.
+
+Choose `WhileSubscribed` for many UI cases, чтобы не держать upstream active без observer-ов.
+
+## `SharedFlow`
+
+`SharedFlow<T>` broadcasts values to subscribers.
+
+Ключевые свойства:
+
+- hot stream;
+- no current `value` property;
+- can replay configurable number of latest values;
+- can have extra buffer capacity;
+- can use overflow strategy;
+- never completes normally;
+- cannot represent failure/close implicitly;
+- useful for events and shared streams.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+
+class LessonEventBus {
+    private val _events = MutableSharedFlow<LessonEvent>()
+    val events: SharedFlow<LessonEvent> = _events.asSharedFlow()
+
+    suspend fun publish(event: LessonEvent) {
+        _events.emit(event)
+    }
+}
+
+sealed interface LessonEvent {
+    data class Opened(
+        val slug: String
+    ) : LessonEvent
+
+    data class Completed(
+        val slug: String
+    ) : LessonEvent
+}
+```
+
+Default `MutableSharedFlow()` has no replay and no extra buffer. `emit` suspends until subscribers receive value, and if there are no subscribers, value is not replayed.
+
+## `emit` и `tryEmit`
+
+`emit` is suspending.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+
+class NotificationEvents {
+    private val events = MutableSharedFlow<String>()
+
+    suspend fun send(message: String) {
+        // Может suspend в зависимости от buffer/replay/subscribers.
+        events.emit(message)
+    }
+}
+```
+
+`tryEmit` is non-suspending and returns boolean.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+
+class FastTelemetryBus {
+    private val events = MutableSharedFlow<String>(
+        extraBufferCapacity = 64
+    )
+
+    fun trySend(event: String): Boolean {
+        return events.tryEmit(event)
+    }
+}
+```
+
+Use `tryEmit` for best-effort events where losing value is acceptable or caller cannot suspend.
+
+## Replay
+
+`replay` controls how many latest values new subscribers receive immediately.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun replayExample() = runBlocking {
+    val events = MutableSharedFlow<String>(replay = 2)
+
+    events.emit("first")
+    events.emit("second")
+    events.emit("third")
+
+    val collector = launch {
+        val replayed = events.take(2).toList()
+        println(replayed)
+    }
+
+    collector.join()
+}
+```
+
+`replayCache` gives snapshot of replayed values.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+
+suspend fun replayCacheExample() {
+    val events = MutableSharedFlow<String>(replay = 1)
+
+    events.emit("latest")
+
+    println(events.replayCache)
+}
+```
+
+`resetReplayCache` clears replay cache for `MutableSharedFlow`.
+
+```kotlin
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
+
+@OptIn(ExperimentalCoroutinesApi::class)
+suspend fun resetReplayExample() {
+    val events = MutableSharedFlow<String>(replay = 1)
+
+    events.emit("stale")
+    events.resetReplayCache()
+}
+```
+
+## Buffer overflow strategies
+
+`MutableSharedFlow` can configure:
+
+- `replay`;
+- `extraBufferCapacity`;
+- `onBufferOverflow`.
+
+Overflow strategies:
+
+- `BufferOverflow.SUSPEND` — emitter suspends until buffer space appears;
+- `BufferOverflow.DROP_OLDEST` — oldest buffered value is dropped;
+- `BufferOverflow.DROP_LATEST` — latest value is dropped.
+
+```kotlin
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+
+class UiEventBus {
+    private val events = MutableSharedFlow<UiEvent>(
+        replay = 0,
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
+    fun tryPublish(event: UiEvent): Boolean {
+        return events.tryEmit(event)
+    }
+}
+
+sealed interface UiEvent {
+    data class Toast(
+        val message: String
+    ) : UiEvent
+}
+```
+
+Events часто можно drop-ать, state нельзя. Поэтому для current state используй `StateFlow`, а не `SharedFlow` with replay pretending to be state.
+
+<MouseTrap>
+`SharedFlow(replay = 1)` похож на state только внешне. У него нет обязательного initial value, нет удобной `value`, и он не выражает state semantics так явно, как `StateFlow`.
+</MouseTrap>
+
+## `shareIn`
+
+`shareIn` converts cold flow into `SharedFlow`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.shareIn
+
+class LessonUpdates(
+    scope: CoroutineScope
+) {
+    val updates: SharedFlow<String> =
+        remoteUpdates()
+            .shareIn(
+                scope = scope,
+                started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
+                replay = 1
+            )
+
+    private fun remoteUpdates(): Flow<String> = flow {
+        while (true) {
+            delay(1_000)
+            emit("Обновление уроков")
+        }
+    }
+}
+```
+
+Use `shareIn`, when:
+
+- upstream expensive and should be shared;
+- multiple collectors need same emissions;
+- source is naturally hot but exposed as flow;
+- replay is needed for late subscribers.
+
+## StateFlow vs SharedFlow
+
+Use `StateFlow` for state:
+
+- screen state;
+- selected item;
+- current user;
+- progress snapshot;
+- settings;
+- connection status.
+
+Use `SharedFlow` for events:
+
+- navigation commands;
+- toast messages;
+- analytics events;
+- one-time notifications;
+- broadcast domain events;
+- raw stream sharing.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+class LessonScreenStore {
+    private val _state = MutableStateFlow<ScreenState>(ScreenState.Idle)
+    val state: StateFlow<ScreenState> = _state.asStateFlow()
+
+    private val _events = MutableSharedFlow<ScreenEvent>(extraBufferCapacity = 8)
+    val events: SharedFlow<ScreenEvent> = _events.asSharedFlow()
+
+    fun completeLesson(slug: String) {
+        _state.value = ScreenState.Completed(slug)
+
+        _events.tryEmit(
+            ScreenEvent.Toast("Урок завершен: $slug")
+        )
+    }
+}
+
+sealed interface ScreenState {
+    data object Idle : ScreenState
+
+    data class Completed(
+        val slug: String
+    ) : ScreenState
+}
+
+sealed interface ScreenEvent {
+    data class Toast(
+        val message: String
+    ) : ScreenEvent
+}
+```
+
+## Production pattern: full UI model
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class LessonReaderModel(
+    private val scope: CoroutineScope,
+    private val repository: ReaderRepository
+) {
+    private val _state = MutableStateFlow(ReaderState())
+    val state: StateFlow<ReaderState> = _state.asStateFlow()
+
+    private val _events = MutableSharedFlow<ReaderEvent>(
+        extraBufferCapacity = 16
+    )
+    val events: SharedFlow<ReaderEvent> = _events.asSharedFlow()
+
+    fun open(slug: String) {
+        scope.launch {
+            _state.update { current ->
+                current.copy(
+                    loading = true,
+                    errorMessage = null
+                )
+            }
+
+            try {
+                val lesson = repository.load(slug)
+
+                _state.update { current ->
+                    current.copy(
+                        loading = false,
+                        lesson = lesson
+                    )
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: RuntimeException) {
+                _state.update { current ->
+                    current.copy(
+                        loading = false,
+                        errorMessage = "Не удалось открыть урок: ${exception.message}"
+                    )
+                }
+
+                _events.emit(ReaderEvent.ShowMessage("Проверь подключение и попробуй снова"))
+            }
+        }
+    }
+
+    fun markCompleted() {
+        _state.update { current ->
+            current.copy(completed = true)
+        }
+
+        _events.tryEmit(ReaderEvent.ShowMessage("Пушисто! Урок отмечен как завершенный"))
+    }
+}
+
+data class ReaderState(
+    val loading: Boolean = false,
+    val lesson: ReaderLesson? = null,
+    val completed: Boolean = false,
+    val errorMessage: String? = null
+)
+
+data class ReaderLesson(
+    val slug: String,
+    val title: String,
+    val body: String
+)
+
+sealed interface ReaderEvent {
+    data class ShowMessage(
+        val message: String
+    ) : ReaderEvent
+}
+
+class ReaderRepository {
+    suspend fun load(slug: String): ReaderLesson {
+        return ReaderLesson(
+            slug = slug,
+            title = "Урок $slug",
+            body = "Тело урока"
+        )
+    }
+}
+```
+
+Этот model:
+
+- exposes immutable `StateFlow` and `SharedFlow`;
+- keeps mutation private;
+- represents persistent UI state separately from one-time events;
+- uses `update` for immutable state updates;
+- rethrows cancellation;
+- uses buffered events for non-suspending `tryEmit` in quick UI action.
+
+<CatTip>
+Для UI думай так: `StateFlow` — лежанка с текущим состоянием, `SharedFlow` — колокольчик событий. Не смешивай лежанку и колокольчик, и интерфейс будет предсказуемым.
+</CatTip>
+

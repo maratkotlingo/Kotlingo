@@ -1,0 +1,636 @@
+# kotlingo: полный силлабус Kotlin
+
+Курс ориентирован на Kotlin 2.4.x и современную экосистему Kotlin. Карта ниже задает порядок генерации уроков: каждая тема будет разворачиваться в отдельный материал с теорией, синтаксисом, вариантами применения, типичными ошибками и практическими примерами.
+
+## Уровень 0. Вход в Kotlin и рабочая среда
+
+- 1. Введение в Kotlin и экосистему
+  - Что такое Kotlin и какие задачи он закрывает
+  - Kotlin/JVM, Kotlin/JS, Kotlin/Wasm, Kotlin/Native и Kotlin Multiplatform
+  - K2-компилятор, стандартная библиотека, Gradle, Maven, IntelliJ IDEA, Android Studio
+  - Отличия Kotlin от Java, JavaScript, Swift, C# и Python
+  - Модель совместимости языка, библиотек и инструментов
+- 2. Первая программа: файл, пакет, `main`, компиляция и запуск
+  - Структура `.kt`-файла
+  - Top-level declarations
+  - `fun main()`, `fun main(args: Array<String>)`, `suspend fun main()`
+  - Пакеты, импорты, алиасы импортов
+  - Запуск через IDE, Gradle, Maven, Kotlin CLI и Kotlin Playground
+- 3. Переменные, значения и базовая типизация
+  - `val`, `var`, неизменяемость ссылки и изменяемость объекта
+  - Вывод типов и явные типы
+  - Инициализация, область видимости, shadowing
+  - Top-level variables, local variables, properties
+  - `const val`, `lateinit var`, backing fields как предварительный обзор
+
+## Уровень 1. Базовый синтаксис и модель выполнения
+
+- 4. Лексика языка
+  - Идентификаторы, ключевые слова, soft keywords
+  - Экранированные имена в обратных кавычках
+  - Комментарии, KDoc, аннотации файла
+  - Точки с запятой и переносы строк
+- 5. Базовые типы
+  - `Byte`, `Short`, `Int`, `Long`
+  - `UByte`, `UShort`, `UInt`, `ULong`
+  - `Float`, `Double`
+  - `Boolean`, `Char`, `String`
+  - `Any`, `Unit`, `Nothing`
+  - Boxing, primitive representation на JVM, nullable boxing
+- 6. Числа без сюрпризов
+  - Литералы, суффиксы, подчеркивания в числах
+  - Явные преобразования: `toInt`, `toLong`, `toDouble`, `toUInt`
+  - Деление, остаток, переполнение, IEEE 754
+  - `NaN`, `Infinity`, сравнение дробных чисел
+  - Битовые операции: `shl`, `shr`, `ushr`, `and`, `or`, `xor`, `inv`
+- 7. Строки и символы
+  - String templates
+  - Raw strings, `trimIndent`, `trimMargin`
+  - Unicode, escape sequences, surrogate pairs
+  - Основные операции `String`
+  - `Regex` как отдельный практический слой
+- 8. Операторы и выражения
+  - Арифметические, логические, сравнительные операторы
+  - `==`, `!=`, `===`, `!==`
+  - `in`, `!in`, `is`, `!is`, `as`, `as?`
+  - Elvis-оператор `?:`
+  - Приоритет операторов
+  - Перегрузка операторов как предварительный обзор
+- 9. Условия
+  - `if` как выражение
+  - `when` как выражение и инструкция
+  - Exhaustive `when`
+  - Guards, ranges, type checks, smart casts внутри веток
+  - Замена вложенных условий читаемыми конструкциями
+- 10. Циклы и итерация
+  - `for`, `while`, `do while`
+  - `range`, `progression`, `downTo`, `step`, `until`, `..<`
+  - `break`, `continue`, labels
+  - Итераторы и соглашение `iterator`
+  - Индексы, `indices`, `withIndex`
+- 11. Исключения и базовая защита инвариантов
+  - `try`, `catch`, `finally`
+  - `throw` как выражение
+  - Checked exceptions и отличие от Java
+  - `require`, `check`, `error`, `assert`
+  - Создание собственных исключений
+
+## Уровень 2. Null-safety и типовая дисциплина
+
+- 12. Nullable и non-null типы
+  - `String` против `String?`
+  - Безопасный вызов `?.`
+  - Elvis `?:`
+  - Not-null assertion `!!`
+  - Nullable receiver
+- 13. Smart casts
+  - Условия для smart cast
+  - Почему `var` и открытые свойства ограничивают smart cast
+  - Smart casts после `return`, `throw`, `break`, `continue`
+  - Smart casts с `is`, `!is`, `when`, contracts
+- 14. Platform types и Java interop
+  - `String!` как концепция IDE
+  - Аннотации nullability из Java
+  - Defensive Kotlin вокруг Java API
+  - JSpecify, JetBrains annotations, Android annotations
+- 15. `Any`, `Unit`, `Nothing`
+  - `Any` как корень non-null типов
+  - `Unit` и отсутствие полезного значения
+  - `Nothing`, бесконечные функции, `TODO`, unreachable branches
+  - Влияние `Nothing` на вывод типов
+
+## Уровень 3. Функции
+
+- 16. Объявление функций
+  - Параметры и возвращаемый тип
+  - Single-expression functions
+  - Block body functions
+  - Локальные функции
+  - Top-level functions
+- 17. Параметры функций
+  - Default arguments
+  - Named arguments
+  - `vararg`
+  - Spread operator `*`
+  - Порядок параметров и бинарная совместимость
+- 18. Перегрузка функций
+  - Overload resolution
+  - Неоднозначность вызовов
+  - Перегрузка с nullable типами
+  - Перегрузка с default arguments
+- 19. Extension functions
+  - Static dispatch
+  - Nullable receiver
+  - Member extensions
+  - Импорт и область видимости extension-функций
+  - Конфликты имен
+- 20. Infix, operator, tailrec
+  - `infix fun`
+  - `operator fun`
+  - `tailrec fun`
+  - Ограничения и читаемость
+- 21. Callable references
+  - `::function`
+  - `ClassName::member`
+  - Bound и unbound references
+  - References на constructor
+  - References и overload resolution
+
+## Уровень 4. Классы, объекты и свойства
+
+- 22. Классы и экземпляры
+  - Primary constructor
+  - Secondary constructors
+  - `init` blocks
+  - Порядок инициализации
+  - `this`
+- 23. Свойства
+  - `val` и `var` как properties
+  - Getter и setter
+  - Backing field `field`
+  - Backing property
+  - Compile-time constants
+  - `lateinit`
+- 24. Visibility modifiers
+  - `public`
+  - `internal`
+  - `protected`
+  - `private`
+  - Видимость top-level declarations и members
+- 25. Наследование
+  - `open`, `final`, `abstract`
+  - Переопределение методов и свойств
+  - `super`
+  - Инициализация базового класса
+  - Правила проектирования наследования
+- 26. Интерфейсы
+  - Abstract members
+  - Default implementations
+  - Properties в интерфейсах
+  - Конфликты default methods
+  - Functional interfaces и `fun interface`
+- 27. Data classes
+  - `equals`, `hashCode`, `toString`, `copy`, `componentN`
+  - Ограничения primary constructor
+  - Mutable data class pitfalls
+  - Destructuring
+- 28. Enum classes
+  - Constants
+  - Anonymous class bodies
+  - Entries API
+  - `valueOf`, `entries`, `name`, `ordinal`
+  - Когда enum проигрывает sealed hierarchy
+- 29. Sealed classes и sealed interfaces
+  - Closed hierarchy
+  - Exhaustive `when`
+  - Sealed в одном package/module
+  - Error models и domain states
+- 30. Nested, inner, local, anonymous classes
+  - Nested classes
+  - `inner` classes
+  - Local classes
+  - Object expressions
+  - Захват внешнего состояния
+- 31. Object declarations и companion objects
+  - Singleton object
+  - Companion object
+  - Object expressions
+  - `data object`
+  - JVM static interoperability
+- 32. Value classes
+  - `@JvmInline value class`
+  - Boxing и representation
+  - Ограничения value classes
+  - Type-safe identifiers
+  - Производительность и API-дизайн
+- 33. Type aliases
+  - Алиасы функций
+  - Алиасы generic-типов
+  - Алиас против нового типа
+  - Публичный API и читаемость
+
+## Уровень 5. Generics и типовая система
+
+- 34. Generic classes и generic functions
+  - Type parameters
+  - Bounds
+  - Multiple bounds через `where`
+  - Generic constructors и factories
+- 35. Variance
+  - Declaration-site variance
+  - `out`
+  - `in`
+  - Use-site projections
+  - Star projections
+  - Producer/consumer reasoning
+- 36. Reified type parameters
+  - Type erasure
+  - `inline fun <reified T>`
+  - `is T`, `T::class`, serializers
+  - Ограничения reified
+- 37. Definitely non-nullable types
+  - `T & Any`
+  - Java interop
+  - Generic nullability constraints
+- 38. Builder inference
+  - Вывод типов в DSL
+  - `@BuilderInference`
+  - Ограничения и диагностика
+
+## Уровень 6. Функциональный Kotlin
+
+- 39. Function types
+  - `(A, B) -> C`
+  - Receiver function types `A.() -> B`
+  - Nullable function types
+  - Suspend function types
+- 40. Lambdas
+  - Syntax
+  - `it`
+  - Explicit parameter list
+  - Non-local returns
+  - Захват переменных
+- 41. Anonymous functions
+  - Отличие от lambdas
+  - Явный return
+  - Когда anonymous function читабельнее
+- 42. Higher-order functions
+  - Прием функций
+  - Возврат функций
+  - Композиция поведения
+  - API с callbacks
+- 43. Inline functions
+  - `inline`
+  - `noinline`
+  - `crossinline`
+  - Non-local returns
+  - Performance и public API
+- 44. Scope functions
+  - `let`
+  - `run`
+  - `with`
+  - `apply`
+  - `also`
+  - Выбор по receiver/result/side effects
+- 45. Contracts
+  - `contract`
+  - `callsInPlace`
+  - Smart casts через contracts
+  - Experimental status и ответственность автора API
+
+## Уровень 7. Коллекции: полный разбор
+
+- 46. Read-only и mutable collections
+  - `Iterable`, `Collection`, `List`, `Set`, `Map`
+  - `MutableIterable`, `MutableCollection`, `MutableList`, `MutableSet`, `MutableMap`
+  - Контракт read-only против настоящей иммутабельности
+- 47. Создание коллекций
+  - `listOf`, `mutableListOf`, `arrayListOf`
+  - `setOf`, `mutableSetOf`, `hashSetOf`, `linkedSetOf`, `sortedSetOf`
+  - `mapOf`, `mutableMapOf`, `hashMapOf`, `linkedMapOf`, `sortedMapOf`
+  - Builders `buildList`, `buildSet`, `buildMap`
+- 48. Arrays
+  - `Array<T>`
+  - Primitive arrays
+  - Unsigned arrays
+  - `arrayOf`, `arrayOfNulls`, `emptyArray`
+  - Copying, filling, sorting, binary search
+- 49. Access operations
+  - `get`, `getOrNull`, `getOrElse`
+  - `first`, `firstOrNull`, `last`, `lastOrNull`
+  - `single`, `singleOrNull`
+  - `elementAt`, `elementAtOrNull`, `elementAtOrElse`
+- 50. Predicates
+  - `any`, `all`, `none`
+  - `contains`, `containsAll`
+  - `isEmpty`, `isNotEmpty`
+- 51. Filtering
+  - `filter`, `filterNot`
+  - `filterIndexed`
+  - `filterIsInstance`
+  - `filterNotNull`
+  - `partition`
+- 52. Transformations
+  - `map`, `mapIndexed`, `mapNotNull`
+  - `flatMap`, `flatten`
+  - `zip`, `unzip`
+  - `associate`, `associateBy`, `associateWith`
+- 53. Grouping
+  - `groupBy`
+  - `groupingBy`
+  - `eachCount`
+  - `fold`, `reduce`, `aggregate` on grouping
+- 54. Ordering
+  - `sorted`, `sortedDescending`
+  - `sortedBy`, `sortedByDescending`
+  - `sortedWith`
+  - `compareBy`, `thenBy`, `nullsFirst`, `nullsLast`
+  - `reversed`, `asReversed`, `shuffled`
+- 55. Aggregation
+  - `count`
+  - `sum`, `sumOf`
+  - `min`, `max`, `minBy`, `maxBy`
+  - `fold`, `reduce`, `runningFold`, `runningReduce`
+- 56. Slicing and windows
+  - `slice`
+  - `take`, `takeLast`, `takeWhile`, `takeLastWhile`
+  - `drop`, `dropLast`, `dropWhile`, `dropLastWhile`
+  - `chunked`
+  - `windowed`
+- 57. Mutating operations
+  - `add`, `addAll`
+  - `remove`, `removeAt`, `removeAll`, `retainAll`
+  - `clear`
+  - `set`
+  - `put`, `putAll`, `remove`
+- 58. Sequences
+  - Lazy evaluation
+  - `asSequence`
+  - `sequence`
+  - Terminal operations
+  - Performance tradeoffs
+
+## Уровень 8. Стандартная библиотека и практические API
+
+- 59. Ranges и progressions
+  - Closed ranges
+  - Open-ended ranges
+  - Comparable ranges
+  - Custom progression basics
+- 60. Regex
+  - `Regex`
+  - `matches`, `containsMatchIn`, `find`, `findAll`
+  - Groups, named groups
+  - Replacement
+  - Options
+- 61. Delegated properties
+  - `lazy`
+  - `observable`
+  - `vetoable`
+  - `notNull`
+  - Map-backed properties
+  - Custom delegates
+- 62. Destructuring declarations
+  - `componentN`
+  - Data classes
+  - Pairs, triples, map entries
+  - Underscore `_`
+- 63. `Result`
+  - `runCatching`
+  - `getOrThrow`
+  - `getOrNull`
+  - `exceptionOrNull`
+  - `map`, `mapCatching`, `recover`, `recoverCatching`
+  - Public API considerations
+- 64. Time API
+  - `Duration`
+  - Duration units
+  - Measuring time
+  - `TimeSource`
+  - Interop with Java time
+- 65. I/O на JVM
+  - `java.io.File`
+  - `java.nio.file.Path`
+  - Kotlin extensions
+  - Resource management через `use`
+- 66. Reflection basics
+  - `KClass`
+  - Callable references
+  - Properties and functions
+  - `kotlin-reflect` dependency
+  - Performance and limitations
+
+## Уровень 9. DSL, annotations и metaprogramming
+
+- 67. Type-safe builders
+  - Lambdas with receiver
+  - Builder scopes
+  - Nested builders
+  - Validation inside builders
+- 68. DSL markers
+  - `@DslMarker`
+  - Scope leakage
+  - Multiple receivers
+  - HTML-style DSL
+- 69. Context parameters and context receivers
+  - Современный синтаксис `context(name: Type)`
+  - Отличие от старых context receivers
+  - Разрешение по типу
+  - Неоднозначности
+  - Explicit context arguments
+  - Ограничения и experimental-флаги
+- 70. Аннотации
+  - Annotation classes
+  - Targets
+  - Retention
+  - Use-site targets
+  - Repeatable annotations
+  - Annotation processors and KSP
+- 71. Compiler plugins overview
+  - Serialization plugin
+  - Compose compiler
+  - All-open
+  - No-arg
+  - Power-assert
+- 72. KSP basics
+  - Symbol processing
+  - Incremental processing
+  - Code generation
+  - KSP против kapt
+
+## Уровень 10. Java и JVM interoperability
+
+- 73. Java calls from Kotlin
+  - Getters/setters
+  - Static members
+  - SAM conversions
+  - Checked exceptions
+  - Raw types
+- 74. Kotlin API for Java
+  - `@JvmName`
+  - `@JvmStatic`
+  - `@JvmField`
+  - `@JvmOverloads`
+  - `@Throws`
+  - `@file:JvmName`
+- 75. Packages, modules and binary compatibility
+  - Kotlin module
+  - `internal`
+  - Published API
+  - ABI-sensitive changes
+  - Inline public API risks
+- 76. JVM performance model
+  - Allocation
+  - Boxing
+  - Inline/value classes
+  - Collections overhead
+  - Hot paths and measuring
+
+## Уровень 11. Coroutines
+
+- 77. Suspend functions
+  - Suspension points
+  - Sequential style
+  - Continuations conceptually
+  - `suspend` function types
+- 78. Coroutine builders
+  - `runBlocking`
+  - `launch`
+  - `async`
+  - `coroutineScope`
+  - `supervisorScope`
+- 79. Coroutine context
+  - `Job`
+  - `CoroutineDispatcher`
+  - `CoroutineName`
+  - `CoroutineExceptionHandler`
+  - Context composition
+- 80. Structured concurrency
+  - Parent-child hierarchy
+  - Scope ownership
+  - Lifecycle alignment
+  - Avoiding global work
+- 81. Cancellation
+  - Cooperative cancellation
+  - `isActive`
+  - `ensureActive`
+  - `yield`
+  - `withTimeout`
+  - Cleanup with `finally`
+- 82. Dispatchers
+  - `Dispatchers.Default`
+  - `Dispatchers.IO`
+  - `Dispatchers.Main`
+  - Limited parallelism
+  - Custom dispatchers
+- 83. Exception handling in coroutines
+  - `launch` exceptions
+  - `async` exceptions
+  - Supervisor jobs
+  - Cancellation exceptions
+  - Recovery boundaries
+- 84. Flow
+  - Cold streams
+  - `flow`
+  - `emit`
+  - `collect`
+  - Operators
+  - Backpressure conceptually
+- 85. Flow operators
+  - `map`, `filter`, `transform`
+  - `take`, `drop`
+  - `debounce`, `sample`
+  - `combine`, `zip`
+  - `flatMapConcat`, `flatMapMerge`, `flatMapLatest`
+  - `catch`, `retry`, `onEach`, `onStart`, `onCompletion`
+- 86. StateFlow and SharedFlow
+  - Hot streams
+  - State holder
+  - Replay
+  - Buffer overflow strategies
+  - UI state modeling
+- 87. Channels
+  - `Channel`
+  - `send`, `receive`
+  - Buffered channels
+  - Closing channels
+  - Producer-consumer pipelines
+- 88. Select
+  - Selecting first available operation
+  - Timeouts
+  - Channel alternatives
+  - Practical limitations
+- 89. Coroutine testing
+  - `runTest`
+  - Test dispatchers
+  - Virtual time
+  - Testing Flow
+  - Avoiding flaky tests
+
+## Уровень 12. Kotlin Multiplatform
+
+- 90. Multiplatform mental model
+  - Common code
+  - Platform code
+  - Source sets
+  - Hierarchical source sets
+- 91. `expect` and `actual`
+  - Expected declarations
+  - Actual implementations
+  - Classes, functions, properties
+  - Type aliases as actuals
+- 92. Multiplatform Gradle setup
+  - Targets
+  - Source set dependencies
+  - Common dependencies
+  - Platform dependencies
+  - Publication basics
+- 93. JVM target
+  - Java interop
+  - JUnit
+  - JVM toolchains
+  - Server-side Kotlin
+- 94. Android target
+  - Android Gradle Plugin
+  - Main dispatcher
+  - Parcelize
+  - Compose overview
+- 95. JavaScript target
+  - Browser and Node targets
+  - IR compiler
+  - NPM dependencies
+  - TypeScript declarations
+- 96. Wasm target
+  - Kotlin/Wasm status
+  - Browser runtime
+  - Interop basics
+  - Current constraints
+- 97. Native target
+  - Memory model
+  - C interop
+  - Objective-C/Swift interop
+  - Framework export
+  - Freezing history and modern behavior
+
+## Уровень 13. Архитектура, тестирование и продакшен-практики
+
+- 98. Kotlin project structure
+  - Packages by feature
+  - API boundaries
+  - Domain models
+  - Avoiding anemic utility dumping
+- 99. Testing Kotlin code
+  - `kotlin.test`
+  - JUnit 5
+  - Kotest overview
+  - Mocking tradeoffs
+  - Property-based testing overview
+- 100. Serialization
+  - `kotlinx.serialization`
+  - `@Serializable`
+  - Formats
+  - Polymorphism
+  - Versioning and backward compatibility
+- 101. Logging and observability
+  - JVM logging facades
+  - Structured logs
+  - Correlation IDs
+  - Avoiding hidden side effects
+- 102. API design in Kotlin
+  - Nullability as contract
+  - Sealed results
+  - Immutability by default
+  - Extension API boundaries
+  - Binary compatibility
+- 103. Performance and profiling
+  - Measuring before optimizing
+  - Allocation hotspots
+  - Sequences versus collections
+  - Inline tradeoffs
+  - Coroutine overhead
+- 104. Migration and interoperability strategy
+  - Java to Kotlin
+  - Kotlin version upgrades
+  - Language feature flags
+  - Deprecation cycles
+  - Compatibility guides

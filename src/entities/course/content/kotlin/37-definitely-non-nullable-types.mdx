@@ -1,0 +1,386 @@
+---
+title: "Definitely non-nullable types"
+description: "Разбираем T & Any, отличие от T : Any, generic nullability, platform contracts и точное переопределение Java @NotNull generic-методов."
+order: 37
+category: "Generics и типовая система"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Проблема: неизвестный T может быть nullable
+
+У unconstrained type parameter upper bound — `Any?`.
+
+```kotlin
+fun <T> identity(value: T): T = value
+
+val text: String? = identity<String?>(null)
+```
+
+Внутри функции `T` нельзя считать non-null, потому что caller вправе выбрать `String?`.
+
+Иногда contract должен сохранить общий type argument `T`, но в конкретной позиции гарантировать отсутствие null. Для этого существует definitely non-nullable type `T & Any`.
+
+## Синтаксис `T & Any`
+
+```kotlin
+fun <T> requirePresent(value: T?): T & Any {
+    return requireNotNull(value) { "Значение обязательно" }
+}
+```
+
+`T & Any` читается как пересечение неизвестного `T` с non-null root `Any`. Из результата исключён null.
+
+```kotlin
+val title: String = requirePresent<String?>("Kotlin")
+```
+
+Даже если type argument `T` допускает null, конкретный return — definitely non-null.
+
+## Почему это intersection type
+
+Значение должно одновременно соответствовать:
+
+- constraints типа `T`;
+- non-null type `Any`.
+
+`String? & Any` фактически сужается до non-null `String`.
+
+Kotlin не предоставляет произвольный source syntax для всех возможных intersections как основной способ моделирования. `T & Any` — специальная форма definitely non-null type.
+
+## Требование nullable upper bound
+
+Чтобы `T & Any` был meaningful/well-formed, `T` должен иметь nullable upper bound.
+
+```kotlin
+fun <T> checked(value: T?): T & Any = requireNotNull(value)
+```
+
+Если объявить `<T : Any>`, parameter уже definitely non-null по bound, и пересечение избыточно/не является нужной формой:
+
+```kotlin
+fun <T : Any> alreadyNonNull(value: T): T = value
+```
+
+## `T : Any` и `T & Any` решают разные задачи
+
+`T : Any` запрещает nullable **type argument**:
+
+```kotlin
+class NonNullBox<T : Any>(val value: T)
+
+val box = NonNullBox("Kotlin")
+// NonNullBox<String?> недопустим.
+```
+
+`T & Any` сохраняет возможность `T = String?`, но конкретное value/position non-null:
+
+```kotlin
+fun <T> usePresent(value: T & Any): String {
+    return value.toString()
+}
+
+val nullableTypeValue: String? = "Kotlin"
+if (nullableTypeValue != null) {
+    println(usePresent<String?>(nullableTypeValue))
+}
+```
+
+Выбор:
+
+- API вообще не должен принимать nullable type arguments → `<T : Any>`;
+- generic relation требует сохранить potentially nullable T, но одна позиция annotated non-null → `T & Any`.
+
+<CatTip title="Котосовет: в обычном Kotlin начинай с T : Any">
+Definitely non-null types прежде всего нужны для точного Java interop и сложных generic contracts. Если весь generic type non-null по смыслу, upper bound проще и понятнее.
+</CatTip>
+
+## Главный сценарий: Java interop
+
+Java generic type variable не кодирует Kotlin nullability так же точно. Nullability annotations могут потребовать non-null position при потенциально nullable type argument.
+
+```java
+import org.jetbrains.annotations.NotNull;
+
+public interface LessonStore<T> {
+    T save(T value);
+
+    @NotNull
+    T load(@NotNull T fallback);
+}
+```
+
+`save` использует обычный `T`: Java contract не утверждает non-null. `load` помечает parameter/result `@NotNull`.
+
+Kotlin implementation:
+
+```kotlin
+interface SafeLessonStore<T> : LessonStore<T> {
+    override fun save(value: T): T
+
+    override fun load(fallback: T & Any): T & Any
+}
+```
+
+Без `& Any` override может не совпасть с enhanced Java signature.
+
+## Реализация Java contract
+
+```kotlin
+class MemoryLessonStore<T>(
+    private var value: T
+) : SafeLessonStore<T> {
+    override fun save(value: T): T {
+        val previous = this.value
+        this.value = value
+        return previous
+    }
+
+    override fun load(fallback: T & Any): T & Any {
+        val current = value
+        return if (current != null) current else fallback
+    }
+}
+```
+
+После `current != null` flow analysis сужает generic value до definitely non-null form.
+
+```kotlin
+val store: SafeLessonStore<String?> = MemoryLessonStore(null)
+val loaded: String = store.load("Резервное название")
+```
+
+Type argument остаётся `String?`, потому что `save` допускает null, но `load` гарантирует String.
+
+## Nullability annotations Java
+
+Compiler enhances Java signatures на основе поддерживаемых annotations:
+
+- JetBrains `@NotNull`/`@Nullable`;
+- JSpecify annotations;
+- Android/JSR ecosystems в зависимости от toolchain;
+- package defaults и compiler strictness settings.
+
+Качество contract зависит от корректности Java annotations. Ложный `@NotNull`, возвращающий null, всё равно способен вызвать runtime failure.
+
+<MouseTrap title="Мышеловка: T & Any не исправляет ложный Java контракт">
+Он сообщает compiler, что позиция non-null. Если Java implementation нарушит annotation, граница interop упадёт. Проверяй сторонний API и ставь defensive adapter.
+</MouseTrap>
+
+## Generic nullability: `T`, `T?`, `T & Any`
+
+Для unconstrained `T`:
+
+- `T` может уже быть nullable;
+- `T?` добавляет возможность null, но при `T = String?` схлопывается в тот же `String?`;
+- `T & Any` удаляет null из конкретной позиции.
+
+```kotlin
+fun <T> variants(
+    original: T,
+    optional: T?,
+    required: T & Any
+) {
+    println(original)
+    println(optional)
+    println(required.hashCode())
+}
+```
+
+У `required` доступны non-null members `Any` без safe call.
+
+## Flow analysis создаёт definitely non-null типы
+
+Даже без явной записи compiler внутренне сужает generic values после null-check.
+
+```kotlin
+fun <T> lengthOfStringForm(value: T): Int {
+    if (value == null) return 0
+
+    return value.toString().length
+}
+```
+
+После check `value` рассматривается как `T & Any`. Явный syntax нужен главным образом для signature/override, а не каждого local smart cast.
+
+## `requireNotNull` и generic T
+
+```kotlin
+fun <T> normalized(value: T?): T & Any {
+    return requireNotNull(value) {
+        "Ожидалось непустое generic-значение"
+    }
+}
+```
+
+`requireNotNull` возвращает non-null result и помогает выразить boundary assertion. Но если null является ожидаемым business outcome, nullable/sealed result лучше exception.
+
+## Containers и definitely non-null elements
+
+```kotlin
+fun <T> compact(values: Iterable<T?>): List<T & Any> {
+    return values.mapNotNull { value -> value }
+}
+```
+
+Result elements guaranteed non-null, при этом T сохраняет generic relation.
+
+На практике standard `filterNotNull`/`mapNotNull` signatures и inference часто дают удобный `List<T>` с suitable bound без явного `& Any` на call site.
+
+## Override Kotlin interface
+
+Для pure Kotlin API обычно declaration можно упростить:
+
+```kotlin
+interface Provider<T : Any> {
+    fun provide(): T
+}
+```
+
+Если caller должен использовать `Provider<String?>`, model противоречива: provider обещает non-null, а argument nullable. Java interop — особый случай, где один interface method может nullable-enhance positions differently.
+
+## Definitely non-null и variance
+
+```kotlin
+interface RequiredProducer<out T> {
+    fun produce(): T & Any
+}
+```
+
+Такой advanced contract требует nullable upper bound T и должен быть оправдан. Часто яснее:
+
+```kotlin
+interface NonNullProducer<out T : Any> {
+    fun produce(): T
+}
+```
+
+Не усложняй public API, если nullable type argument не нужен.
+
+## Definitely non-null и type erasure
+
+`T & Any` — compile-time nullability guarantee, а не новый runtime wrapper. На JVM type erasure сохраняется:
+
+- нельзя проверить nested generic arguments;
+- representation следует erased bound;
+- reflection может не восстановить все source intersections;
+- Java annotations/metadata помогают tools, но не создают runtime type.
+
+## Definitely non-null и platform types
+
+Platform type `T!` из Java означает гибкую nullability. `T & Any` — наоборот, явное сужение generic type до non-null position.
+
+Adapter должен валидировать Java результат, если implementation ненадёжна:
+
+```kotlin
+fun <T> defensiveLoad(store: LessonStore<T>, fallback: T & Any): T & Any {
+    val result = store.load(fallback)
+    return requireNotNull(result) {
+        "Java LessonStore нарушил @NotNull contract"
+    }
+}
+```
+
+## Диагностика сложных signatures
+
+Если compiler требует `T & Any`:
+
+1. проверь Java declaration и nullability annotations;
+2. посмотри enhanced signature в IDE;
+3. проверь upper bound T;
+4. не заменяй всё на `Any`/unchecked cast;
+5. изолируй interop в adapter;
+6. наружу дай обычный Kotlin-friendly contract.
+
+```kotlin
+interface KotlinLessonLoader<T : Any> {
+    fun load(): T
+}
+```
+
+Adapter может спрятать сложный Java generic contract от domain layer.
+
+## Практический пример: адаптер Java cache
+
+```java
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+public interface JavaCache<K, V> {
+    @Nullable
+    V find(K key);
+
+    @NotNull
+    V getOrDefault(@NotNull K key, @NotNull V fallback);
+}
+```
+
+```kotlin
+interface EnhancedJavaCache<K, V> : JavaCache<K, V> {
+    override fun find(key: K): V?
+
+    override fun getOrDefault(
+        key: K & Any,
+        fallback: V & Any
+    ): V & Any
+}
+
+class InMemoryEnhancedCache<K, V> : EnhancedJavaCache<K, V> {
+    private val values = mutableMapOf<K, V>()
+
+    fun put(key: K, value: V) {
+        values[key] = value
+    }
+
+    override fun find(key: K): V? {
+        return values[key]
+    }
+
+    override fun getOrDefault(
+        key: K & Any,
+        fallback: V & Any
+    ): V & Any {
+        val value = values[key]
+        return if (value != null) value else fallback
+    }
+}
+
+class LessonTitleCache(
+    private val cache: EnhancedJavaCache<Int?, String?>
+) {
+    fun titleOrFallback(id: Int, fallback: String): String {
+        require(id > 0) { "Идентификатор должен быть положительным" }
+        require(fallback.isNotBlank()) { "Резервное название обязательно" }
+        return cache.getOrDefault(id, fallback)
+    }
+}
+
+fun main() {
+    val cache = InMemoryEnhancedCache<Int?, String?>()
+    cache.put(37, "Definitely non-nullable types")
+
+    val adapter = LessonTitleCache(cache)
+    println(adapter.titleOrFallback(37, "Без названия"))
+    println(adapter.titleOrFallback(999, "Без названия"))
+}
+```
+
+Здесь Java generic arguments допускают null в общей форме, `find` nullable, а annotated `getOrDefault` требует/возвращает definitely non-null positions. Kotlin adapter наружу предоставляет простой `String` contract.
+
+## Итоги
+
+- unconstrained T имеет nullable upper bound `Any?`;
+- `T & Any` обозначает definitely non-null form T;
+- T должен иметь nullable upper bound для meaningful intersection;
+- `<T : Any>` запрещает nullable type argument целиком;
+- `T & Any` сохраняет potentially nullable T, сужая отдельную позицию;
+- главный use case — override Java generic methods с `@NotNull`;
+- flow analysis создаёт definitely non-null type после null-check;
+- `requireNotNull` помогает установить boundary guarantee;
+- type erasure не исчезает;
+- ложная Java annotation остаётся runtime risk;
+- pure Kotlin API чаще проще выразить через `<T : Any>`;
+- сложный interop contract лучше скрывать Kotlin-friendly adapter.
+

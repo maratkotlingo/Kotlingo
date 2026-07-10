@@ -1,0 +1,844 @@
+---
+title: "Операторы и выражения"
+description: "Разбираем арифметические, логические и сравнительные операторы Kotlin, равенство и идентичность, in, is, as, as?, Elvis, приоритет операторов и основы operator overloading."
+order: 8
+category: "Базовый синтаксис"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Оператор, операнд и выражение
+
+Оператор — синтаксическая форма, которая выполняет действие над значениями. Значения, к которым применяется оператор, называются операндами. Выражение — часть кода, которая имеет значение и тип.
+
+```kotlin
+fun main() {
+    val total = 10 + 5
+    val completed = total > 0
+
+    println(total)
+    println(completed)
+}
+```
+
+Здесь:
+
+- `10 + 5` — выражение типа `Int`;
+- `total > 0` — выражение типа `Boolean`;
+- `+` и `>` — операторы;
+- `10`, `5`, `total`, `0` — операнды.
+
+Kotlin активно использует expressions. Например, `if`, `when`, `try` и `throw` могут участвовать в выражениях. Это отличает Kotlin от языков, где такие конструкции чаще являются только statements.
+
+## Арифметические операторы
+
+Основные арифметические операторы:
+
+- `+` — сложение;
+- `-` — вычитание;
+- `*` — умножение;
+- `/` — деление;
+- `%` — остаток от деления;
+- unary `+`;
+- unary `-`;
+- `++` — increment;
+- `--` — decrement.
+
+```kotlin
+fun main() {
+    val lessons = 8
+    val completed = 5
+
+    val remaining = lessons - completed
+    val doubled = completed * 2
+    val pages = lessons / 3
+    val leftover = lessons % 3
+
+    println("Осталось: $remaining")
+    println("Удвоенное значение: $doubled")
+    println("Полных страниц: $pages")
+    println("Остаток: $leftover")
+}
+```
+
+### Целочисленное деление
+
+```kotlin
+fun main() {
+    val completed = 5
+    val total = 8
+
+    println(completed / total)
+    println(completed.toDouble() / total.toDouble())
+}
+```
+
+Первый результат — `0`, второй — `0.625`. Тип операндов определяет тип операции.
+
+### `++` и `--`
+
+`++` и `--` работают только с изменяемыми переменными или свойствами.
+
+```kotlin
+fun main() {
+    var attempts = 0
+
+    attempts++
+    ++attempts
+    attempts--
+
+    println(attempts)
+}
+```
+
+Prefix и postfix отличаются возвращаемым значением:
+
+```kotlin
+fun main() {
+    var value = 10
+
+    val postfix = value++
+    val prefix = ++value
+
+    println("postfix: $postfix")
+    println("prefix: $prefix")
+    println("value: $value")
+}
+```
+
+Для читаемости не прячь `++` в сложные выражения. Лучше отдельная строка.
+
+## Составные присваивания
+
+Операторы:
+
+- `+=`;
+- `-=`;
+- `*=`;
+- `/=`;
+- `%=`.
+
+```kotlin
+fun main() {
+    var minutes = 30
+
+    minutes += 15
+    minutes *= 2
+    minutes -= 10
+
+    println(minutes)
+}
+```
+
+Для mutable collections `+=` может означать добавление:
+
+```kotlin
+fun main() {
+    val completedLessons = mutableListOf<String>()
+
+    completedLessons += "Лексика"
+    completedLessons += "Типы"
+
+    println(completedLessons)
+}
+```
+
+Но для read-only списка `+=` с `var` может переназначить переменную:
+
+```kotlin
+fun main() {
+    var lessons = listOf("Лексика")
+
+    lessons += "Типы"
+
+    println(lessons)
+}
+```
+
+Здесь создается новый список и присваивается переменной `lessons`.
+
+<MouseTrap title="Мышеловка: += не всегда одна и та же операция">
+Для `MutableList` оператор `+=` обычно меняет коллекцию. Для `var lessons = listOf(...)` он может создать новый список и переназначить переменную. При публичном API лучше явно различать mutable и read-only коллекции.
+</MouseTrap>
+
+## Сравнительные операторы
+
+Операторы сравнения:
+
+- `<`;
+- `>`;
+- `<=`;
+- `>=`.
+
+```kotlin
+fun main() {
+    val score = 86
+
+    val excellent = score >= 90
+    val passed = score >= 70
+    val needsPractice = score < 70
+
+    println("Отлично: $excellent")
+    println("Зачет: $passed")
+    println("Нужна практика: $needsPractice")
+}
+```
+
+Для типов, реализующих `Comparable`, эти операторы компилируются в вызовы `compareTo`.
+
+```kotlin
+data class LessonLevel(
+    val order: Int,
+    val title: String
+) : Comparable<LessonLevel> {
+    override fun compareTo(other: LessonLevel): Int {
+        return order.compareTo(other.order)
+    }
+}
+
+fun main() {
+    val basics = LessonLevel(order = 1, title = "Основы")
+    val advanced = LessonLevel(order = 3, title = "Продвинутый уровень")
+
+    println(basics < advanced)
+}
+```
+
+## Структурное равенство: `==` и `!=`
+
+`==` проверяет структурное равенство. На практике это означает вызов `equals` с безопасной обработкой `null`.
+
+```kotlin
+fun main() {
+    val left = "Kotlin"
+    val right = "Kot" + "lin"
+
+    println(left == right)
+    println(left != right)
+}
+```
+
+Для data class `equals` генерируется по constructor-свойствам:
+
+```kotlin
+data class Lesson(
+    val title: String,
+    val minutes: Int
+)
+
+fun main() {
+    val first = Lesson("Операторы", 80)
+    val second = Lesson("Операторы", 80)
+
+    println(first == second)
+}
+```
+
+С nullable-значениями `==` безопасен:
+
+```kotlin
+fun main() {
+    val title: String? = null
+
+    println(title == null)
+    println(title == "Kotlin")
+}
+```
+
+## Referential equality: `===` и `!==`
+
+`===` проверяет, указывают ли две ссылки на один и тот же объект.
+
+```kotlin
+data class Lesson(
+    val title: String
+)
+
+fun main() {
+    val first = Lesson("Операторы")
+    val second = Lesson("Операторы")
+    val sameAsFirst = first
+
+    println(first == second)
+    println(first === second)
+    println(first === sameAsFirst)
+}
+```
+
+Результат:
+
+- `first == second` — true, потому что значения равны;
+- `first === second` — false, потому что это разные объекты;
+- `first === sameAsFirst` — true, потому что ссылка та же.
+
+`===` редко нужен в доменной логике. Он полезен для identity-sensitive структур, singleton objects, caches, interop и низкоуровневых проверок.
+
+<CatTip title="Кошачье правило равенства">
+Почти всегда начинай с `==`. Используй `===` только когда тебе действительно важна идентичность объекта, а не равенство значения.
+</CatTip>
+
+## Логические операторы
+
+Основные logical operators:
+
+- `!` — отрицание;
+- `&&` — логическое "и";
+- `||` — логическое "или".
+
+```kotlin
+fun main() {
+    val hasAccount = true
+    val completedIntro = true
+    val passedQuiz = false
+
+    val canOpenNext = hasAccount && completedIntro && passedQuiz
+    val shouldShowPractice = hasAccount && !passedQuiz
+
+    println(canOpenNext)
+    println(shouldShowPractice)
+}
+```
+
+`&&` и `||` используют short-circuit evaluation:
+
+```kotlin
+fun main() {
+    val title: String? = null
+
+    if (title != null && title.isNotBlank()) {
+        println(title)
+    } else {
+        println("Название не задано")
+    }
+}
+```
+
+Правая часть не выполняется, если левая уже определяет результат. Это важно для nullable-проверок и дорогих вычислений.
+
+## `in` и `!in`
+
+`in` проверяет принадлежность диапазону, коллекции или объекту, который поддерживает соглашение `contains`.
+
+```kotlin
+fun main() {
+    val score = 86
+    val title = "Операторы"
+    val completedLessons = setOf("Лексика", "Типы", "Операторы")
+
+    println(score in 0..100)
+    println(title in completedLessons)
+    println("Корутины" !in completedLessons)
+}
+```
+
+`in` с ranges:
+
+```kotlin
+fun validatePercent(percent: Int): Boolean {
+    return percent in 0..100
+}
+
+fun main() {
+    println(validatePercent(50))
+    println(validatePercent(150))
+}
+```
+
+Кастомный `contains`:
+
+```kotlin
+class LessonCatalog(
+    private val lessonCodes: Set<String>
+) {
+    operator fun contains(code: String): Boolean {
+        return code in lessonCodes
+    }
+}
+
+fun main() {
+    val catalog = LessonCatalog(
+        lessonCodes = setOf("basics-01", "basics-08")
+    )
+
+    println("basics-08" in catalog)
+}
+```
+
+## `is` и `!is`
+
+`is` проверяет тип во время выполнения. После успешной проверки Kotlin часто делает smart cast.
+
+```kotlin
+fun describe(value: Any): String {
+    return if (value is String) {
+        "Строка длиной ${value.length}"
+    } else {
+        "Не строка"
+    }
+}
+
+fun main() {
+    println(describe("Kotlin"))
+    println(describe(42))
+}
+```
+
+`!is` удобен для раннего выхода:
+
+```kotlin
+fun printStringLength(value: Any) {
+    if (value !is String) {
+        println("Ожидалась строка")
+        return
+    }
+
+    // После return компилятор знает, что value — String.
+    println(value.length)
+}
+
+fun main() {
+    printStringLength("Операторы")
+    printStringLength(8)
+}
+```
+
+## Cast: `as` и `as?`
+
+`as` выполняет небезопасное приведение типа. Если тип неверный, будет исключение.
+
+```kotlin
+fun main() {
+    val value: Any = "Kotlin"
+    val text = value as String
+
+    println(text.length)
+}
+```
+
+Если тип может быть другим, используй safe cast `as?`:
+
+```kotlin
+fun stringLengthOrZero(value: Any): Int {
+    val text = value as? String
+
+    return text?.length ?: 0
+}
+
+fun main() {
+    println(stringLengthOrZero("Kotlin"))
+    println(stringLengthOrZero(42))
+}
+```
+
+`as?` возвращает `null`, если приведение невозможно.
+
+Опасный пример:
+
+```kotlin
+fun main() {
+    val value: Any = 42
+
+    // Этот код завершится исключением ClassCastException.
+    val text = value as String
+
+    println(text)
+}
+```
+
+Лучше:
+
+```kotlin
+fun main() {
+    val value: Any = 42
+    val text = value as? String
+
+    if (text == null) {
+        println("Значение не является строкой")
+        return
+    }
+
+    println(text)
+}
+```
+
+## Elvis-оператор `?:`
+
+Elvis возвращает левую часть, если она не `null`, иначе правую.
+
+```kotlin
+fun main() {
+    val title: String? = null
+    val visibleTitle = title ?: "Без названия"
+
+    println(visibleTitle)
+}
+```
+
+Правая часть может быть выражением `return` или `throw`:
+
+```kotlin
+fun normalizeTitle(rawTitle: String?): String {
+    val title = rawTitle?.trim()
+        ?: return "Без названия"
+
+    if (title.isBlank()) {
+        return "Без названия"
+    }
+
+    return title
+}
+
+fun main() {
+    println(normalizeTitle(null))
+    println(normalizeTitle("  Операторы  "))
+}
+```
+
+С `throw`:
+
+```kotlin
+fun requireTitle(rawTitle: String?): String {
+    val title = rawTitle?.trim()
+        ?: throw IllegalArgumentException("Название отсутствует")
+
+    require(title.isNotBlank()) {
+        "Название не должно быть пустым"
+    }
+
+    return title
+}
+
+fun main() {
+    println(requireTitle("Операторы"))
+}
+```
+
+Такой стиль делает отсутствие значения явным.
+
+## Safe call `?.` и not-null assertion `!!`
+
+Safe call:
+
+```kotlin
+fun main() {
+    val title: String? = null
+
+    println(title?.length)
+}
+```
+
+Если `title` равен `null`, результат будет `null`.
+
+Not-null assertion:
+
+```kotlin
+fun main() {
+    val title: String? = null
+
+    // Этот код бросит NullPointerException.
+    println(title!!.length)
+}
+```
+
+`!!` почти всегда является сигналом риска. Он уместен только если инвариант гарантирован внешней системой и ты осознанно хочешь упасть при нарушении.
+
+<MouseTrap title="Мышеловка: !! не делает значение безопасным">
+`!!` не проверяет бизнес-условие и не восстанавливает данные. Он просто говорит: "если здесь null, упади". В большинстве случаев лучше использовать `?:`, ранний return, `requireNotNull` или изменить модель данных.
+</MouseTrap>
+
+## Диапазоны и операторы
+
+Операторы ranges:
+
+- `..` создает closed range;
+- `..<` создает open-ended range;
+- `downTo` создает progression вниз;
+- `step` задает шаг;
+- `until` создает range без правой границы для целых чисел.
+
+```kotlin
+fun main() {
+    println(5 in 1..10)
+    println(10 in 1..<10)
+    println((10 downTo 1 step 3).toList())
+    println((0 until 3).toList())
+}
+```
+
+Для индексов коллекций часто используют `indices`:
+
+```kotlin
+fun main() {
+    val lessons = listOf("Лексика", "Типы", "Операторы")
+
+    for (index in lessons.indices) {
+        println("$index: ${lessons[index]}")
+    }
+}
+```
+
+## Приоритет операторов
+
+Приоритет определяет, что выполняется раньше. Например, умножение раньше сложения:
+
+```kotlin
+fun main() {
+    val value = 2 + 3 * 4
+
+    println(value)
+}
+```
+
+Результат — `14`, а не `20`.
+
+Скобки делают намерение явным:
+
+```kotlin
+fun main() {
+    val value = (2 + 3) * 4
+
+    println(value)
+}
+```
+
+Практическое правило: если выражение заставляет вспоминать таблицу приоритетов, добавь скобки или разбей код.
+
+```kotlin
+fun canOpenLesson(
+    hasAccount: Boolean,
+    completedIntro: Boolean,
+    isMentor: Boolean,
+    passedQuiz: Boolean
+): Boolean {
+    val studentCanOpen = hasAccount && completedIntro && passedQuiz
+    val mentorCanOpen = hasAccount && isMentor
+
+    return studentCanOpen || mentorCanOpen
+}
+
+fun main() {
+    println(
+        canOpenLesson(
+            hasAccount = true,
+            completedIntro = true,
+            isMentor = false,
+            passedQuiz = true
+        )
+    )
+}
+```
+
+Это читается лучше, чем один длинный boolean expression.
+
+## `if`, `when` и `try` как выражения
+
+`if` может возвращать значение:
+
+```kotlin
+fun lessonStatus(percent: Int): String {
+    return if (percent >= 70) {
+        "зачет"
+    } else {
+        "повторить"
+    }
+}
+```
+
+`when` тоже:
+
+```kotlin
+fun difficultyLabel(score: Int): String {
+    return when (score) {
+        in 90..100 -> "отлично"
+        in 70..89 -> "хорошо"
+        in 0..69 -> "нужно повторить"
+        else -> "некорректный балл"
+    }
+}
+```
+
+`try` может быть выражением:
+
+```kotlin
+fun parseMinutes(rawValue: String): Int {
+    return try {
+        rawValue.trim().toInt()
+    } catch (exception: NumberFormatException) {
+        0
+    }
+}
+
+fun main() {
+    println(parseMinutes("45"))
+    println(parseMinutes("кот"))
+}
+```
+
+Это не значит, что каждую конструкцию надо превращать в expression. Но для выбора значения такой стиль часто точнее.
+
+## Operator overloading
+
+Kotlin позволяет перегружать операторы через функции с модификатором `operator`. Это не магия: оператор компилируется в вызов функции с конкретным именем.
+
+Например, `a + b` вызывает `a.plus(b)`.
+
+Частые operator-функции:
+
+- `plus`;
+- `minus`;
+- `times`;
+- `div`;
+- `rem`;
+- `unaryPlus`;
+- `unaryMinus`;
+- `inc`;
+- `dec`;
+- `contains`;
+- `get`;
+- `set`;
+- `invoke`;
+- `compareTo`;
+- `equals`.
+
+Пример value object для минут:
+
+```kotlin
+data class Minutes(
+    val value: Int
+) {
+    init {
+        require(value >= 0) {
+            "Количество минут не может быть отрицательным"
+        }
+    }
+
+    operator fun plus(other: Minutes): Minutes {
+        return Minutes(value + other.value)
+    }
+
+    operator fun compareTo(other: Minutes): Int {
+        return value.compareTo(other.value)
+    }
+}
+
+fun main() {
+    val theory = Minutes(40)
+    val practice = Minutes(25)
+    val total = theory + practice
+
+    println(total)
+    println(total > theory)
+}
+```
+
+Операторная перегрузка хороша, когда оператор естественен для домена. Она плоха, когда прячет неожиданное поведение.
+
+Плохой стиль:
+
+```kotlin
+data class User(
+    val name: String
+) {
+    operator fun plus(lessonTitle: String): User {
+        println("Записываем пользователя $name на урок $lessonTitle")
+        return this
+    }
+}
+```
+
+`user + "Операторы"` не должен иметь side effect записи на урок. Оператор должен быть предсказуемым.
+
+## Практический пример: правила доступа к уроку
+
+```kotlin
+data class UserProgress(
+    val hasAccount: Boolean,
+    val completedIntro: Boolean,
+    val passedPreviousQuiz: Boolean,
+    val isMentor: Boolean,
+    val completedLessons: Set<String>
+)
+
+data class LessonAccess(
+    val code: String,
+    val requiredPreviousCode: String?
+)
+
+fun canOpenLesson(progress: UserProgress, lesson: LessonAccess): Boolean {
+    if (!progress.hasAccount) {
+        return false
+    }
+
+    if (progress.isMentor) {
+        return true
+    }
+
+    val previousCode = lesson.requiredPreviousCode
+        ?: return progress.completedIntro
+
+    val completedPreviousLesson = previousCode in progress.completedLessons
+
+    return progress.completedIntro &&
+        progress.passedPreviousQuiz &&
+        completedPreviousLesson
+}
+
+fun explainAccess(progress: UserProgress, lesson: LessonAccess): String {
+    return when {
+        !progress.hasAccount -> "Нужен аккаунт"
+        progress.isMentor -> "Доступ открыт для наставника"
+        !progress.completedIntro -> "Сначала пройди вводный урок"
+        lesson.requiredPreviousCode != null && lesson.requiredPreviousCode !in progress.completedLessons ->
+            "Сначала пройди урок ${lesson.requiredPreviousCode}"
+        !progress.passedPreviousQuiz -> "Сначала пройди проверку предыдущей темы"
+        else -> "Доступ открыт"
+    }
+}
+
+fun main() {
+    val progress = UserProgress(
+        hasAccount = true,
+        completedIntro = true,
+        passedPreviousQuiz = true,
+        isMentor = false,
+        completedLessons = setOf("basics-07")
+    )
+
+    val lesson = LessonAccess(
+        code = "basics-08",
+        requiredPreviousCode = "basics-07"
+    )
+
+    println(canOpenLesson(progress, lesson))
+    println(explainAccess(progress, lesson))
+}
+```
+
+Что здесь используется:
+
+- `!` для отрицания boolean;
+- `?: return` для раннего выхода при отсутствии prerequisite;
+- `in` и `!in` для проверки множества;
+- `&&` для объединения условий;
+- `when` как выражение;
+- nullable-свойство `requiredPreviousCode`;
+- понятные промежуточные значения вместо одного огромного условия.
+
+## Итоги
+
+После этого урока ты должен уверенно читать Kotlin-выражения:
+
+- арифметика зависит от типов операндов;
+- `==` сравнивает значения, а `===` — идентичность ссылок;
+- `&&` и `||` используют short-circuit evaluation;
+- `in` работает через `contains`;
+- `is` дает проверку типа и часто smart cast;
+- `as` может бросить исключение, а `as?` возвращает `null`;
+- `?:` делает fallback для nullable-значений;
+- `?.` безопасно вызывает член nullable-значения;
+- `!!` лучше избегать без жесткого инварианта;
+- скобки и промежуточные `val` лучше, чем сложная надежда на приоритет операторов;
+- operator overloading стоит использовать только там, где оператор очевиден и не прячет side effects.
+

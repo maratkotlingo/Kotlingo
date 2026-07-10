@@ -1,0 +1,692 @@
+---
+title: "Extension-функции"
+description: "Изучаем расширения Kotlin: статический dispatch, nullable receiver, generic и member extensions, imports, область видимости, конфликты имён и правила проектирования API."
+order: 19
+category: "Функции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что расширяет extension-функция
+
+Extension-функция позволяет вызывать внешнюю функцию с синтаксисом member-вызова. Она не изменяет исходный класс, не наследуется от него и не получает доступ к его private-состоянию.
+
+```kotlin
+fun String.toLessonSlug(): String {
+    return trim()
+        .lowercase()
+        .replace(Regex("""[^a-zа-яё0-9]+"""), "-")
+        .trim('-')
+}
+
+fun main() {
+    val slug = "  Extension-функции Kotlin  ".toLessonSlug()
+    println(slug)
+}
+```
+
+`String` перед именем функции — **extension receiver type**. Значение слева от точки — **extension receiver**.
+
+По смыслу вызов близок к обычной функции:
+
+```kotlin
+fun toLessonSlug(value: String): String {
+    return value.trim().lowercase().replace(' ', '-')
+}
+```
+
+Extension-синтаксис делает цепочки преобразований естественнее и группирует операции вокруг типа.
+
+## Синтаксис и `this`
+
+Внутри extension-функции receiver доступен неявно и через `this`.
+
+```kotlin
+fun String.withLessonPrefix(): String {
+    return "Урок: ${this.trim()}"
+}
+```
+
+Обычно явный `this` не нужен:
+
+```kotlin
+fun String.withLessonPrefix(): String = "Урок: ${trim()}"
+```
+
+Extension может принимать обычные параметры и возвращать любой тип:
+
+```kotlin
+fun Int.asProgressOf(total: Int): String {
+    require(total > 0) { "Общее число уроков должно быть положительным" }
+    require(this in 0..total) { "Прогресс должен находиться в диапазоне" }
+
+    return "$this из $total"
+}
+```
+
+## Расширение не модифицирует класс
+
+После объявления extension у `String` не появляется новый реальный member в class metadata. Функция компилируется как статическая функция с receiver в качестве дополнительного параметра на поддерживающих это backend.
+
+Следствия:
+
+- нельзя обращаться к private/protected членам receiver;
+- extension не может переопределить member;
+- выбор extension выполняется статически;
+- extensions импортируются как обычные объявления;
+- Java-клиент JVM обычно вызывает сгенерированный статический метод.
+
+```kotlin
+class Lesson(private val secretToken: String, val title: String)
+
+fun Lesson.displayTitle(): String {
+    // Доступно только public-свойство title.
+    return title.trim()
+}
+```
+
+`secretToken` недоступен, несмотря на синтаксис `lesson.displayTitle()`.
+
+<MouseTrap title="Мышеловка: extension не открывает private-доступ">
+Точка перед именем — удобный синтаксис вызова, а не внедрение кода в класс. Если поведению нужны инварианты или private-состояние, оно должно быть member-функцией самого класса.
+</MouseTrap>
+
+## Статический dispatch
+
+Extension выбирается по **статическому типу** выражения, а не по runtime-классу объекта.
+
+```kotlin
+open class Content(val title: String)
+
+class VideoLesson(title: String) : Content(title)
+
+fun Content.kind(): String = "материал"
+
+fun VideoLesson.kind(): String = "видеоурок"
+
+fun printKind(content: Content) {
+    println(content.kind())
+}
+
+fun main() {
+    val video = VideoLesson("Extension-функции")
+
+    println(video.kind())
+    printKind(video)
+}
+```
+
+Прямой receiver имеет статический тип `VideoLesson`, поэтому первый вызов печатает `видеоурок`. Параметр `content` объявлен как `Content`, поэтому внутри `printKind` выбирается `Content.kind()`, даже если runtime-объект — `VideoLesson`.
+
+Если нужен runtime-полиморфизм, объяви `open` member и `override`:
+
+```kotlin
+open class Content {
+    open fun kind(): String = "материал"
+}
+
+class VideoLesson : Content() {
+    override fun kind(): String = "видеоурок"
+}
+```
+
+Или используй sealed-иерархию и исчерпывающий `when`.
+
+## Member всегда побеждает extension
+
+Если у класса есть применимый member с тем же именем и сигнатурой, вызывается member.
+
+```kotlin
+class Lesson(val title: String) {
+    fun summary(): String = "Member: $title"
+}
+
+fun Lesson.summary(): String = "Extension: $title"
+
+fun main() {
+    println(Lesson("Расширения").summary())
+}
+```
+
+Результат — `Member: Расширения`. Extension не переопределяет поведение типа.
+
+Это создаёт риск эволюции зависимостей: если библиотечный класс в новой версии добавит member с именем существующего пользовательского extension, тот же исходный вызов после пересборки может начать вызывать member.
+
+<CatTip title="Котосовет: выбирай специфичное имя публичного extension">
+Общие имена вроде `run`, `get`, `format` чаще конфликтуют с будущими members и другими библиотеками. `toLessonSlug`, `requireValidScore` или `asCourseProgress` лучше выражают домен и устойчивее к конфликтам.
+</CatTip>
+
+## Nullable receiver
+
+Extension можно объявить для nullable-типа. Внутри `this` имеет nullable-тип, поэтому сначала нужно обработать `null`.
+
+```kotlin
+fun String?.orGuestName(): String {
+    return if (this.isNullOrBlank()) {
+        "Гость"
+    } else {
+        trim()
+    }
+}
+
+fun main() {
+    val name: String? = null
+    println(name.orGuestName())
+}
+```
+
+Вызов выполняется напрямую, без `?.`, потому что сама функция принимает `String?`.
+
+После проверки `this == null` компилятор применяет smart cast:
+
+```kotlin
+fun String?.wordCount(): Int {
+    if (this == null) return 0
+
+    return trim()
+        .split(Regex("""\s+"""))
+        .count { word -> word.isNotEmpty() }
+}
+```
+
+### Nullable extension из стандартной библиотеки
+
+`Any?.toString()` — важный пример. Он возвращает строку `"null"` для `null`, иначе вызывает обычный `toString` объекта.
+
+Также распространены:
+
+- `String?.isNullOrEmpty()`;
+- `String?.isNullOrBlank()`;
+- `Iterable<T>?.orEmpty()`;
+- `Collection<T>?.isNullOrEmpty()`.
+
+Nullable extension полезен, когда `null` имеет одно естественное и безопасное значение. Если разные call sites должны обрабатывать отсутствие по-разному, обычный `?.`/`?:` оставляет решение на месте вызова.
+
+<MouseTrap title="Мышеловка: nullable extension может спрятать важное отсутствие">
+Не превращай `null` в пустую строку или ноль автоматически, если отсутствие означает ошибку данных. Удобный extension не должен стирать бизнес-смысл. Иногда правильнее `requireNotNull` или nullable-результат.
+</MouseTrap>
+
+## Extension properties
+
+Kotlin поддерживает extension-свойства. Они не имеют backing field и обязаны вычисляться через getter; `val` не может хранить новое состояние в чужом объекте.
+
+```kotlin
+val String.lessonWordCount: Int
+    get() = trim()
+        .split(Regex("""\s+"""))
+        .count { it.isNotEmpty() }
+
+fun main() {
+    println("Функции расширения Kotlin".lessonWordCount)
+}
+```
+
+Mutable extension property возможна только при наличии логики getter/setter, которая хранит состояние где-то ещё. Это часто создаёт неочевидное глобальное состояние и требует осторожности.
+
+Хорошее extension property:
+
+- дешёвое;
+- детерминированное;
+- выглядит как характеристика receiver;
+- не совершает I/O и неожиданные эффекты.
+
+Для дорогого вычисления или действия лучше функция.
+
+## Generic extensions
+
+Type parameter объявляется перед receiver type.
+
+```kotlin
+fun <T> Iterable<T>.secondOrNull(): T? {
+    val iterator = iterator()
+    if (!iterator.hasNext()) return null
+
+    iterator.next()
+    if (!iterator.hasNext()) return null
+
+    return iterator.next()
+}
+```
+
+Функция работает с любым `Iterable<T>` и не создаёт промежуточный список.
+
+Ограничение type parameter уточняет доступный контракт:
+
+```kotlin
+fun <T : Comparable<T>> Iterable<T>.rangeOrNull(): ClosedRange<T>? {
+    val iterator = iterator()
+    if (!iterator.hasNext()) return null
+
+    var min = iterator.next()
+    var max = min
+
+    while (iterator.hasNext()) {
+        val value = iterator.next()
+        if (value < min) min = value
+        if (value > max) max = value
+    }
+
+    return min..max
+}
+```
+
+### Reified extension
+
+Inline extension с `reified` может проверять тип во время выполнения:
+
+```kotlin
+inline fun <reified T> Iterable<*>.firstOfTypeOrNull(): T? {
+    return firstOrNull { value -> value is T } as? T
+}
+
+fun main() {
+    val values: List<Any> = listOf(42, "Kotlin", true)
+    println(values.firstOfTypeOrNull<String>())
+}
+```
+
+Стандартная библиотека уже предоставляет `filterIsInstance<T>()` и `filterIsInstanceTo`, поэтому собственный extension нужен только для отличающегося контракта.
+
+## Extensions для generic nullable receiver
+
+```kotlin
+fun <T> T?.requirePresent(lazyMessage: () -> String): T {
+    return this ?: throw IllegalStateException(lazyMessage())
+}
+
+fun main() {
+    val title: String? = "Extension-функции"
+    val presentTitle = title.requirePresent {
+        "Название урока отсутствует"
+    }
+
+    println(presentTitle.length)
+}
+```
+
+После возврата результат имеет `T`, а не `T?`. Для большинства случаев уже есть стандартный `requireNotNull`, но пример показывает связь receiver и результата.
+
+## Top-level extensions и package
+
+Обычно extension объявляют на верхнем уровне в тематическом файле.
+
+```kotlin
+package kotlingo.text
+
+fun String.toLessonSlug(): String =
+    trim().lowercase().replace(' ', '-')
+```
+
+Клиент импортирует функцию:
+
+```kotlin
+package kotlingo.app
+
+import kotlingo.text.toLessonSlug
+
+fun main() {
+    println("Extension Functions".toLessonSlug())
+}
+```
+
+Импортируется имя функции, а не «изменённый класс String».
+
+Можно использовать alias import для конфликта:
+
+```kotlin
+import company.analytics.toLabel as toAnalyticsLabel
+import company.ui.toLabel as toUiLabel
+```
+
+Затем alias вызывается как extension:
+
+```kotlin
+// value.toAnalyticsLabel()
+// value.toUiLabel()
+```
+
+## Область видимости
+
+Extension участвует в вызове только там, где он объявлен, импортирован или доступен как member extension. Две библиотеки могут независимо объявить одно расширение, не меняя receiver class.
+
+Локальный extension допустим внутри функции:
+
+```kotlin
+fun renderReport(titles: List<String>): String {
+    fun String.asBullet(): String = "• ${trim()}"
+
+    return titles.joinToString(separator = "\n") { title ->
+        title.asBullet()
+    }
+}
+```
+
+Он не загрязняет API package и подходит для небольшого повторяющегося преобразования, специфичного одному алгоритму.
+
+## Member extensions: два receiver
+
+Extension можно объявить внутри класса. Тогда одновременно существуют:
+
+- **dispatch receiver** — экземпляр класса, внутри которого объявлена функция;
+- **extension receiver** — значение типа перед точкой.
+
+```kotlin
+class LessonRenderer(private val prefix: String) {
+    fun String.renderAsTitle(): String {
+        return "$prefix ${trim()}"
+    }
+
+    fun render(title: String): String {
+        return title.renderAsTitle()
+    }
+}
+```
+
+`LessonRenderer` — dispatch receiver, `String` — extension receiver. Функция имеет доступ к private `prefix` dispatch receiver, но не к private internals `String`.
+
+### Конфликт имён receiver
+
+Неявный `this` без метки относится к extension receiver. Dispatch receiver можно квалифицировать label:
+
+```kotlin
+class LessonRenderer(private val title: String) {
+    fun String.combineTitles(): String {
+        return "${this@LessonRenderer.title}: ${this.trim()}"
+    }
+
+    fun render(subtitle: String): String = subtitle.combineTitles()
+}
+```
+
+### Dispatch для member extension
+
+Dispatch receiver выбирается виртуально, если соответствующий member open/override, а extension receiver всё равно определяется статически.
+
+```kotlin
+open class Renderer {
+    open fun String.render(): String = "База: $this"
+
+    fun renderValue(value: String): String = value.render()
+}
+
+class FancyRenderer : Renderer() {
+    override fun String.render(): String = "Подробно: $this"
+}
+```
+
+Member extensions мощны, но сложнее для понимания и вызова: обычно они доступны только в контексте dispatch receiver. Часто top-level extension или обычная member-функция сервиса читается проще.
+
+<CatTip title="Котосовет: member extension нужен для ограниченного контекста">
+Используй его, когда операция имеет смысл только внутри конкретного DSL или сервиса и ей нужны зависимости dispatch receiver. Для общего преобразования выбирай top-level extension.
+</CatTip>
+
+## Конфликты extensions
+
+Если две одинаково применимые extension-функции импортированы без alias, вызов может стать неоднозначным.
+
+```kotlin
+// package first
+// fun String.toLabel(): String = "Первая: $this"
+
+// package second
+// fun String.toLabel(): String = "Вторая: $this"
+```
+
+Решения:
+
+- импортировать только нужную;
+- применить alias import;
+- вызвать top-level функцию через имя package в тех местах, где синтаксис это допускает;
+- дать доменно-специфичные имена.
+
+Star imports повышают вероятность скрытых конфликтов при обновлении библиотек. Явные imports легче анализировать в публичном и инфраструктурном коде.
+
+## Перегрузка extension-функций
+
+Extensions можно перегружать по receiver и параметрам:
+
+```kotlin
+fun String.toDisplayText(): String = trim()
+
+fun Int.toDisplayText(): String = "$this баллов"
+
+fun String.toDisplayText(maxLength: Int): String {
+    require(maxLength > 0) { "Максимальная длина должна быть положительной" }
+    return trim().take(maxLength)
+}
+```
+
+Действуют обычные правила overload resolution плюс статический тип receiver.
+
+```kotlin
+val value: Any = " Kotlin "
+
+// value.toDisplayText() недоступна: статический тип Any не имеет такого extension.
+```
+
+Runtime-тип не добавляет extension в доступный набор кандидатов.
+
+## Extension и companion object
+
+Можно расширять companion object, если он существует.
+
+```kotlin
+class SafeLessonId private constructor(val value: String) {
+    companion object {
+        fun parse(raw: String): SafeLessonId? {
+            val normalized = raw.trim()
+            return normalized.takeIf(String::isNotEmpty)?.let(::SafeLessonId)
+        }
+    }
+}
+```
+
+Если фабрике нужен private constructor, она должна быть member самого companion: extension не получает private-доступ. Поэтому `SafeLessonId.parse` размещён внутри класса.
+
+Extension companion полезен, когда тип находится в чужой библиотеке и нужно добавить внешнюю фабрику без private-доступа:
+
+```kotlin
+class ExternalLessonKey(val value: String) {
+    companion object
+}
+
+fun ExternalLessonKey.Companion.fromNumber(number: Int): ExternalLessonKey {
+    require(number > 0) { "Номер должен быть положительным" }
+    return ExternalLessonKey(number.toString())
+}
+
+fun main() {
+    val parsed = SafeLessonId.parse(" 19 ")
+    val external = ExternalLessonKey.fromNumber(19)
+
+    println(parsed?.value)
+    println(external.value)
+}
+```
+
+Вызов выглядит как `ExternalLessonKey.fromNumber(19)`.
+
+## Extensions и Java
+
+На JVM top-level extension компилируется как static method в file facade. Java не получает синтаксис receiver-точки:
+
+```kotlin
+// Kotlin
+package kotlingo.text
+
+fun String.toLessonSlug(): String = trim().lowercase().replace(' ', '-')
+```
+
+Java-вызов концептуально выглядит как `TextKt.toLessonSlug(value)`, если имя файла `Text.kt` и оно не изменено через `@file:JvmName`.
+
+Если Java — важный клиент, проверь сгенерированный API, nullability annotations, имя file facade и удобство вызова.
+
+## Стандартные extension-функции
+
+Большая часть выразительности Kotlin строится на extensions. В стандартной библиотеке встречаются:
+
+- преобразования коллекций: `map`, `filter`, `flatMap`, `associate`, `groupBy`;
+- nullable helpers: `orEmpty`, `isNullOrBlank`, `takeIf`, `takeUnless`;
+- scope functions: `let`, `run`, `apply`, `also`, `with` (у `with` receiver передаётся аргументом);
+- строки: `substringAfter`, `removePrefix`, `trim`, `toIntOrNull`;
+- последовательности: `asSequence`, `generateSequence`;
+- коллекционные терминалы: `firstOrNull`, `singleOrNull`, `joinToString`.
+
+Перед созданием своего общего extension проверь стандартную библиотеку: стандартное имя знакомо читателям и обычно лучше протестировано.
+
+## Проектирование безопасного extension API
+
+Хороший extension:
+
+- сохраняет инварианты receiver;
+- имеет очевидную стоимость;
+- не выглядит как property при дорогом вычислении;
+- не скрывает сеть, базу или глобальную мутацию под невинным именем;
+- находится рядом с доменом, где используется;
+- не претендует на runtime-полиморфизм;
+- не расширяет слишком общий `Any` без сильной причины.
+
+Плохой пример:
+
+```kotlin
+fun String.save() {
+    println("Неочевидно сохраняем строку во внешнее хранилище: $this")
+}
+```
+
+Что именно сохраняется, куда и с каким lifecycle — не видно. Явный repository/service лучше:
+
+```kotlin
+interface LessonRepository {
+    fun saveTitle(title: String)
+}
+
+fun LessonRepository.saveNormalizedTitle(rawTitle: String) {
+    saveTitle(rawTitle.trim())
+}
+```
+
+Receiver теперь выражает зависимость и область эффекта.
+
+## Практический пример: валидация и представление урока
+
+```kotlin
+data class LessonDraft(
+    val title: String,
+    val description: String?,
+    val tags: List<String>,
+    val estimatedMinutes: Int
+)
+
+data class ValidationIssue(
+    val field: String,
+    val message: String
+)
+
+fun String.normalizedWhitespace(): String {
+    return trim().replace(Regex("""\s+"""), " ")
+}
+
+fun String?.normalizedOrNull(): String? {
+    return this
+        ?.normalizedWhitespace()
+        ?.takeIf(String::isNotEmpty)
+}
+
+fun Iterable<String>.normalizedTags(): List<String> {
+    return asSequence()
+        .map(String::normalizedWhitespace)
+        .map(String::lowercase)
+        .filter(String::isNotEmpty)
+        .distinct()
+        .sorted()
+        .toList()
+}
+
+fun LessonDraft.validate(): List<ValidationIssue> {
+    val issues = mutableListOf<ValidationIssue>()
+    val normalizedTitle = title.normalizedWhitespace()
+
+    if (normalizedTitle.length !in 3..120) {
+        issues += ValidationIssue(
+            field = "title",
+            message = "Название должно содержать от 3 до 120 символов"
+        )
+    }
+
+    val normalizedDescription = description.normalizedOrNull()
+    if (normalizedDescription != null && normalizedDescription.length > 500) {
+        issues += ValidationIssue(
+            field = "description",
+            message = "Описание не должно превышать 500 символов"
+        )
+    }
+
+    if (estimatedMinutes !in 1..480) {
+        issues += ValidationIssue(
+            field = "estimatedMinutes",
+            message = "Длительность должна быть от 1 до 480 минут"
+        )
+    }
+
+    if (tags.normalizedTags().size > 10) {
+        issues += ValidationIssue(
+            field = "tags",
+            message = "Допустимо не более 10 уникальных меток"
+        )
+    }
+
+    return issues.toList()
+}
+
+fun LessonDraft.toDisplayLine(): String {
+    val duration = "$estimatedMinutes мин."
+    val visibleTags = tags.normalizedTags().joinToString(prefix = "[", postfix = "]")
+    return "${title.normalizedWhitespace()} · $duration · $visibleTags"
+}
+
+fun main() {
+    val draft = LessonDraft(
+        title = "  Extension-функции   Kotlin ",
+        description = "  Статический dispatch и nullable receiver. ",
+        tags = listOf(" Kotlin ", "functions", "kotlin", " extensions "),
+        estimatedMinutes = 45
+    )
+
+    val issues = draft.validate()
+    if (issues.isEmpty()) {
+        println(draft.toDisplayLine())
+    } else {
+        issues.forEach { issue ->
+            println("${issue.field}: ${issue.message}")
+        }
+    }
+}
+```
+
+Здесь extensions разделены по receiver:
+
+- `String.normalizedWhitespace` — общее детерминированное преобразование;
+- `String?.normalizedOrNull` централизует null/blank правило;
+- `Iterable<String>.normalizedTags` работает с любым источником, не только `List`;
+- `LessonDraft.validate` добавляет доменную операцию без доступа к private-состоянию;
+- `LessonDraft.toDisplayLine` явно сообщает, что строит представление;
+- все операции выбираются статически и не имитируют virtual members.
+
+## Итоги
+
+- extension добавляет удобный синтаксис, но не изменяет исходный класс;
+- extension receiver доступен как `this`, но private internals класса недоступны;
+- overload выбирается по статическому типу receiver;
+- member с подходящей сигнатурой всегда приоритетнее extension;
+- nullable receiver позволяет вызывать функцию прямо на `null`;
+- extension property не имеет backing field;
+- generic и reified extensions строят типобезопасные общие операции;
+- top-level extension импортируется как обычная функция;
+- локальные extensions ограничивают область вспомогательного поведения;
+- member extension имеет dispatch receiver и extension receiver одновременно;
+- alias imports разрешают конфликты имён;
+- extension должен иметь ясную стоимость, доменное имя и предсказуемый эффект.
+

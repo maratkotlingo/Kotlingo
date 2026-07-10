@@ -1,0 +1,585 @@
+---
+title: "Циклы и итерация"
+description: "Разбираем for, while, do while, ranges, progressions, downTo, step, until, ..<, break, continue, labels, iterator-соглашение, indices и withIndex."
+order: 10
+category: "Базовый синтаксис"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое итерация
+
+Итерация — повторение действия для набора значений или до выполнения условия. В Kotlin чаще всего используют `for` по коллекциям, диапазонам и последовательностям. `while` и `do while` нужны, когда количество повторений заранее неизвестно или зависит от состояния.
+
+```kotlin
+fun main() {
+    val lessons = listOf("Условия", "Циклы", "Исключения")
+
+    for (lesson in lessons) {
+        println(lesson)
+    }
+}
+```
+
+`for` здесь не требует ручного индекса: Kotlin перебирает элементы коллекции.
+
+## `for`
+
+`for` работает с объектами, которые поддерживают iterator-соглашение.
+
+```kotlin
+fun main() {
+    val completedLessons = listOf(
+        "Введение",
+        "Переменные",
+        "Операторы"
+    )
+
+    for (lesson in completedLessons) {
+        println("Пройдено: $lesson")
+    }
+}
+```
+
+Внутри цикла переменная `lesson` доступна только в теле цикла.
+
+## `for` по диапазону
+
+```kotlin
+fun main() {
+    for (number in 1..5) {
+        println("Урок $number")
+    }
+}
+```
+
+`1..5` создает closed range: правая граница включена.
+
+Open-ended range:
+
+```kotlin
+fun main() {
+    for (index in 0..<5) {
+        println(index)
+    }
+}
+```
+
+`0..<5` включает `0`, `1`, `2`, `3`, `4`, но не включает `5`.
+
+`until` делает похожую вещь для целых чисел:
+
+```kotlin
+fun main() {
+    for (index in 0 until 5) {
+        println(index)
+    }
+}
+```
+
+## `downTo` и `step`
+
+`downTo` создает progression вниз:
+
+```kotlin
+fun main() {
+    for (number in 5 downTo 1) {
+        println(number)
+    }
+}
+```
+
+`step` задает шаг:
+
+```kotlin
+fun main() {
+    for (number in 0..10 step 2) {
+        println(number)
+    }
+}
+```
+
+Можно комбинировать:
+
+```kotlin
+fun main() {
+    for (number in 10 downTo 0 step 2) {
+        println(number)
+    }
+}
+```
+
+Важные свойства progressions:
+
+- `first` — первый элемент;
+- `last` — последний элемент, который реально попадет в progression;
+- `step` — шаг;
+- `isEmpty()` — проверяет, пустой ли диапазон/progression.
+
+```kotlin
+fun main() {
+    val progression = 1..10 step 3
+
+    println(progression.first)
+    println(progression.last)
+    println(progression.step)
+    println(progression.toList())
+}
+```
+
+## `indices`
+
+`indices` возвращает диапазон допустимых индексов коллекции или строки.
+
+```kotlin
+fun main() {
+    val lessons = listOf("Условия", "Циклы", "Исключения")
+
+    for (index in lessons.indices) {
+        println("$index: ${lessons[index]}")
+    }
+}
+```
+
+Это безопаснее, чем `0..lessons.size - 1`, потому что для пустого списка `indices` будет пустым диапазоном.
+
+Плохой вариант:
+
+```kotlin
+fun main() {
+    val lessons = emptyList<String>()
+
+    // Такой диапазон легко написать неправильно для пустой коллекции.
+    for (index in 0..lessons.size - 1) {
+        println(lessons[index])
+    }
+}
+```
+
+Хороший вариант:
+
+```kotlin
+fun main() {
+    val lessons = emptyList<String>()
+
+    for (index in lessons.indices) {
+        println(lessons[index])
+    }
+}
+```
+
+## `withIndex`
+
+`withIndex()` дает и индекс, и значение.
+
+```kotlin
+fun main() {
+    val lessons = listOf("Условия", "Циклы", "Исключения")
+
+    for ((index, lesson) in lessons.withIndex()) {
+        println("${index + 1}. $lesson")
+    }
+}
+```
+
+`withIndex()` возвращает `Iterable<IndexedValue<T>>`. У `IndexedValue` есть:
+
+- `index`;
+- `value`;
+- `component1()` для destructuring индекса;
+- `component2()` для destructuring значения.
+
+Если индекс не нужен, не используй `withIndex()`.
+
+## Destructuring в цикле
+
+Цикл может распаковывать пары, data classes и map entries.
+
+```kotlin
+fun main() {
+    val lessonDurations = mapOf(
+        "Условия" to 60,
+        "Циклы" to 70,
+        "Исключения" to 80
+    )
+
+    for ((title, minutes) in lessonDurations) {
+        println("$title: $minutes мин.")
+    }
+}
+```
+
+Если часть значения не нужна, используй `_`:
+
+```kotlin
+fun main() {
+    val lessonDurations = mapOf(
+        "Условия" to 60,
+        "Циклы" to 70
+    )
+
+    for ((title, _) in lessonDurations) {
+        println(title)
+    }
+}
+```
+
+## `while`
+
+`while` повторяет тело, пока условие истинно. Условие проверяется перед каждой итерацией.
+
+```kotlin
+fun main() {
+    var attempts = 0
+
+    while (attempts < 3) {
+        attempts += 1
+        println("Попытка $attempts")
+    }
+}
+```
+
+`while` полезен, когда количество итераций зависит от состояния:
+
+```kotlin
+fun consumeQueue(queue: ArrayDeque<String>) {
+    while (queue.isNotEmpty()) {
+        val lesson = queue.removeFirst()
+        println("Обрабатываем: $lesson")
+    }
+}
+
+fun main() {
+    val queue = ArrayDeque(
+        listOf("Условия", "Циклы", "Исключения")
+    )
+
+    consumeQueue(queue)
+}
+```
+
+## `do while`
+
+`do while` сначала выполняет тело, а потом проверяет условие.
+
+```kotlin
+fun main() {
+    var attempts = 0
+
+    do {
+        attempts += 1
+        println("Попытка $attempts")
+    } while (attempts < 3)
+}
+```
+
+`do while` нужен реже, но полезен, когда действие должно выполниться хотя бы один раз: например, показать меню, прочитать первую строку или выполнить начальную попытку.
+
+## `break`
+
+`break` завершает ближайший цикл.
+
+```kotlin
+fun main() {
+    val lessons = listOf("Условия", "Циклы", "Исключения")
+
+    for (lesson in lessons) {
+        if (lesson == "Циклы") {
+            println("Нужный урок найден")
+            break
+        }
+
+        println("Проверяем: $lesson")
+    }
+}
+```
+
+После `break` выполнение продолжается после цикла.
+
+## `continue`
+
+`continue` пропускает текущую итерацию и переходит к следующей.
+
+```kotlin
+fun main() {
+    val lessons = listOf("Условия", "", "Циклы", "   ", "Исключения")
+
+    for (lesson in lessons) {
+        if (lesson.isBlank()) {
+            continue
+        }
+
+        println(lesson)
+    }
+}
+```
+
+Так удобно пропускать некорректные или неинтересные элементы.
+
+## Labels в циклах
+
+Labels помогают управлять вложенными циклами.
+
+```kotlin
+fun main() {
+    val modules = listOf(
+        listOf("Условия", "Циклы"),
+        listOf("Исключения", "Nullable")
+    )
+
+    outerLoop@ for (module in modules) {
+        for (lesson in module) {
+            if (lesson == "Исключения") {
+                println("Нашли урок: $lesson")
+                break@outerLoop
+            }
+        }
+    }
+}
+```
+
+`break@outerLoop` завершает внешний цикл, а не только внутренний.
+
+С `continue`:
+
+```kotlin
+fun main() {
+    val modules = listOf(
+        listOf("Условия", ""),
+        listOf("", "Nullable")
+    )
+
+    outerLoop@ for (module in modules) {
+        for (lesson in module) {
+            if (lesson.isBlank()) {
+                // Переходим к следующему module.
+                continue@outerLoop
+            }
+
+            println(lesson)
+        }
+    }
+}
+```
+
+Labels мощные, но если их слишком много, код часто стоит вынести в функцию.
+
+<MouseTrap title="Мышеловка: сложные labels прячут слабую структуру">
+Если для понимания цикла нужно отслеживать несколько label-прыжков, попробуй вынести поиск, фильтрацию или обработку в отдельную функцию с ранним `return`. Часто это проще, чем вложенные `break@label`.
+</MouseTrap>
+
+## Iterator-соглашение
+
+`for (item in source)` работает, если у `source` есть `iterator()` с нужными методами:
+
+- `iterator()` возвращает iterator;
+- `hasNext()` сообщает, есть ли следующий элемент;
+- `next()` возвращает следующий элемент.
+
+Пример собственного iterable:
+
+```kotlin
+class LessonPlan(
+    private val lessons: List<String>
+) : Iterable<String> {
+    override fun iterator(): Iterator<String> {
+        return lessons.iterator()
+    }
+}
+
+fun main() {
+    val plan = LessonPlan(
+        lessons = listOf("Условия", "Циклы", "Исключения")
+    )
+
+    for (lesson in plan) {
+        println(lesson)
+    }
+}
+```
+
+Важные методы `Iterator<T>`:
+
+- `hasNext()` возвращает `Boolean`;
+- `next()` возвращает следующий элемент или бросает исключение, если элемента нет.
+
+`MutableIterator<T>` добавляет:
+
+- `remove()` удаляет текущий элемент из mutable-источника, если реализация это поддерживает.
+
+## `forEach` и `forEachIndexed`
+
+Коллекции поддерживают функции:
+
+- `forEach`;
+- `forEachIndexed`.
+
+```kotlin
+fun main() {
+    val lessons = listOf("Условия", "Циклы", "Исключения")
+
+    lessons.forEach { lesson ->
+        println(lesson)
+    }
+
+    lessons.forEachIndexed { index, lesson ->
+        println("${index + 1}. $lesson")
+    }
+}
+```
+
+`forEach` хорош для простых действий. Но если нужны `break` или `continue`, обычный `for` часто понятнее.
+
+В lambda можно использовать label-return:
+
+```kotlin
+fun main() {
+    val lessons = listOf("Условия", "", "Циклы")
+
+    lessons.forEach lessonLoop@{ lesson ->
+        if (lesson.isBlank()) {
+            return@lessonLoop
+        }
+
+        println(lesson)
+    }
+}
+```
+
+Это похоже на `continue`, но только для lambda.
+
+## Последовательности и ленивость
+
+`Sequence` выполняет промежуточные операции лениво. Полный разбор будет в коллекциях, но базовую идею стоит знать.
+
+```kotlin
+fun main() {
+    val firstLongTitle = listOf("if", "when", "цикл for", "исключения")
+        .asSequence()
+        .map { title ->
+            println("Нормализуем: $title")
+            title.trim()
+        }
+        .first { title ->
+            println("Проверяем: $title")
+            title.length > 5
+        }
+
+    println("Первое длинное название: $firstLongTitle")
+}
+```
+
+Sequence не делает работу до terminal operation, например `first`, `toList`, `count`, `sumOf`.
+
+## Практический пример: обработка учебного плана
+
+```kotlin
+data class LessonInput(
+    val code: String,
+    val title: String,
+    val minutes: Int
+)
+
+data class LessonSummary(
+    val code: String,
+    val normalizedTitle: String,
+    val minutes: Int,
+    val position: Int
+)
+
+fun buildSummaries(inputs: List<LessonInput>): List<LessonSummary> {
+    val summaries = mutableListOf<LessonSummary>()
+
+    for ((index, input) in inputs.withIndex()) {
+        if (input.code.isBlank()) {
+            // Урок без кода нельзя безопасно связать с маршрутом.
+            continue
+        }
+
+        val normalizedTitle = input.title.trim()
+
+        if (normalizedTitle.isBlank()) {
+            // Пустое название не попадает в итоговый план.
+            continue
+        }
+
+        if (input.minutes <= 0) {
+            // Длительность должна быть положительной.
+            continue
+        }
+
+        summaries += LessonSummary(
+            code = input.code.trim(),
+            normalizedTitle = normalizedTitle,
+            minutes = input.minutes.coerceAtMost(240),
+            position = index + 1
+        )
+    }
+
+    return summaries
+}
+
+fun printPlan(summaries: List<LessonSummary>) {
+    if (summaries.isEmpty()) {
+        println("План пуст")
+        return
+    }
+
+    for (summary in summaries) {
+        println("${summary.position}. ${summary.normalizedTitle} (${summary.code}), ${summary.minutes} мин.")
+    }
+}
+
+fun main() {
+    val inputs = listOf(
+        LessonInput(
+            code = "basics-09",
+            title = " Условия ",
+            minutes = 65
+        ),
+        LessonInput(
+            code = "",
+            title = "Некорректный урок",
+            minutes = 30
+        ),
+        LessonInput(
+            code = "basics-10",
+            title = "Циклы и итерация",
+            minutes = 75
+        )
+    )
+
+    val summaries = buildSummaries(inputs)
+
+    printPlan(summaries)
+}
+```
+
+Что здесь используется:
+
+- `withIndex()` для позиции;
+- `continue` для пропуска некорректных элементов;
+- `mutableListOf` для накопления результата;
+- `+=` для добавления в mutable list;
+- `coerceAtMost` для ограничения длительности;
+- отдельная функция `printPlan`, чтобы не смешивать построение и вывод.
+
+## Итоги
+
+Итерация в Kotlin строится вокруг читаемости:
+
+- `for` лучше всего подходит для перебора коллекций, ranges и iterable-объектов;
+- `while` нужен, когда повторение зависит от изменяемого состояния;
+- `do while` выполняет тело хотя бы один раз;
+- `..`, `..<`, `until`, `downTo`, `step` покрывают основные числовые маршруты;
+- `indices` безопаснее ручного диапазона индексов;
+- `withIndex()` дает индекс и значение без ручного счетчика;
+- destructuring удобен для map entries и data classes;
+- `break` завершает цикл;
+- `continue` пропускает итерацию;
+- labels помогают во вложенных циклах, но ими не стоит злоупотреблять;
+- `for` работает через `iterator()`/`hasNext()`/`next()`;
+- `forEach` хорош для простых действий, но обычный `for` чаще лучше для сложного управления потоком.
+

@@ -1,0 +1,488 @@
+---
+title: "Migration And Interoperability Strategy"
+description: "Migration and interoperability strategy: Java to Kotlin, Kotlin version upgrades, language feature flags, deprecation cycles, compatibility guides, mixed modules, nullability migration и safe rollout."
+order: 104
+category: "Architecture"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Migration is a product process
+
+Migration is not only code conversion. It changes build, APIs, tests, tooling and team habits.
+
+Examples:
+
+- Java to Kotlin;
+- Kotlin version upgrade;
+- Gradle plugin upgrade;
+- Java target upgrade;
+- enabling explicit API mode;
+- migrating to coroutines;
+- moving code to KMP common source sets;
+- changing serialization format;
+- deprecating old API.
+
+Safe migration has:
+
+- small steps;
+- rollback path;
+- tests before broad rewrites;
+- compatibility rules;
+- CI coverage;
+- release notes;
+- measurable completion criteria.
+
+<CatTip>
+Миграция — это не прыжок с шкафа, а серия аккуратных шагов по полке: проверил лапу, перенес вес, пошел дальше.
+</CatTip>
+
+## Java to Kotlin
+
+Mixed Java/Kotlin projects are normal. You do not need to convert everything at once.
+
+Good first targets:
+
+- tests;
+- small value objects;
+- leaf utilities with tests;
+- new features;
+- internal services;
+- DTO mappers;
+- code with low inheritance complexity.
+
+Risky first targets:
+
+- public Java API heavily used by external consumers;
+- annotation-processor-heavy code;
+- reflection-heavy frameworks;
+- generated code;
+- concurrency primitives with subtle memory behavior;
+- giant inheritance hierarchies.
+
+Java class:
+
+```java
+package dev.kotlingo.lesson;
+
+public final class JavaLesson {
+    private final String slug;
+    private final String title;
+
+    public JavaLesson(String slug, String title) {
+        this.slug = slug;
+        this.title = title;
+    }
+
+    public String getSlug() {
+        return slug;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+}
+```
+
+Kotlin equivalent:
+
+```kotlin
+package dev.kotlingo.lesson
+
+data class Lesson(
+    val slug: String,
+    val title: String
+)
+```
+
+But public API compatibility may differ: Java constructor, getters, `equals`, `hashCode`, `toString` and nullability annotations must be considered.
+
+## Nullability migration
+
+Java nullability is often implicit. Kotlin forces a contract.
+
+Java:
+
+```java
+public interface LessonRepository {
+    Lesson find(String slug);
+}
+```
+
+Kotlin migration choices:
+
+```kotlin
+interface LessonRepository {
+    fun find(slug: String): Lesson?
+}
+```
+
+or:
+
+```kotlin
+interface StrictLessonRepository {
+    fun get(slug: String): Lesson
+}
+```
+
+Decide based on behavior, not converter output.
+
+Boundary normalization:
+
+```kotlin
+class JavaRepositoryAdapter(
+    private val delegate: JavaLessonRepository
+) {
+    fun find(slug: String): Lesson? {
+        val lesson = delegate.find(slug)
+
+        return lesson?.let { javaLesson ->
+            Lesson(
+                slug = javaLesson.slug,
+                title = javaLesson.title ?: "Без названия"
+            )
+        }
+    }
+}
+```
+
+<MouseTrap>
+Не принимай platform types как «потом разберемся». Nullability is the migration. Если contract не выбран, Kotlin-код просто перенес Java-неясность в новые файлы.
+</MouseTrap>
+
+## Java-facing Kotlin APIs
+
+When migrated Kotlin code is called from Java, keep Java ergonomics.
+
+```kotlin
+class LessonFacade {
+    @JvmOverloads
+    fun title(slug: String, fallback: String = "Без названия"): String {
+        return if (slug.isBlank()) fallback else "Урок $slug"
+    }
+
+    companion object {
+        @JvmStatic
+        fun create(): LessonFacade {
+            return LessonFacade()
+        }
+    }
+}
+```
+
+For Java checked exception expectations:
+
+```kotlin
+import java.io.IOException
+
+class LessonFileReader {
+    @Throws(IOException::class)
+    fun read(path: java.nio.file.Path): String {
+        return java.nio.file.Files.readString(path)
+    }
+}
+```
+
+Use Java tests for Java-facing API.
+
+```java
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+final class LessonFacadeJavaTest {
+    @Test
+    void usesDefaultFallback() {
+        LessonFacade facade = LessonFacade.create();
+
+        assertEquals("Без названия", facade.title(""));
+    }
+}
+```
+
+## Kotlin version upgrades
+
+Kotlin upgrade affects:
+
+- compiler;
+- Gradle plugin;
+- language version;
+- API version;
+- stdlib;
+- compiler plugins;
+- KSP/kapt;
+- binary compatibility;
+- IDE behavior;
+- warnings and diagnostics.
+
+Upgrade process:
+
+- read official compatibility guide for target version;
+- update Kotlin Gradle plugin in one branch;
+- update compiler plugin versions together;
+- run clean build;
+- run tests for all targets;
+- fix new warnings deliberately;
+- check generated code and annotation processors;
+- test publishing if library;
+- roll out gradually if monorepo is large.
+
+Gradle:
+
+```kotlin
+plugins {
+    kotlin("jvm") version "2.4.0"
+}
+```
+
+Language/API version can be pinned during migration.
+
+```kotlin
+kotlin {
+    compilerOptions {
+        languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_4)
+        apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_4)
+    }
+}
+```
+
+Do not jump versions blindly in a library consumed by many services.
+
+## Language feature flags
+
+Some Kotlin features require opt-in or compiler flags before becoming stable.
+
+Examples:
+
+- experimental APIs with `@OptIn`;
+- preview language features;
+- compiler plugin features;
+- context-sensitive resolution before stable release;
+- progressive mode for earlier diagnostics.
+
+Localized opt-in:
+
+```kotlin
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+
+@OptIn(ExperimentalCoroutinesApi::class)
+fun useExperimentalApi() {
+    println("Experimental API используется осознанно")
+}
+```
+
+Prefer local opt-in over global project-wide opt-in when usage is isolated.
+
+Gradle opt-in:
+
+```kotlin
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-opt-in=kotlin.RequiresOptIn")
+    }
+}
+```
+
+Document why a flag exists and when to remove it.
+
+<CatTip>
+Feature flag без даты пересмотра — как коробка на шкафу: все привыкли, что она там, но никто не помнит, что внутри.
+</CatTip>
+
+## Deprecation cycles
+
+Public API removal should be staged.
+
+Typical cycle:
+
+- introduce replacement;
+- mark old API as `WARNING`;
+- update internal callers;
+- publish release notes;
+- later raise to `ERROR`;
+- remove in next major version or documented breaking release.
+
+```kotlin
+class LessonApi {
+    fun open(slug: LessonSlug): Lesson {
+        return Lesson(slug, "Урок ${slug.value}")
+    }
+
+    @Deprecated(
+        message = "Use open(LessonSlug) to avoid invalid slug values.",
+        replaceWith = ReplaceWith("open(LessonSlug(slug))"),
+        level = DeprecationLevel.WARNING
+    )
+    fun open(slug: String): Lesson {
+        return open(LessonSlug(slug))
+    }
+}
+```
+
+Later:
+
+```kotlin
+@Deprecated(
+    message = "Use open(LessonSlug). This overload will be removed in the next major release.",
+    replaceWith = ReplaceWith("open(LessonSlug(slug))"),
+    level = DeprecationLevel.ERROR
+)
+fun openOld(slug: String): Lesson {
+    return open(LessonSlug(slug))
+}
+```
+
+Use `ReplaceWith` to make IDE migration easier.
+
+## Binary compatibility during migration
+
+Migration can accidentally break binary compatibility.
+
+Risky changes:
+
+- converting Java class to Kotlin data class;
+- changing constructor signature;
+- replacing Java static method with companion method without `@JvmStatic`;
+- changing package or top-level file name;
+- adding default parameters without Java overloads where Java callers need them;
+- changing nullability annotations in public API;
+- changing return type from platform type to stricter type;
+- removing old overload too early.
+
+Use binary compatibility validation for published libraries.
+
+```kotlin
+plugins {
+    id("org.jetbrains.kotlinx.binary-compatibility-validator") version "0.18.1"
+}
+
+apiValidation {
+    ignoredProjects += listOf("sample-app")
+}
+```
+
+Validate public ABI in CI before publishing.
+
+## Compatibility guides
+
+Official compatibility guides tell what changed between Kotlin versions:
+
+- language changes;
+- compiler diagnostics;
+- standard library behavior;
+- Gradle plugin changes;
+- multiplatform changes;
+- deprecations and removals.
+
+Migration checklist for a Kotlin upgrade:
+
+- read guide before changing version;
+- search codebase for mentioned APIs;
+- run build with warnings visible;
+- upgrade ecosystem plugins together;
+- check generated code;
+- check binary compatibility;
+- check runtime behavior on all targets;
+- update docs and sample code.
+
+## Interoperability strategy
+
+Interop should have boundaries.
+
+Java boundary:
+
+```kotlin
+class JavaFriendlyLessonApi {
+    @JvmOverloads
+    fun search(query: String, limit: Int = 20): List<Lesson> {
+        require(limit > 0) { "limit должен быть положительным" }
+
+        return listOf(
+            Lesson(
+                slug = LessonSlug("104-migration-and-interoperability-strategy"),
+                title = "Migration And Interoperability Strategy"
+            )
+        ).take(limit)
+    }
+}
+```
+
+Kotlin-friendly internal API:
+
+```kotlin
+class KotlinLessonSearch {
+    fun search(request: SearchRequest): SearchResult {
+        return SearchResult.Ready(emptyList())
+    }
+}
+
+data class SearchRequest(
+    val query: String,
+    val limit: Int
+)
+
+sealed interface SearchResult {
+    data class Ready(
+        val lessons: List<Lesson>
+    ) : SearchResult
+
+    data class Rejected(
+        val reason: String
+    ) : SearchResult
+}
+```
+
+Do not force one surface to satisfy every consumer. Use adapters when Java, Kotlin, JS or Swift callers need different ergonomics.
+
+## Production migration plan
+
+Example plan for Java-to-Kotlin service migration:
+
+- add Kotlin plugin without converting production code;
+- convert tests or small leaf classes;
+- add `kotlin.test` and JUnit Platform setup;
+- define nullability policy;
+- convert internal value objects;
+- convert services behind existing interfaces;
+- keep Java-facing facade stable;
+- add Java tests for facade;
+- introduce deprecations for old overloads;
+- validate binary compatibility;
+- remove deprecated APIs only in planned breaking release.
+
+Example plan for Kotlin version upgrade:
+
+- read compatibility guide;
+- update version catalog;
+- update compiler plugins;
+- run clean build;
+- run all target tests;
+- fix warnings intentionally;
+- update code style/formatting if needed;
+- check public ABI;
+- publish release candidate internally;
+- monitor runtime errors after rollout.
+
+<MouseTrap>
+Big-bang migration feels fast until the first rollback. A good migration leaves the system releasable after every meaningful step.
+</MouseTrap>
+
+## Final checklist
+
+For migration and interop:
+
+- convert behavior with tests, not syntax alone;
+- choose nullability contracts manually;
+- keep Java API stable with annotations where needed;
+- read compatibility guides before version upgrades;
+- use feature flags locally and document them;
+- deprecate before removing;
+- validate binary compatibility for libraries;
+- keep adapters for different language consumers;
+- make rollback possible.
+
+<CatTip>
+Самая сильная миграционная стратегия — та, после которой никто не замечает драму: код стал лучше, релизы идут, старые callers не сломались, а команда понимает следующий шаг.
+</CatTip>
+

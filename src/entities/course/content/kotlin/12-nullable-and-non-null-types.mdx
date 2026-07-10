@@ -1,0 +1,498 @@
+---
+title: "Nullable и non-null типы"
+description: "Разбираем String против String?, безопасный вызов, Elvis, not-null assertion, nullable receiver, цепочки nullable-операций и практическое моделирование отсутствия значения."
+order: 12
+category: "Null-safety"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Главная идея null-safety
+
+В Kotlin отсутствие значения является частью типа. `String` означает "строка точно есть". `String?` означает "строка может быть `null`". Это не комментарий и не договоренность между разработчиками, а правило, которое проверяет компилятор.
+
+```kotlin
+fun main() {
+    val requiredTitle: String = "Nullable"
+    val optionalTitle: String? = null
+
+    println(requiredTitle.length)
+    println(optionalTitle?.length)
+}
+```
+
+`requiredTitle.length` безопасен, потому что `requiredTitle` не может быть `null`. `optionalTitle.length` без проверки не скомпилируется.
+
+<CatTip title="Кошачья формула null-safety">
+Если значение может отсутствовать по смыслу домена, ставь `?` в типе и обрабатывай отсутствие явно. Если значение обязательно, не делай его nullable "на всякий случай": ты только перенесешь проблему дальше по коду.
+</CatTip>
+
+## `String` против `String?`
+
+```kotlin
+fun printRequiredTitle(title: String) {
+    println(title.trim())
+}
+
+fun printOptionalTitle(title: String?) {
+    if (title == null) {
+        println("Название отсутствует")
+        return
+    }
+
+    println(title.trim())
+}
+
+fun main() {
+    printRequiredTitle("Kotlin")
+    printOptionalTitle(null)
+    printOptionalTitle("Null-safety")
+}
+```
+
+Разница в контракте:
+
+- `printRequiredTitle` не принимает `null`;
+- `printOptionalTitle` принимает `null` и должна решить, что с ним делать.
+
+Не надо делать параметр nullable, если функция не умеет содержательно обработать `null`.
+
+Плохой контракт:
+
+```kotlin
+fun saveLesson(title: String?) {
+    // Функция на самом деле не умеет сохранить урок без названия.
+    println(title!!.trim())
+}
+```
+
+Хороший контракт:
+
+```kotlin
+fun saveLesson(title: String) {
+    require(title.isNotBlank()) {
+        "Название урока не должно быть пустым"
+    }
+
+    println(title.trim())
+}
+```
+
+## Проверка на `null`
+
+Обычная проверка:
+
+```kotlin
+fun normalizeTitle(title: String?): String {
+    if (title == null) {
+        return "Без названия"
+    }
+
+    return title.trim()
+}
+```
+
+После `if (title == null) return` компилятор знает, что ниже `title` уже `String`.
+
+Проверка на not-null:
+
+```kotlin
+fun printTitle(title: String?) {
+    if (title != null) {
+        println(title.length)
+    }
+}
+```
+
+Для строк часто нужно проверять не только `null`, но и blank:
+
+```kotlin
+fun normalizeRequiredTitle(title: String?): String? {
+    if (title.isNullOrBlank()) {
+        return null
+    }
+
+    return title.trim()
+}
+```
+
+`isNullOrBlank()` — extension-функция для nullable `String`.
+
+## Safe call `?.`
+
+Safe call вызывает свойство или метод только если значение не `null`.
+
+```kotlin
+fun main() {
+    val title: String? = "Nullable"
+    val missingTitle: String? = null
+
+    println(title?.length)
+    println(missingTitle?.length)
+}
+```
+
+Тип результата тоже nullable. `title?.length` имеет тип `Int?`, потому что при `title == null` результат будет `null`.
+
+Цепочка safe calls:
+
+```kotlin
+data class Author(
+    val name: String?
+)
+
+data class Lesson(
+    val title: String,
+    val author: Author?
+)
+
+fun authorNameLength(lesson: Lesson?): Int? {
+    return lesson
+        ?.author
+        ?.name
+        ?.trim()
+        ?.length
+}
+
+fun main() {
+    val lesson = Lesson(
+        title = "Nullable",
+        author = Author(name = " Марта ")
+    )
+
+    println(authorNameLength(lesson))
+    println(authorNameLength(null))
+}
+```
+
+Если любой элемент цепочки равен `null`, итог будет `null`.
+
+## Safe call с `let`
+
+`let` часто используют для выполнения блока только при non-null значении:
+
+```kotlin
+fun printTitleIfPresent(title: String?) {
+    title?.let { nonNullTitle ->
+        println(nonNullTitle.trim())
+    }
+}
+
+fun main() {
+    printTitleIfPresent(" Nullable ")
+    printTitleIfPresent(null)
+}
+```
+
+`let` полезен, когда нужно выполнить несколько действий с non-null значением:
+
+```kotlin
+fun openLessonIfPresent(title: String?) {
+    title
+        ?.trim()
+        ?.takeIf { normalizedTitle -> normalizedTitle.isNotBlank() }
+        ?.let { normalizedTitle ->
+            println("Проверяем доступ")
+            println("Открываем урок: $normalizedTitle")
+        }
+}
+```
+
+Но не превращай простую проверку в длинную цепочку только ради стиля. Иногда обычный `if` читается лучше.
+
+## Elvis-оператор `?:`
+
+Elvis возвращает левую часть, если она не `null`, иначе правую.
+
+```kotlin
+fun displayTitle(title: String?): String {
+    return title ?: "Без названия"
+}
+
+fun main() {
+    println(displayTitle("Nullable"))
+    println(displayTitle(null))
+}
+```
+
+С safe call:
+
+```kotlin
+fun titleLength(title: String?): Int {
+    return title?.length ?: 0
+}
+```
+
+Правая часть Elvis может быть `return`:
+
+```kotlin
+fun printNormalizedTitle(title: String?) {
+    val normalizedTitle = title?.trim()
+        ?: return
+
+    if (normalizedTitle.isBlank()) {
+        return
+    }
+
+    println(normalizedTitle)
+}
+```
+
+Или `throw`:
+
+```kotlin
+fun requireTitle(title: String?): String {
+    return title?.trim()
+        ?: throw IllegalArgumentException("Название отсутствует")
+}
+```
+
+## Not-null assertion `!!`
+
+`!!` превращает nullable-значение в non-null или бросает `NullPointerException`.
+
+```kotlin
+fun main() {
+    val title: String? = "Nullable"
+
+    println(title!!.length)
+}
+```
+
+Если `title` будет `null`, программа упадет.
+
+```kotlin
+fun main() {
+    val title: String? = null
+
+    // Этот код бросит NullPointerException.
+    println(title!!.length)
+}
+```
+
+`!!` допустим в редких случаях:
+
+- тест намеренно проверяет падение;
+- внешний framework гарантирует инициализацию, но типовая система этого не видит;
+- код находится на жесткой границе с legacy API и рядом есть проверка инварианта;
+- нарушение инварианта действительно должно немедленно уронить выполнение.
+
+В обычном коде лучше:
+
+```kotlin
+fun titleLength(title: String?): Int {
+    return title?.length ?: 0
+}
+```
+
+или:
+
+```kotlin
+fun requireTitleLength(title: String?): Int {
+    val nonNullTitle = requireNotNull(title) {
+        "Название отсутствует"
+    }
+
+    return nonNullTitle.length
+}
+```
+
+<MouseTrap title="Мышеловка: `!!` не исправляет модель">
+Если в коде много `!!`, обычно проблема не в Kotlin, а в модели данных. Уточни, где значение реально может отсутствовать, и обработай это на границе. Внутри домена обязательные значения должны быть non-null.
+</MouseTrap>
+
+## Nullable receiver
+
+Extension-функция может быть объявлена на nullable receiver:
+
+```kotlin
+fun String?.orUntitled(): String {
+    if (this.isNullOrBlank()) {
+        return "Без названия"
+    }
+
+    return this.trim()
+}
+
+fun main() {
+    val title: String? = null
+    val spacedTitle: String? = "  Nullable  "
+
+    println(title.orUntitled())
+    println(spacedTitle.orUntitled())
+}
+```
+
+Внутри такой функции `this` имеет тип `String?`, поэтому его нужно проверять.
+
+Nullable receiver полезен для маленьких доменных нормализаций:
+
+```kotlin
+fun String?.toLessonSlugOrNull(): String? {
+    val normalizedTitle = this?.trim()
+
+    if (normalizedTitle.isNullOrBlank()) {
+        return null
+    }
+
+    return normalizedTitle
+        .lowercase()
+        .replace(Regex("\\s+"), "-")
+}
+```
+
+Не злоупотребляй nullable receivers: если функция начинает скрывать важную ошибку, лучше оставить явную проверку.
+
+## `takeIf` и `takeUnless`
+
+`takeIf` возвращает объект, если условие истинно, иначе `null`.
+
+```kotlin
+fun normalizeNonBlankTitle(rawTitle: String): String? {
+    return rawTitle
+        .trim()
+        .takeIf { title -> title.isNotBlank() }
+}
+```
+
+`takeUnless` наоборот возвращает объект, если условие ложно:
+
+```kotlin
+fun rejectDraftTitle(rawTitle: String): String? {
+    return rawTitle
+        .trim()
+        .takeUnless { title -> title.equals("draft", ignoreCase = true) }
+}
+```
+
+Они удобны в коротких цепочках, но слишком длинная fluent-валидация может стать хуже обычного `if`.
+
+## Nullable коллекции и коллекции nullable-элементов
+
+Эти типы различаются:
+
+- `List<String>` — список точно есть, элементы точно строки;
+- `List<String>?` — список может отсутствовать;
+- `List<String?>` — список есть, но элементы могут быть `null`;
+- `List<String?>?` — может отсутствовать и список, и элементы.
+
+```kotlin
+fun countVisibleTitles(titles: List<String?>?): Int {
+    return titles
+        ?.filterNotNull()
+        ?.count { title -> title.isNotBlank() }
+        ?: 0
+}
+
+fun main() {
+    val titles = listOf("Nullable", null, " ", "Smart casts")
+
+    println(countVisibleTitles(titles))
+    println(countVisibleTitles(null))
+}
+```
+
+Важные функции:
+
+- `filterNotNull()` убирает `null`-элементы и возвращает список non-null значений;
+- `mapNotNull()` преобразует элементы и убирает `null`-результаты;
+- `firstOrNull()` возвращает первый элемент или `null`;
+- `singleOrNull()` возвращает единственный элемент или `null`;
+- `getOrNull(index)` возвращает элемент или `null`, если индекс вне границ.
+
+## Практический пример: создание урока из формы
+
+```kotlin
+data class LessonForm(
+    val title: String?,
+    val minutes: String?,
+    val category: String?
+)
+
+data class LessonDraft(
+    val title: String,
+    val minutes: Int,
+    val category: String
+)
+
+sealed interface LessonFormResult {
+    data class Success(val draft: LessonDraft) : LessonFormResult
+    data class Failure(val messages: List<String>) : LessonFormResult
+}
+
+fun parseLessonForm(form: LessonForm): LessonFormResult {
+    val errors = mutableListOf<String>()
+
+    val title = form.title
+        ?.trim()
+        ?.takeIf { value -> value.isNotBlank() }
+
+    if (title == null) {
+        errors += "Название урока обязательно"
+    }
+
+    val minutes = form.minutes
+        ?.trim()
+        ?.toIntOrNull()
+
+    if (minutes == null) {
+        errors += "Длительность должна быть целым числом"
+    } else if (minutes !in 1..240) {
+        errors += "Длительность должна быть от 1 до 240 минут"
+    }
+
+    val category = form.category
+        ?.trim()
+        ?.takeIf { value -> value.isNotBlank() }
+
+    if (category == null) {
+        errors += "Раздел урока обязателен"
+    }
+
+    if (errors.isNotEmpty()) {
+        return LessonFormResult.Failure(errors)
+    }
+
+    return LessonFormResult.Success(
+        LessonDraft(
+            title = requireNotNull(title),
+            minutes = requireNotNull(minutes),
+            category = requireNotNull(category)
+        )
+    )
+}
+
+fun main() {
+    val result = parseLessonForm(
+        LessonForm(
+            title = " Nullable ",
+            minutes = "75",
+            category = "Null-safety"
+        )
+    )
+
+    when (result) {
+        is LessonFormResult.Success -> println(result.draft)
+        is LessonFormResult.Failure -> println(result.messages.joinToString())
+    }
+}
+```
+
+Почему `requireNotNull` в конце допустим: перед этим код проверил `errors.isNotEmpty()`. Если значение все еще `null`, нарушен внутренний инвариант функции. В более крупном коде можно перестроить модель так, чтобы избежать этих `requireNotNull`, но для формы с накоплением ошибок такой прием встречается.
+
+## Итоги
+
+Null-safety в Kotlin строится вокруг явности:
+
+- `T` и `T?` — разные типы;
+- non-null значение можно использовать напрямую;
+- nullable значение нужно проверить, безопасно вызвать или обработать через fallback;
+- `?.` возвращает nullable-результат;
+- `?:` задает значение по умолчанию, ранний `return` или `throw`;
+- `!!` бросает `NullPointerException` и должен быть редким;
+- nullable receiver полезен для аккуратных extension-функций;
+- `filterNotNull`, `mapNotNull`, `firstOrNull`, `getOrNull` помогают безопасно работать с коллекциями;
+- отсутствие значения нужно моделировать там, где оно реально возможно, а не размазывать по всему приложению.
+

@@ -1,0 +1,541 @@
+---
+title: "Slicing and Windows"
+description: "Выбор частей коллекций: slice, take, takeLast, takeWhile, takeLastWhile, drop, dropLast, dropWhile, dropLastWhile, chunked, windowed, partial windows и пошаговая обработка."
+order: 56
+category: "Коллекции"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны slicing и windows
+
+Slicing operations берут часть collection: первые N elements, последние N elements, диапазон indices, элементы до условия, элементы после условия.
+
+Window operations смотрят на collection через «окно» фиксированного размера: пары соседних значений, тройки измерений, batch-и для API, скользящие средние.
+
+```kotlin
+val lessons = listOf(
+    "01-introduction",
+    "02-types",
+    "03-null-safety",
+    "04-functions",
+    "05-collections"
+)
+
+println(lessons.take(2)) // [01-introduction, 02-types]
+println(lessons.drop(2)) // [03-null-safety, 04-functions, 05-collections]
+```
+
+<CatTip>
+Slicing — это когда кот вытаскивает из коробки только первые игрушки. Windows — когда он смотрит на игрушки через маленькую рамку и двигает ее по ряду.
+</CatTip>
+
+## `slice`
+
+`slice` возвращает elements по заданным indices.
+
+```kotlin
+val selected = lessons.slice(listOf(0, 2, 4))
+
+println(selected) // [01-introduction, 03-null-safety, 05-collections]
+```
+
+Можно использовать range.
+
+```kotlin
+val firstBlock = lessons.slice(0..2)
+
+println(firstBlock) // [01-introduction, 02-types, 03-null-safety]
+```
+
+Indices должны быть valid. Если index вне bounds, будет exception.
+
+```kotlin
+fun selectLessons(lessons: List<String>, indices: List<Int>): List<String> {
+    require(indices.all { index -> index in lessons.indices }) {
+        "Все индексы должны попадать в границы списка"
+    }
+
+    return lessons.slice(indices)
+}
+```
+
+Порядок результата соответствует порядку indices.
+
+```kotlin
+val customOrder = lessons.slice(listOf(4, 0, 2))
+
+println(customOrder) // [05-collections, 01-introduction, 03-null-safety]
+```
+
+## `take`
+
+`take(n)` возвращает первые `n` elements.
+
+```kotlin
+val firstTwo = lessons.take(2)
+
+println(firstTwo) // [01-introduction, 02-types]
+```
+
+Если `n` больше размера collection, вернутся все elements.
+
+```kotlin
+println(lessons.take(100)) // [01-introduction, 02-types, 03-null-safety, 04-functions, 05-collections]
+```
+
+`n` не может быть отрицательным.
+
+```kotlin
+fun preview(lessons: List<String>, limit: Int): List<String> {
+    require(limit >= 0) {
+        "Количество элементов для preview не может быть отрицательным"
+    }
+
+    return lessons.take(limit)
+}
+```
+
+## `takeLast`
+
+`takeLast(n)` возвращает последние `n` elements.
+
+```kotlin
+val lastTwo = lessons.takeLast(2)
+
+println(lastTwo) // [04-functions, 05-collections]
+```
+
+Порядок внутри результата остается исходным, а не reverse.
+
+```kotlin
+val lastThree = lessons.takeLast(3)
+
+println(lastThree) // [03-null-safety, 04-functions, 05-collections]
+```
+
+## `takeWhile`
+
+`takeWhile(predicate)` берет elements с начала collection, пока predicate возвращает `true`. Как только встречается первый `false`, operation останавливается.
+
+```kotlin
+val scores = listOf(100, 90, 80, 40, 95)
+
+val strongStart = scores.takeWhile { score ->
+    // Берем только непрерывный префикс высоких оценок.
+    score >= 80
+}
+
+println(strongStart) // [100, 90, 80]
+```
+
+Обрати внимание: `95` не попадет в результат, хотя predicate для него true, потому что перед ним уже встретился `40`.
+
+<MouseTrap>
+`takeWhile` не означает «взять все элементы, удовлетворяющие условию». Для этого нужен `filter`. `takeWhile` берет только непрерывный prefix.
+</MouseTrap>
+
+## `takeLastWhile`
+
+`takeLastWhile(predicate)` берет elements с конца collection, пока predicate true.
+
+```kotlin
+val recentScores = listOf(40, 95, 88, 91)
+
+val recentStrongScores = recentScores.takeLastWhile { score ->
+    // Берем непрерывный suffix успешных попыток.
+    score >= 80
+}
+
+println(recentStrongScores) // [95, 88, 91]
+```
+
+Если последний element не проходит predicate, результат будет empty.
+
+```kotlin
+val endedBadly = listOf(95, 88, 40)
+
+println(endedBadly.takeLastWhile { score -> score >= 80 }) // []
+```
+
+## `drop`
+
+`drop(n)` пропускает первые `n` elements и возвращает оставшиеся.
+
+```kotlin
+val withoutIntro = lessons.drop(1)
+
+println(withoutIntro) // [02-types, 03-null-safety, 04-functions, 05-collections]
+```
+
+Если `n` больше размера collection, результат empty.
+
+```kotlin
+println(lessons.drop(100)) // []
+```
+
+## `dropLast`
+
+`dropLast(n)` удаляет последние `n` elements.
+
+```kotlin
+val withoutLast = lessons.dropLast(1)
+
+println(withoutLast) // [01-introduction, 02-types, 03-null-safety, 04-functions]
+```
+
+Это удобно, когда в конце есть technical marker, checksum, footer или preview-элемент.
+
+## `dropWhile`
+
+`dropWhile(predicate)` пропускает elements с начала collection, пока predicate true. После первого false возвращает все оставшиеся elements без дальнейшей фильтрации.
+
+```kotlin
+val attempts = listOf(0, 0, 10, 0, 20)
+
+val afterLeadingZeros = attempts.dropWhile { value ->
+    // Убираем только ведущие нули.
+    value == 0
+}
+
+println(afterLeadingZeros) // [10, 0, 20]
+```
+
+Внутренний ноль остается, потому что operation уже остановила dropping.
+
+## `dropLastWhile`
+
+`dropLastWhile(predicate)` пропускает matching-elements с конца.
+
+```kotlin
+val values = listOf(10, 20, 0, 0)
+
+val withoutTrailingZeros = values.dropLastWhile { value ->
+    // Убираем только хвостовые нули.
+    value == 0
+}
+
+println(withoutTrailingZeros) // [10, 20]
+```
+
+## `chunked`
+
+`chunked(size)` разбивает collection на непересекающиеся куски.
+
+```kotlin
+val questionIds = listOf("q1", "q2", "q3", "q4", "q5")
+
+val pages = questionIds.chunked(size = 2)
+
+println(pages) // [[q1, q2], [q3, q4], [q5]]
+```
+
+Последний chunk может быть меньше `size`.
+
+Можно сразу трансформировать каждый chunk.
+
+```kotlin
+data class QuestionPage(
+    val number: Int,
+    val questionIds: List<String>
+)
+
+val questionPages = questionIds
+    .chunked(size = 2)
+    .mapIndexed { index, chunk ->
+        QuestionPage(
+            number = index + 1,
+            questionIds = chunk
+        )
+    }
+```
+
+Есть overload с transform:
+
+```kotlin
+val pageLabels = questionIds.chunked(size = 2) { chunk ->
+    // chunk действует только внутри lambda; не сохраняй ссылку на него наружу.
+    chunk.joinToString(prefix = "Страница: ")
+}
+
+println(pageLabels)
+```
+
+<MouseTrap>
+В transform-overload для `chunked` список chunk может быть временным представлением. Не сохраняй его в глобальное состояние и не возвращай как mutable reference.
+</MouseTrap>
+
+## `windowed`
+
+`windowed(size)` строит скользящие окна.
+
+```kotlin
+val temperatures = listOf(21.0, 22.0, 20.0, 23.0)
+
+val pairs = temperatures.windowed(size = 2)
+
+println(pairs) // [[21.0, 22.0], [22.0, 20.0], [20.0, 23.0]]
+```
+
+Окна перекрываются: второе окно начинается на следующем element.
+
+`step` задает сдвиг.
+
+```kotlin
+val everySecondWindow = temperatures.windowed(
+    size = 2,
+    step = 2
+)
+
+println(everySecondWindow) // [[21.0, 22.0], [20.0, 23.0]]
+```
+
+`partialWindows` разрешает неполные окна в конце.
+
+```kotlin
+val partial = temperatures.windowed(
+    size = 3,
+    step = 2,
+    partialWindows = true
+)
+
+println(partial) // [[21.0, 22.0, 20.0], [20.0, 23.0]]
+```
+
+Без `partialWindows` неполные окна отбрасываются.
+
+```kotlin
+val fullOnly = temperatures.windowed(
+    size = 3,
+    step = 2,
+    partialWindows = false
+)
+
+println(fullOnly) // [[21.0, 22.0, 20.0]]
+```
+
+## `windowed` с transform
+
+Transform-overload позволяет не создавать наружный list окон, а сразу получить нужный результат.
+
+```kotlin
+val movingAverages = temperatures.windowed(size = 2) { window ->
+    // Среднее значение соседней пары.
+    window.average()
+}
+
+println(movingAverages) // [21.5, 21.0, 21.5]
+```
+
+Скользящие окна полезны для:
+
+- moving average;
+- сравнения соседних элементов;
+- поиска локальных spikes;
+- построения n-grams;
+- batch validation с overlap.
+
+```kotlin
+data class Delta(
+    val from: Double,
+    val to: Double,
+    val diff: Double
+)
+
+val deltas = temperatures.windowed(size = 2) { (from, to) ->
+    Delta(
+        from = from,
+        to = to,
+        diff = to - from
+    )
+}
+```
+
+## `zipWithNext`
+
+Для соседних пар есть удобная operation `zipWithNext`.
+
+```kotlin
+val transitions = lessons.zipWithNext()
+
+println(transitions)
+```
+
+Можно сразу transform.
+
+```kotlin
+data class LessonTransition(
+    val from: String,
+    val to: String
+)
+
+val lessonTransitions = lessons.zipWithNext { previous, next ->
+    LessonTransition(
+        from = previous,
+        to = next
+    )
+}
+```
+
+`zipWithNext` выражает намерение точнее, чем `windowed(size = 2)`, когда нужны именно соседние пары.
+
+## Production-пример: pagination и batches
+
+```kotlin
+data class ApiRequest(
+    val endpoint: String,
+    val ids: List<String>
+)
+
+fun buildBatchRequests(ids: List<String>, batchSize: Int): List<ApiRequest> {
+    require(batchSize > 0) {
+        "Размер batch должен быть положительным"
+    }
+
+    return ids
+        .distinct()
+        .chunked(batchSize) { chunk ->
+            ApiRequest(
+                endpoint = "/api/lessons/progress",
+                ids = chunk.toList()
+            )
+        }
+}
+```
+
+Здесь `distinct` убирает повторяющиеся ids, а `chunked` делит запросы на batch-и, чтобы не отправлять слишком большой payload.
+
+## Production-пример: анализ серии событий
+
+```kotlin
+enum class EventType {
+    OPENED,
+    STARTED,
+    COMPLETED,
+    FAILED
+}
+
+data class LearningEvent(
+    val userId: String,
+    val lessonSlug: String,
+    val type: EventType,
+    val timestampMillis: Long
+)
+
+data class SuspiciousGap(
+    val lessonSlug: String,
+    val previousType: EventType,
+    val nextType: EventType,
+    val gapMillis: Long
+)
+
+fun findSuspiciousGaps(
+    events: List<LearningEvent>,
+    maxExpectedGapMillis: Long
+): List<SuspiciousGap> {
+    require(maxExpectedGapMillis >= 0) {
+        "Максимальный ожидаемый интервал не может быть отрицательным"
+    }
+
+    return events
+        .sortedBy { event ->
+            // Сначала приводим events к хронологическому порядку.
+            event.timestampMillis
+        }
+        .zipWithNext { previous, next ->
+            val sameLesson = previous.lessonSlug == next.lessonSlug
+            val gap = next.timestampMillis - previous.timestampMillis
+
+            if (sameLesson && gap > maxExpectedGapMillis) {
+                SuspiciousGap(
+                    lessonSlug = previous.lessonSlug,
+                    previousType = previous.type,
+                    nextType = next.type,
+                    gapMillis = gap
+                )
+            } else {
+                null
+            }
+        }
+        .filterNotNull()
+}
+```
+
+Комбинация `sortedBy`, `zipWithNext` и `filterNotNull` дает выразительный pipeline без ручных индексов.
+
+## Выбор операции
+
+Используй `slice`, когда нужны конкретные indices.
+
+```kotlin
+val picked = lessons.slice(listOf(0, 3))
+```
+
+Используй `take` и `takeLast` для fixed-size head/tail.
+
+```kotlin
+val preview = lessons.take(3)
+val recent = lessons.takeLast(3)
+```
+
+Используй `takeWhile` и `dropWhile` для prefix-based rules.
+
+```kotlin
+val header = lines.takeWhile { line -> line.isNotBlank() }
+val body = lines.dropWhile { line -> line.isNotBlank() }
+```
+
+Используй `chunked` для batches без overlap.
+
+```kotlin
+val batches = ids.chunked(100)
+```
+
+Используй `windowed` для sliding analysis с overlap.
+
+```kotlin
+val rolling = values.windowed(size = 3) { window -> window.average() }
+```
+
+Используй `zipWithNext` для adjacent pairs.
+
+```kotlin
+val pairs = values.zipWithNext()
+```
+
+<MouseTrap>
+`filter` и `takeWhile` часто путают. `filter` ищет все matching-elements во всей collection, а `takeWhile` прекращает работу после первого non-matching element.
+</MouseTrap>
+
+## Границы и validation
+
+`take`, `drop`, `chunked`, `windowed` требуют осмысленных размеров. Negative count или zero size приводят к exception. В публичных функциях лучше валидировать параметры и писать сообщение на языке домена.
+
+```kotlin
+fun lessonWindows(
+    lessons: List<String>,
+    size: Int,
+    step: Int
+): List<List<String>> {
+    require(size > 0) {
+        "Размер окна должен быть положительным"
+    }
+    require(step > 0) {
+        "Шаг окна должен быть положительным"
+    }
+
+    return lessons.windowed(
+        size = size,
+        step = step,
+        partialWindows = false
+    )
+}
+```
+
+<CatTip>
+Если операция зависит от позиции, сначала спроси себя: «мне нужны индексы или форма данных?» Часто `take`, `drop`, `chunked`, `windowed` выражают намерение чище, чем ручной `for` с `if`.
+</CatTip>
+
+

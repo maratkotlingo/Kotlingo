@@ -1,0 +1,460 @@
+---
+title: "Read-only и mutable collections"
+description: "Разбираем иерархию Iterable, Collection, List, Set и Map, mutable-интерфейсы, covariance, equality, read-only view против настоящей immutability, ownership и defensive copies."
+order: 46
+category: "Коллекции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Две поверхности API
+
+Kotlin разделяет interfaces коллекций на read-only и mutable:
+
+- read-only разрешает наблюдать/обходить contents;
+- mutable расширяет read-only write operations.
+
+```kotlin
+val readOnly: List<String> = listOf("Contracts", "Collections")
+val mutable: MutableList<String> = mutableListOf("Contracts")
+
+mutable += "Collections"
+println(readOnly)
+println(mutable)
+```
+
+Read-only type не имеет `add`, `remove`, indexed setter. Но это **не гарантия глубокой или физической неизменности**.
+
+## `Iterable<T>`
+
+Корень обхода elements — `Iterable<T>`.
+
+```kotlin
+fun printAll(values: Iterable<String>) {
+    for (value in values) {
+        println(value)
+    }
+}
+```
+
+Главный contract:
+
+```kotlin
+operator fun iterator(): Iterator<T>
+```
+
+`Iterable` не обещает:
+
+- известный `size` без обхода;
+- indexed access;
+- uniqueness;
+- repeatable iteration для всех custom implementations;
+- ordering semantics, если type их не определяет.
+
+Принимай `Iterable<T>`, если algorithm нужен только последовательный обход.
+
+## `MutableIterable<T>`
+
+`MutableIterable` возвращает `MutableIterator`, который может поддерживать `remove` текущего element.
+
+```kotlin
+val values = mutableListOf(1, 2, 3, 4)
+val iterator = values.iterator()
+
+while (iterator.hasNext()) {
+    if (iterator.next() % 2 == 0) {
+        iterator.remove()
+    }
+}
+```
+
+Удаление через iterator безопаснее изменения той же collection напрямую во время traversal. Конкретная implementation может иметь fail-fast behavior, не являющийся synchronization guarantee.
+
+## `Collection<T>`
+
+`Collection` расширяет `Iterable` и добавляет common observations:
+
+- `size`;
+- `isEmpty()`;
+- `contains(element)`;
+- `containsAll(elements)`;
+- iteration.
+
+```kotlin
+fun summary(values: Collection<String>): String {
+    return "Элементов: ${values.size}, пусто: ${values.isEmpty()}"
+}
+```
+
+`Collection` подходит parameter, если algorithm работает и с List, и с Set и использует size/membership.
+
+## `MutableCollection<T>`
+
+Добавляет common mutations:
+
+- `add`;
+- `addAll`;
+- `remove`;
+- `removeAll`;
+- `retainAll`;
+- `clear`.
+
+```kotlin
+fun addDefaults(target: MutableCollection<String>) {
+    target.addAll(listOf("Kotlin", "Collections"))
+}
+```
+
+Signature явно сообщает side effect. Не принимай mutable collection, если function только читает.
+
+## `List<T>`
+
+List — ordered collection с indexed access и duplicates.
+
+```kotlin
+val lessons: List<String> = listOf(
+    "Collections",
+    "Arrays",
+    "Collections"
+)
+
+println(lessons[0])
+println(lessons.size)
+println(lessons.indexOf("Collections"))
+```
+
+Indices: `0..lastIndex`. Direct `[]` вне bounds бросает exception.
+
+List equality учитывает:
+
+- одинаковый size;
+- равные elements;
+- одинаковые positions.
+
+```kotlin
+println(listOf(1, 2) == listOf(1, 2))
+println(listOf(1, 2) == listOf(2, 1))
+```
+
+## `MutableList<T>`
+
+Добавляет:
+
+- indexed setter `list[index] = value`;
+- `add(index, value)`;
+- `removeAt(index)`;
+- list iterator mutations;
+- common MutableCollection operations.
+
+```kotlin
+val lessons = mutableListOf("Contracts", "Arrays")
+lessons.add(1, "Collections")
+lessons[0] = "Kotlin contracts"
+lessons.removeAt(2)
+```
+
+Default general-purpose implementation на common JVM use часто ArrayList-like, но API должен зависеть от interface, если implementation details не нужны.
+
+## `Set<T>`
+
+Set хранит unique elements по `equals`/`hashCode` или comparator implementation.
+
+```kotlin
+val tags: Set<String> = setOf("kotlin", "collections", "kotlin")
+println(tags.size)
+```
+
+Set equality не зависит от iteration order:
+
+```kotlin
+println(setOf(1, 2, 3) == setOf(3, 2, 1))
+```
+
+Но конкретный Set может сохранять order:
+
+- LinkedHashSet — insertion order;
+- sorted set — comparator/natural order;
+- HashSet — order не является contract.
+
+Не полагайся на observed order HashSet.
+
+## `MutableSet<T>`
+
+```kotlin
+val tags = mutableSetOf("kotlin")
+val added = tags.add("collections")
+val duplicateAdded = tags.add("kotlin")
+
+println(added)
+println(duplicateAdded)
+```
+
+`add` возвращает true, если set изменился. Mutation equality-critical fields element после добавления может сломать hash lookup.
+
+```kotlin
+data class MutableTag(var value: String)
+```
+
+Не изменяй `value`, пока object является hash key/element.
+
+## `Map<K, V>`
+
+Map — collection concept, но не наследует `Collection<Map.Entry<K,V>>`. Он предоставляет отдельные views:
+
+- `keys: Set<K>`;
+- `values: Collection<V>`;
+- `entries: Set<Map.Entry<K, V>>`.
+
+```kotlin
+val lessons: Map<Int, String> = mapOf(
+    45 to "Contracts",
+    46 to "Collections"
+)
+
+println(lessons[46])
+println(lessons.keys)
+println(lessons.values)
+println(lessons.entries)
+```
+
+Keys unique, values могут повторяться. `map[key]` возвращает nullable V, потому что key может отсутствовать.
+
+Map equality сравнивает key-value mappings независимо от iteration order.
+
+## `MutableMap<K, V>`
+
+```kotlin
+val lessons = mutableMapOf<Int, String>()
+lessons[45] = "Contracts"
+lessons.put(46, "Collections")
+lessons.remove(45)
+lessons.putAll(mapOf(47 to "Создание коллекций"))
+```
+
+`put` возвращает previous value или null. Если map допускает nullable values, null не различает «key отсутствовал» и «previous value null»; используй `containsKey` при необходимости.
+
+## Read-only covariance
+
+Read-only `List`/`Collection`/`Iterable` covariant (`out T`).
+
+```kotlin
+open class Content(val title: String)
+class Lesson(title: String) : Content(title)
+
+val lessons: List<Lesson> = listOf(Lesson("Collections"))
+val contents: List<Content> = lessons
+```
+
+Без write operations нельзя добавить другой Content в original `List<Lesson>`, поэтому safe.
+
+Mutable collections invariant:
+
+```kotlin
+val mutableLessons: MutableList<Lesson> = mutableListOf()
+// val mutableContents: MutableList<Content> = mutableLessons
+```
+
+Иначе через mutableContents можно было бы добавить incompatible Content.
+
+## Map variance
+
+Read-only Map covariant по value `V`, но key `K` используется в input operations lookup и не объявлен covariant.
+
+```kotlin
+val lessonMap: Map<Int, Lesson> = mapOf(46 to Lesson("Collections"))
+val contentMap: Map<Int, Content> = lessonMap
+```
+
+MutableMap invariant по mutable contracts.
+
+## `val` не делает collection immutable
+
+```kotlin
+val lessons = mutableListOf("Contracts")
+lessons += "Collections"
+```
+
+`val` запрещает переназначить reference:
+
+```kotlin
+// lessons = mutableListOf("Другое")
+```
+
+Но object остаётся mutable.
+
+## Read-only view mutable storage
+
+```kotlin
+val storage = mutableListOf("Contracts")
+val view: List<String> = storage
+
+storage += "Collections"
+println(view)
+```
+
+View показывает изменение, потому что обе references указывают на один object.
+
+<MouseTrap title="Мышеловка: List не гарантирует immutable object">
+Read-only interface запрещает mutation через эту reference. Владелец другой MutableList reference, Java code или cast может изменить тот же object.
+</MouseTrap>
+
+## Defensive copy
+
+```kotlin
+class Course(initialLessons: List<String>) {
+    private val storedLessons: List<String> = initialLessons.toList()
+
+    val lessons: List<String>
+        get() = storedLessons
+}
+```
+
+Copy constructor input предотвращает изменение через caller mutable list.
+
+Если elements mutable, copy shallow:
+
+```kotlin
+data class LessonDraft(var title: String)
+
+val original = mutableListOf(LessonDraft("Collections"))
+val snapshot = original.toList()
+original[0].title = "Изменено"
+```
+
+Обе lists содержат тот же LessonDraft. Нужен deep copy/domain immutable elements.
+
+## Snapshot против live view
+
+Snapshot:
+
+```kotlin
+val snapshot: List<String>
+    get() = mutableLessons.toList()
+```
+
+Live read-only view:
+
+```kotlin
+val view: List<String>
+    get() = mutableLessons
+```
+
+Snapshot allocates и фиксирует structure moment. View дешёвый, но отражает future mutations. Contract должен быть явным.
+
+## Immutable persistent collections
+
+Standard read-only interfaces не гарантируют persistent immutability. Для true immutable/persistent structures можно использовать specialized library, например kotlinx immutable collections, с собственными types/operations.
+
+Не добавляй dependency без необходимости; часто ownership + defensive copies + immutable element models достаточно.
+
+## Collection ownership
+
+Задай вопросы:
+
+- кто может mutate storage;
+- кто получает view/snapshot;
+- когда snapshot создаётся;
+- thread-safe ли operations;
+- mutable ли elements;
+- можно ли сохранить external reference;
+- какой order гарантирован.
+
+Ownership важнее названия interface.
+
+<CatTip title="Котосовет: parameter шире, return уже и безопаснее">
+Принимай `Iterable`/`Collection`, если достаточно; возвращай `List` snapshot, если order важен. Mutable type выставляй только когда caller действительно должен менять переданный object.
+</CatTip>
+
+## Concurrent modification
+
+Обычные mutable collections не thread-safe. Одновременные writes/read-write требуют synchronization, confinement, concurrent collections или immutable snapshots.
+
+```kotlin
+val snapshot = synchronized(lock) {
+    mutableLessons.toList()
+}
+```
+
+Один snapshot безопасен после выхода, если elements immutable. Не держи lock во время callback client code.
+
+## Java interop
+
+На JVM read-only и mutable Kotlin interfaces часто отображаются на те же Java collection types. Java caller способен вызвать mutation method на object, который Kotlin API показывал как List.
+
+Для boundary:
+
+- возвращай unmodifiable/immutable implementation при требовании;
+- делай defensive copy;
+- документируй ownership;
+- тестируй Java client;
+- не полагайся только на Kotlin static type.
+
+## Практический пример: каталог с snapshot API
+
+```kotlin
+data class Lesson(
+    val id: Int,
+    val title: String,
+    val tags: Set<String>
+)
+
+class LessonCatalog(initialLessons: Iterable<Lesson>) {
+    private val lessonsById = linkedMapOf<Int, Lesson>()
+
+    init {
+        initialLessons.forEach(::add)
+    }
+
+    fun add(lesson: Lesson) {
+        require(lesson.id > 0) { "Идентификатор должен быть положительным" }
+        require(lesson.title.isNotBlank()) { "Название обязательно" }
+        require(lesson.id !in lessonsById) { "Урок ${lesson.id} уже существует" }
+
+        lessonsById[lesson.id] = lesson.copy(
+            title = lesson.title.trim(),
+            tags = lesson.tags.toSet()
+        )
+    }
+
+    fun find(id: Int): Lesson? = lessonsById[id]
+
+    fun all(): List<Lesson> = lessonsById.values.toList()
+
+    fun tags(): Set<String> {
+        return lessonsById.values
+            .flatMapTo(linkedSetOf()) { lesson -> lesson.tags }
+    }
+}
+
+fun main() {
+    val source = mutableListOf(
+        Lesson(46, " Collections ", mutableSetOf("kotlin", "collections"))
+    )
+    val catalog = LessonCatalog(source)
+
+    source.clear()
+    println(catalog.all())
+    println(catalog.tags())
+}
+```
+
+Catalog владеет mutable map, принимает широкий Iterable, копирует mutable tag set, не отдаёт storage и возвращает ordered snapshots.
+
+## Итоги
+
+- `Iterable` обещает traversal, `Collection` добавляет size/membership;
+- `List` ordered и indexed, допускает duplicates;
+- `Set` unique по equality/hash/comparator;
+- `Map` хранит unique keys и не наследует Collection;
+- mutable interfaces добавляют write operations;
+- read-only collections covariant, mutable invariant;
+- `val MutableList` всё ещё mutable;
+- read-only type может быть live view mutable object;
+- `toList`/`toSet` делают shallow structural snapshot;
+- deep immutability требует immutable elements и ownership;
+- HashSet/HashMap order не является contract;
+- ordinary mutable collections не thread-safe;
+- public API должен явно определять view, snapshot и mutation ownership.
+

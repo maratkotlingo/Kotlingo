@@ -1,0 +1,601 @@
+---
+title: "Параметры функций"
+description: "Глубоко разбираем позиционные, именованные и default-аргументы, vararg, spread operator, порядок вычисления и совместимость публичных Kotlin API."
+order: 17
+category: "Функции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Параметр и аргумент — не одно и то же
+
+**Параметр** объявлен в сигнатуре функции. **Аргумент** — конкретное выражение, переданное при вызове.
+
+```kotlin
+fun lessonSummary(title: String, score: Int): String {
+    return "$title: $score баллов"
+}
+
+fun main() {
+    val currentScore = 92
+    println(lessonSummary("Функции", currentScore))
+}
+```
+
+`title` и `score` — параметры. Строковый литерал и выражение `currentScore` — аргументы.
+
+Параметр состоит из имени и типа:
+
+```kotlin
+fun repeatTitle(title: String, count: Int): List<String> {
+    require(count >= 0) { "Количество повторов не может быть отрицательным" }
+    return List(count) { title }
+}
+```
+
+Типы параметров являются частью контракта функции и участвуют в выборе перегрузки.
+
+## Позиционные аргументы
+
+По умолчанию аргументы сопоставляются параметрам по позиции.
+
+```kotlin
+fun createLesson(id: String, title: String, published: Boolean): String {
+    return "$id | $title | опубликован=$published"
+}
+
+fun main() {
+    println(createLesson("17", "Параметры", true))
+}
+```
+
+Первый аргумент соответствует `id`, второй — `title`, третий — `published`. Если несколько соседних параметров имеют одинаковый тип, случайная перестановка может скомпилироваться:
+
+```kotlin
+fun moveLesson(fromCategory: String, toCategory: String, lessonId: String) {
+    println("Перемещаем $lessonId: $fromCategory -> $toCategory")
+}
+```
+
+Именованный вызов делает роль каждого значения явной:
+
+```kotlin
+moveLesson(
+    fromCategory = "Основы",
+    toCategory = "Функции",
+    lessonId = "17"
+)
+```
+
+## Именованные аргументы
+
+Именованный аргумент записывается как `имяПараметра = выражение`.
+
+```kotlin
+fun formatCard(
+    title: String,
+    description: String,
+    highlighted: Boolean
+): String {
+    val marker = if (highlighted) "★" else "·"
+    return "$marker $title — $description"
+}
+
+fun main() {
+    val card = formatCard(
+        title = "Параметры функций",
+        description = "Точный контракт вызова",
+        highlighted = true
+    )
+
+    println(card)
+}
+```
+
+Преимущества:
+
+- вызов документирует назначение аргументов;
+- порядок named-аргументов можно менять;
+- удобно пропускать параметры со значениями по умолчанию;
+- меньше риск перепутать соседние значения одинакового типа.
+
+```kotlin
+val card = formatCard(
+    highlighted = true,
+    description = "Точный контракт вызова",
+    title = "Параметры функций"
+)
+```
+
+### Смешивание позиционных и именованных аргументов
+
+Современный Kotlin разрешает позиционные аргументы после именованных, если их порядок не нарушен и они однозначно соответствуют следующим параметрам. Однако смешанный стиль может быть труднее читать.
+
+```kotlin
+fun enroll(student: String, course: String, notify: Boolean) {
+    println("$student записан на $course; уведомление=$notify")
+}
+
+fun main() {
+    enroll("Анна", course = "Kotlin", true)
+}
+```
+
+Для стабильной читаемости после первого named-аргумента обычно именуют и остальные:
+
+```kotlin
+enroll(
+    student = "Анна",
+    course = "Kotlin",
+    notify = true
+)
+```
+
+<MouseTrap title="Мышеловка: имена параметров становятся частью Kotlin API">
+Клиенты могут использовать named arguments. Переименование публичного параметра способно сломать их исходный код, даже если JVM-дескриптор метода не изменился. Выбирай содержательные имена до публикации API.
+</MouseTrap>
+
+### Java interop
+
+Вызов Java-методов с named arguments обычно недоступен: JVM class-файл не гарантирует стабильное хранение имён параметров. Kotlin требует надёжных метаданных, которые есть у Kotlin-деклараций.
+
+```kotlin
+// Для Kotlin-функции имена параметров известны из metadata.
+val label = lessonSummary(title = "Параметры", score = 92)
+```
+
+Для Java API используй позиционные аргументы или Kotlin-обёртку с ясным контрактом.
+
+## Значения параметров по умолчанию
+
+Default argument задаётся после типа через `=`.
+
+```kotlin
+fun greeting(name: String, punctuation: String = "!"): String {
+    return "Привет, $name$punctuation"
+}
+
+fun main() {
+    println(greeting("Маша"))
+    println(greeting("Маша", "!!!"))
+}
+```
+
+Default expression вычисляется во время каждого вызова, где аргумент пропущен.
+
+```kotlin
+fun createSessionId(prefix: String = "session", timestamp: Long = System.currentTimeMillis()): String {
+    return "$prefix-$timestamp"
+}
+```
+
+Это не константа, вычисленная при объявлении функции.
+
+### Default expression и предыдущие параметры
+
+Значение по умолчанию может обращаться к параметрам, объявленным раньше.
+
+```kotlin
+fun lessonRoute(
+    slug: String,
+    path: String = "/kotlin/$slug"
+): String {
+    return path
+}
+```
+
+Обратное невозможно: ранний параметр не может ссылаться на более поздний, потому что тот ещё не находится в области видимости.
+
+### Пропуск аргумента в середине
+
+Чтобы пропустить default-параметр и передать следующий, используй имя.
+
+```kotlin
+fun renderTitle(
+    title: String,
+    prefix: String = "Урок",
+    uppercase: Boolean = false
+): String {
+    val result = "$prefix: $title"
+    return if (uppercase) result.uppercase() else result
+}
+
+fun main() {
+    println(renderTitle("Параметры", uppercase = true))
+}
+```
+
+Без `uppercase =` значение `true` попыталось бы соответствовать параметру `prefix: String`.
+
+## Default arguments вместо леса перегрузок
+
+В Kotlin одна функция с defaults часто заменяет несколько перегрузок:
+
+```kotlin
+fun openLesson(
+    id: String,
+    preview: Boolean = false,
+    restorePosition: Boolean = true
+) {
+    println("id=$id, preview=$preview, restore=$restorePosition")
+}
+```
+
+Варианты вызова:
+
+```kotlin
+openLesson("17")
+openLesson("17", preview = true)
+openLesson("17", restorePosition = false)
+openLesson("17", preview = true, restorePosition = false)
+```
+
+Не каждый булев параметр стоит добавлять в одну функцию. Если комбинации образуют разные бизнес-операции, яснее отдельные имена или configuration object.
+
+```kotlin
+data class OpenLessonOptions(
+    val preview: Boolean = false,
+    val restorePosition: Boolean = true,
+    val trackAnalytics: Boolean = true
+)
+
+fun openLesson(id: String, options: OpenLessonOptions = OpenLessonOptions()) {
+    println("Открываем $id с настройками $options")
+}
+```
+
+<CatTip title="Котосовет: default должен быть безопасным и ожидаемым">
+Значение по умолчанию должно подходить большинству вызовов и не прятать опасный эффект. Например, `deletePermanently = true` — плохой default: пропущенный аргумент не должен неожиданно уничтожать данные.
+</CatTip>
+
+## Defaults и наследование
+
+При override default values не повторяют. Они принадлежат базовому объявлению, а во время вызова выбираются по статическому типу receiver.
+
+```kotlin
+open class LessonReporter {
+    open fun report(title: String, prefix: String = "Урок") {
+        println("$prefix: $title")
+    }
+}
+
+class DetailedLessonReporter : LessonReporter() {
+    override fun report(title: String, prefix: String) {
+        println("$prefix: $title — подробный отчёт")
+    }
+}
+
+fun main() {
+    val reporter: LessonReporter = DetailedLessonReporter()
+    reporter.report("Параметры")
+}
+```
+
+Используется default `"Урок"` из базовой сигнатуры, а реализация вызывается переопределённая.
+
+## `vararg`: переменное число аргументов
+
+Модификатор `vararg` разрешает передать ноль или больше аргументов одного типа.
+
+```kotlin
+fun joinTags(vararg tags: String): String {
+    return tags.joinToString(separator = ", ")
+}
+
+fun main() {
+    println(joinTags())
+    println(joinTags("kotlin"))
+    println(joinTags("kotlin", "functions", "parameters"))
+}
+```
+
+Внутри функции `tags` ведёт себя как массив. Для `String` это `Array<out String>`. Для primitive-типа backend использует специализированный массив, например `IntArray` для `vararg Int`.
+
+```kotlin
+fun averageScore(vararg scores: Int): Double {
+    require(scores.isNotEmpty()) { "Нужен хотя бы один балл" }
+    require(scores.all { it in 0..100 }) { "Каждый балл должен быть от 0 до 100" }
+
+    return scores.average()
+}
+```
+
+### В функции может быть только один `vararg`
+
+```kotlin
+fun announce(prefix: String, vararg titles: String) {
+    titles.forEach { title ->
+        println("$prefix: $title")
+    }
+}
+```
+
+Несколько параметров переменной длины сделали бы границу между группами аргументов неоднозначной.
+
+### Параметры после `vararg`
+
+После `vararg` можно объявить другие параметры, но при вызове их нужно передавать по имени.
+
+```kotlin
+fun buildMessage(
+    vararg parts: String,
+    separator: String = " ",
+    trim: Boolean = true
+): String {
+    val result = parts.joinToString(separator)
+    return if (trim) result.trim() else result
+}
+
+fun main() {
+    println(buildMessage("Kotlin", "любит", "точность", separator = " | "))
+}
+```
+
+Поэтому `vararg` часто размещают последним, если после него нет важных named options.
+
+## Spread operator `*`
+
+Если аргументы уже находятся в массиве, spread operator раскрывает их в позицию `vararg`.
+
+```kotlin
+fun main() {
+    val tags = arrayOf("kotlin", "astro", "education")
+    println(joinTags(*tags))
+}
+```
+
+Без `*` передаётся один объект `Array<String>`, тогда как функция ожидает последовательность элементов `String`.
+
+Можно смешивать отдельные аргументы и spread:
+
+```kotlin
+val coreTags = arrayOf("functions", "parameters")
+val allTags = joinTags("kotlin", *coreTags, "api")
+println(allTags)
+```
+
+Для primitive vararg используется соответствующий primitive array:
+
+```kotlin
+val scores = intArrayOf(70, 85, 100)
+println(averageScore(*scores))
+```
+
+`Array<Int>` и `IntArray` — разные типы. Для `vararg Int` нужен `IntArray` или отдельные `Int`.
+
+<MouseTrap title="Мышеловка: spread может создавать копирование">
+На JVM раскрытие массива в `vararg` обычно требует защитной копии, чтобы вызываемая функция не получила изменяемый массив вызывающего кода напрямую. В горячем цикле предпочти overload, принимающий `IntArray`, `Array<T>` или `List<T>` без spread.
+</MouseTrap>
+
+## Generic `vararg`
+
+```kotlin
+fun <T> firstPresent(vararg values: T?): T? {
+    return values.firstOrNull { value -> value != null }
+}
+
+fun main() {
+    val title = firstPresent(null, "Параметры", "Функции")
+    println(title)
+}
+```
+
+На JVM generic vararg реализуется массивом ссылок. При некоторых inline/reified сценариях можно создавать массивы точнее, но API всё равно должен учитывать стоимость упаковки.
+
+Аннотация `@SafeVarargs` относится прежде всего к Java heap pollution. Kotlin проверяет generic-типы на уровне своего исходного кода, но Java interop может потребовать отдельных решений.
+
+## Функциональные параметры
+
+Параметр может быть функцией.
+
+```kotlin
+fun transformTitle(
+    title: String,
+    transform: (String) -> String
+): String {
+    return transform(title)
+}
+
+fun main() {
+    val result = transformTitle("  параметры функций  ") { raw ->
+        raw.trim().replaceFirstChar { char -> char.uppercase() }
+    }
+
+    println(result)
+}
+```
+
+Если функциональный параметр последний, лямбду можно вынести за круглые скобки. Если он единственный, скобки можно опустить:
+
+```kotlin
+fun execute(action: () -> Unit) {
+    action()
+}
+
+fun main() {
+    execute {
+        println("Действие выполнено")
+    }
+}
+```
+
+Default lambda должна быть полноценным выражением:
+
+```kotlin
+fun loadLesson(
+    id: String,
+    onMissing: (String) -> Unit = { missingId ->
+        println("Урок $missingId не найден")
+    }
+) {
+    if (id.isBlank()) {
+        onMissing(id)
+        return
+    }
+
+    println("Загружен урок $id")
+}
+```
+
+## Порядок вычисления default-аргументов
+
+Явно переданные аргументы и использованные default expressions вычисляются в порядке, соответствующем параметрам. Не прячь критические побочные эффекты в defaults: порядок труднее увидеть на месте вызова.
+
+```kotlin
+fun createAuditEntry(
+    action: String,
+    timestamp: Long = System.currentTimeMillis(),
+    actor: String = "system"
+): String {
+    return "$timestamp | $actor | $action"
+}
+```
+
+Здесь динамический timestamp — разумный default. Запись в базу данных или сетевой запрос были бы неожиданным скрытым эффектом.
+
+## Бинарная и исходная совместимость
+
+Изменение списка параметров публичной функции влияет на клиентов по-разному.
+
+### Добавление обычного параметра
+
+```kotlin
+fun publishLesson(id: String, notify: Boolean) {
+    println("Публикуем $id; notify=$notify")
+}
+```
+
+Добавление параметра ломает существующие вызовы на уровне исходного кода и уже скомпилированные binaries: JVM-дескриптор метода меняется.
+
+### Добавление параметра с default
+
+```kotlin
+fun publishLesson(id: String, notify: Boolean, audit: Boolean = true) {
+    println("Публикуем $id; notify=$notify; audit=$audit")
+}
+```
+
+Исходный Kotlin-код после перекомпиляции может продолжить работать, но бинарная совместимость не гарантируется: старый call site ссылается на прежний метод/default bridge. Для опубликованной библиотеки требуется анализ ABI и стратегия совместимости.
+
+### Переименование параметра
+
+Позиционные вызовы продолжают компилироваться после пересборки, named-вызовы ломаются. Бинарный JVM-дескриптор обычно не зависит от имени, но Kotlin source compatibility зависит.
+
+### Изменение порядка
+
+Даже если типы совпадают и код компилируется, смысл позиционных вызовов может измениться. Это особенно опасная silent regression.
+
+### `@JvmOverloads`
+
+Для Java-клиентов можно попросить компилятор сгенерировать перегрузки, последовательно убирающие trailing default parameters.
+
+```kotlin
+class LessonService {
+    @JvmOverloads
+    fun open(
+        id: String,
+        preview: Boolean = false,
+        restorePosition: Boolean = true
+    ) {
+        println("$id | preview=$preview | restore=$restorePosition")
+    }
+}
+```
+
+Java увидит несколько overload-вариантов. Аннотацию не следует добавлять автоматически везде: она увеличивает поверхность API и не создаёт все произвольные комбинации пропущенных параметров.
+
+<CatTip title="Котосовет: проектируй опубликованную сигнатуру как схему данных">
+После выхода библиотеки порядок, типы, имена и defaults становятся контрактом. Для часто растущего набора настроек используй data class, builder или отдельный options-тип: это даёт больше пространства для эволюции.
+</CatTip>
+
+## Практический пример: конфигурация учебной сессии
+
+```kotlin
+enum class SessionMode {
+    THEORY,
+    PRACTICE,
+    EXAM
+}
+
+data class StudySession(
+    val lessonIds: List<String>,
+    val mode: SessionMode,
+    val durationMinutes: Int,
+    val labels: Set<String>
+)
+
+fun createStudySession(
+    vararg lessonIds: String,
+    mode: SessionMode = SessionMode.PRACTICE,
+    durationMinutes: Int = 25,
+    labels: Set<String> = emptySet(),
+    validateLesson: (String) -> Boolean = { id -> id.isNotBlank() }
+): StudySession {
+    require(lessonIds.isNotEmpty()) { "Добавь хотя бы один урок" }
+    require(durationMinutes in 5..180) {
+        "Продолжительность должна быть от 5 до 180 минут"
+    }
+
+    val normalizedIds = lessonIds
+        .map(String::trim)
+        .distinct()
+
+    val invalidIds = normalizedIds.filterNot(validateLesson)
+    require(invalidIds.isEmpty()) {
+        "Некорректные идентификаторы: ${invalidIds.joinToString()}"
+    }
+
+    return StudySession(
+        lessonIds = normalizedIds,
+        mode = mode,
+        durationMinutes = durationMinutes,
+        labels = labels.toSet()
+    )
+}
+
+fun main() {
+    val coreLessons = arrayOf("15-any-unit-nothing", "16-function-declarations")
+
+    val session = createStudySession(
+        *coreLessons,
+        "17-function-parameters",
+        mode = SessionMode.PRACTICE,
+        durationMinutes = 45,
+        labels = setOf("функции", "контракты"),
+        validateLesson = { id ->
+            id.matches(Regex("""\d{2}-[a-z-]+"""))
+        }
+    )
+
+    println(session)
+}
+```
+
+Контракт демонстрирует:
+
+- `vararg` для одного или нескольких идентификаторов;
+- spread для существующего массива;
+- named arguments после `vararg`;
+- безопасные defaults для режима, длительности и меток;
+- default lambda для базовой проверки;
+- явную lambda для production-правила формата;
+- defensive copy через `toSet()`;
+- валидацию аргументов до создания объекта.
+
+## Итоги
+
+- параметры объявляются в сигнатуре, аргументы передаются при вызове;
+- позиционные аргументы сопоставляются по порядку;
+- named arguments делают роль значений явной и позволяют пропускать defaults;
+- имя публичного параметра влияет на source compatibility Kotlin-клиентов;
+- default expression вычисляется при каждом соответствующем вызове;
+- default может ссылаться только на ранее объявленные параметры;
+- override не повторяет defaults базового объявления;
+- `vararg` принимает переменное число значений и внутри представлен массивом;
+- `*array` раскрывает массив в vararg-позицию;
+- параметры после `vararg` передаются по имени;
+- spread и vararg могут создавать аллокации, важные в горячем коде;
+- изменение параметров опубликованного API требует отдельной проверки source и binary compatibility.
+

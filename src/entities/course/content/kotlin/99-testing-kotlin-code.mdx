@@ -1,0 +1,557 @@
+---
+title: "Testing Kotlin Code"
+description: "Тестирование Kotlin-кода: kotlin.test, JUnit, Kotest overview, test doubles, mocking tradeoffs, property-based testing, test naming, fixtures и production-подход к тестируемости."
+order: 99
+category: "Architecture"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Тесты проверяют поведение
+
+Тест в Kotlin-проекте должен отвечать не на вопрос «какие строки кода выполнились», а на вопрос «какое поведение мы обещаем сохранить».
+
+Хороший тест:
+
+- проверяет observable behavior;
+- имеет одну понятную причину упасть;
+- не зависит от порядка запуска соседних тестов;
+- не требует реального времени, сети или базы без необходимости;
+- читает input, action and assertion без поиска по всему проекту;
+- помогает безопасно менять implementation;
+- фиксирует edge cases рядом с domain code.
+
+```kotlin
+package dev.kotlingo.lesson
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class LessonSlugTest {
+    @Test
+    fun normalizesTitleToSlug() {
+        val slug = LessonSlug.fromTitle(" Testing Kotlin Code ")
+
+        assertEquals("testing-kotlin-code", slug.value)
+    }
+}
+
+@JvmInline
+value class LessonSlug(
+    val value: String
+) {
+    companion object {
+        fun fromTitle(title: String): LessonSlug {
+            return LessonSlug(
+                title.trim()
+                    .lowercase()
+                    .replace(Regex("\\s+"), "-")
+            )
+        }
+    }
+}
+```
+
+<CatTip>
+Тест — это кошачий след на свежем снегу: по нему должно быть видно, что произошло, почему это важно и где поведение свернуло не туда.
+</CatTip>
+
+## `kotlin.test`
+
+`kotlin.test` — common testing API Kotlin. Он дает annotations and assertions, не привязывая common tests к конкретному JVM runner-у.
+
+```kotlin
+dependencies {
+    testImplementation(kotlin("test"))
+}
+```
+
+Для Multiplatform:
+
+```kotlin
+kotlin {
+    sourceSets {
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
+    }
+}
+```
+
+Основные assertions:
+
+- `assertEquals`;
+- `assertNotEquals`;
+- `assertTrue`;
+- `assertFalse`;
+- `assertNull`;
+- `assertNotNull`;
+- `assertFails`;
+- `assertFailsWith`;
+- `fail`.
+
+```kotlin
+import kotlin.test.Test
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class LessonTitleTest {
+    @Test
+    fun rejectsBlankTitle() {
+        val exception = assertFailsWith<IllegalArgumentException> {
+            LessonTitle("")
+        }
+
+        assertTrue(exception.message.orEmpty().contains("пустым"))
+    }
+
+    @Test
+    fun createsNonBlankTitle() {
+        val title = LessonTitle("Testing Kotlin Code")
+
+        assertNotNull(title)
+    }
+}
+
+@JvmInline
+value class LessonTitle(
+    val value: String
+) {
+    init {
+        require(value.isNotBlank()) { "Title не должен быть пустым" }
+    }
+}
+```
+
+`kotlin.test` особенно полезен в `commonTest`, где один suite должен работать на JVM, JS, Native and Wasm targets.
+
+## Имена тестов
+
+Имя теста должно описывать behavior.
+
+```kotlin
+@Test
+fun rejectsBlankTitle() {
+}
+
+@Test
+fun returnsZeroPercentWhenTotalIsZero() {
+}
+```
+
+Backtick names удобны, если команда ценит readable names.
+
+```kotlin
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class ProgressSnapshotTest {
+    @Test
+    fun `returns zero percent when total is zero`() {
+        val snapshot = ProgressSnapshot(
+            completed = 0,
+            total = 0
+        )
+
+        assertEquals(0, snapshot.percent)
+    }
+}
+
+data class ProgressSnapshot(
+    val completed: Int,
+    val total: Int
+) {
+    val percent: Int
+        get() = if (total == 0) 0 else completed * 100 / total
+}
+```
+
+Backtick names могут хуже интегрироваться с частью legacy tooling. Для mixed Java/Kotlin teams обычные method names часто безопаснее.
+
+## JUnit на JVM
+
+На JVM Kotlin tests обычно запускаются через JUnit Platform.
+
+```kotlin
+dependencies {
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.1")
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
+```
+
+KMP JVM target:
+
+```kotlin
+kotlin {
+    jvm {
+        testRuns["test"].executionTask.configure {
+            useJUnitPlatform()
+        }
+    }
+}
+```
+
+JUnit-specific test:
+
+```kotlin
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
+
+class LessonAccessPolicyTest {
+    @Nested
+    @DisplayName("when lesson is free")
+    inner class FreeLesson {
+        @Test
+        fun allowsGuest() {
+            val policy = LessonAccessPolicy()
+
+            val result = policy.canOpen(
+                user = User.Guest,
+                lesson = LessonMeta(isPremium = false)
+            )
+
+            assertEquals(true, result)
+        }
+    }
+}
+
+sealed interface User {
+    data object Guest : User
+
+    data class Registered(
+        val id: String
+    ) : User
+}
+
+data class LessonMeta(
+    val isPremium: Boolean
+)
+
+class LessonAccessPolicy {
+    fun canOpen(user: User, lesson: LessonMeta): Boolean {
+        return !lesson.isPremium || user is User.Registered
+    }
+}
+```
+
+Используй JUnit features when you need JVM runner capabilities: nested tests, parameterized tests, tags, extensions, temporary directories and build tool integration.
+
+## Parameterized tests
+
+Parameterized tests удобны для finite examples.
+
+```kotlin
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
+import kotlin.test.assertEquals
+
+class SlugNormalizerParameterizedTest {
+    @ParameterizedTest
+    @CsvSource(
+        "Testing Kotlin Code, testing-kotlin-code",
+        "  Kotlin   Project  , kotlin-project",
+        "Flow Operators, flow-operators"
+    )
+    fun normalizesKnownExamples(input: String, expected: String) {
+        assertEquals(expected, SlugNormalizer.normalize(input))
+    }
+}
+
+object SlugNormalizer {
+    fun normalize(value: String): String {
+        return value.trim()
+            .lowercase()
+            .replace(Regex("\\s+"), "-")
+    }
+}
+```
+
+Use parameterized tests for named examples. Use property-based tests for broad invariant exploration.
+
+## Kotest overview
+
+Kotest is Kotlin-first test framework with multiple styles, assertions, data-driven tests and property testing.
+
+```kotlin
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.shouldBe
+
+class LessonSlugKotestTest : FunSpec({
+    test("normalizes title to slug") {
+        SlugNormalizer.normalize("Kotest Overview") shouldBe "kotest-overview"
+    }
+})
+```
+
+Kotest помогает, когда команда хочет:
+
+- descriptive spec styles;
+- fluent matchers;
+- data-driven testing;
+- property testing;
+- multiplatform-friendly testing style;
+- configuration at spec/test level.
+
+Kotest is optional. Disciplined `kotlin.test` plus JUnit setup is enough for many teams.
+
+<MouseTrap>
+Не добавляй новый testing framework только ради красивого синтаксиса. Framework должен решать реальные проблемы: property tests, matchers, multiplatform style, data-driven coverage or better reporting.
+</MouseTrap>
+
+## Test doubles
+
+Test double — controlled replacement for dependency in test.
+
+Common types:
+
+- fake — working lightweight implementation;
+- stub — returns preconfigured values;
+- spy — records calls while still doing some real work;
+- mock — framework-controlled object with expectations;
+- dummy — value required only to fill parameter.
+
+Fake repository:
+
+```kotlin
+class FakeLessonRepository : LessonRepository {
+    private val lessons = mutableMapOf<String, Lesson>()
+
+    fun given(lesson: Lesson) {
+        lessons[lesson.slug] = lesson
+    }
+
+    override suspend fun load(slug: String): Lesson {
+        return lessons[slug] ?: error("Урок не найден: $slug")
+    }
+}
+
+interface LessonRepository {
+    suspend fun load(slug: String): Lesson
+}
+
+data class Lesson(
+    val slug: String,
+    val title: String
+)
+```
+
+Test:
+
+```kotlin
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class OpenLessonUseCaseTest {
+    @Test
+    fun opensLessonFromRepository() = runTest {
+        val repository = FakeLessonRepository()
+        repository.given(
+            Lesson(
+                slug = "99-testing-kotlin-code",
+                title = "Testing Kotlin Code"
+            )
+        )
+
+        val useCase = OpenLessonUseCase(repository)
+
+        val title = useCase.open("99-testing-kotlin-code")
+
+        assertEquals("Testing Kotlin Code", title)
+    }
+}
+
+class OpenLessonUseCase(
+    private val repository: LessonRepository
+) {
+    suspend fun open(slug: String): String {
+        return repository.load(slug).title
+    }
+}
+```
+
+Fake often gives more resilient tests than heavy mocking.
+
+## Mocking tradeoffs
+
+Mocking libraries are useful, but mocks can make tests overspecified.
+
+Good mocking target:
+
+- external gateway;
+- expensive adapter;
+- nondeterministic dependency;
+- email sender;
+- metrics client;
+- legacy interface hard to instantiate.
+
+Risky mocking target:
+
+- data class;
+- domain object;
+- collection;
+- value class;
+- code you could instantiate directly;
+- internal implementation detail.
+
+Mock-style coroutine example:
+
+```kotlin
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class OpenLessonWithManualStubTest {
+    @Test
+    fun loadsLesson() = runTest {
+        val repository = object : LessonRepository {
+            override suspend fun load(slug: String): Lesson {
+                return Lesson(slug, "Mocking tradeoffs")
+            }
+        }
+
+        val useCase = OpenLessonUseCase(repository)
+
+        assertEquals("Mocking tradeoffs", useCase.open("99-testing-kotlin-code"))
+    }
+}
+```
+
+Manual stub is often enough. Use mocking framework when interaction verification matters.
+
+```kotlin
+interface EmailSender {
+    suspend fun sendLessonCompleted(userId: String, slug: String)
+}
+
+class CompletionNotifier(
+    private val sender: EmailSender
+) {
+    suspend fun notify(userId: String, slug: String) {
+        sender.sendLessonCompleted(userId, slug)
+    }
+}
+```
+
+In such integration boundary, verifying that `sendLessonCompleted` was called can be reasonable.
+
+## Property-based testing overview
+
+Property-based testing checks invariants over many generated inputs.
+
+Example property:
+
+- normalization never returns blank for non-blank input;
+- normalized slug is lower-case;
+- normalized slug contains no whitespace;
+- parsing after formatting returns equivalent value;
+- sorting result is ordered for any input list.
+
+Kotest-style property:
+
+```kotlin
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.property.Arb
+import io.kotest.property.arbitrary.string
+import io.kotest.property.checkAll
+import io.kotest.matchers.shouldBe
+
+class SlugPropertyTest : StringSpec({
+    "normalized slug contains no spaces" {
+        checkAll(Arb.string(minSize = 1)) { input ->
+            val slug = SlugNormalizer.normalize(input)
+
+            (slug.contains(" ")) shouldBe false
+        }
+    }
+})
+```
+
+Property tests do not replace example tests. They complement them:
+
+- examples explain important scenarios;
+- properties explore broad input space;
+- failing property needs shrinking and a clear invariant;
+- generated data must respect domain constraints.
+
+<CatTip>
+Example test говорит «вот конкретная мышка». Property test говорит «любая мышка с такими признаками должна вести себя одинаково».
+</CatTip>
+
+## Fixtures and builders
+
+Use fixtures to keep tests readable, but do not hide important inputs.
+
+```kotlin
+object LessonFixtures {
+    fun lesson(
+        slug: String = "99-testing-kotlin-code",
+        title: String = "Testing Kotlin Code",
+        premium: Boolean = false
+    ): TestLesson {
+        return TestLesson(
+            slug = slug,
+            title = title,
+            premium = premium
+        )
+    }
+}
+
+data class TestLesson(
+    val slug: String,
+    val title: String,
+    val premium: Boolean
+)
+```
+
+Readable test:
+
+```kotlin
+import kotlin.test.Test
+import kotlin.test.assertFalse
+
+class LessonVisibilityTest {
+    @Test
+    fun hidesPremiumLessonFromGuest() {
+        val lesson = LessonFixtures.lesson(premium = true)
+
+        val visible = LessonVisibilityPolicy().isVisibleToGuest(lesson)
+
+        assertFalse(visible)
+    }
+}
+
+class LessonVisibilityPolicy {
+    fun isVisibleToGuest(lesson: TestLesson): Boolean {
+        return !lesson.premium
+    }
+}
+```
+
+## Production testing checklist
+
+Перед тем как считать Kotlin code testable, проверь:
+
+- domain code can be instantiated without framework;
+- time, random, network and database are injected;
+- coroutine code uses `runTest` and test dispatchers;
+- common behavior is in `commonTest` when project is multiplatform;
+- JVM-specific behavior is in `jvmTest`;
+- mocks verify meaningful boundaries, not implementation noise;
+- property tests cover invariants, not random examples;
+- fixtures reduce noise without hiding important facts;
+- failing test message helps identify the broken behavior.
+
+<MouseTrap>
+Самый дорогой тестовый запах — тест, который знает внутренний порядок вызовов, но не знает, какое поведение важно пользователю.
+</MouseTrap>
+

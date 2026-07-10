@@ -1,0 +1,505 @@
+---
+title: "DSL Markers"
+description: "DSL markers в Kotlin: @DslMarker, scope leakage, implicit receivers, nearest receiver rule, AnnotationTarget.CLASS, TYPE и TYPEALIAS, explicit this labels, HTML-style DSL и безопасные nested builders."
+order: 68
+category: "DSL, аннотации и metaprogramming"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Проблема: слишком много implicit receivers
+
+В nested DSL внутри lambda with receiver может быть доступно несколько receivers сразу.
+
+```kotlin
+course {
+    module("Основы") {
+        lesson("01-introduction", "Введение")
+
+        // Без DSL marker здесь может быть доступен outer receiver CourseBuilder.
+        module("Случайно вложенный модуль") {
+            lesson("bad", "Такой вызов выглядит подозрительно")
+        }
+    }
+}
+```
+
+Если `module` должен вызываться только на уровне course, такой код нужно запретить на этапе компиляции. Для этого существует `@DslMarker`.
+
+<CatTip>
+DSL marker — это невидимая кошачья дверца между scopes. Ближайший receiver проходит, дальние receivers ждут, пока их явно позовут.
+</CatTip>
+
+## `@DslMarker`
+
+DSL marker — это annotation class, помеченная `@DslMarker`.
+
+```kotlin
+@DslMarker
+annotation class CourseDsl
+```
+
+Затем marker применяют к receiver types DSL.
+
+```kotlin
+@CourseDsl
+class CourseBuilder {
+    fun module(title: String, init: ModuleBuilder.() -> Unit) {
+        val builder = ModuleBuilder(title)
+        builder.init()
+    }
+}
+
+@CourseDsl
+class ModuleBuilder(
+    private val title: String
+) {
+    fun lesson(slug: String, title: String) {
+        println("$slug: $title")
+    }
+}
+```
+
+Теперь внутри `module { ... }` compiler ограничит неявный доступ к outer `CourseBuilder`, потому что оба receivers принадлежат одному DSL marker.
+
+## Nearest receiver rule
+
+Если несколько implicit receivers имеют один DSL marker, без явного qualifier доступен только ближайший receiver.
+
+```kotlin
+fun course(init: CourseBuilder.() -> Unit) {
+    val builder = CourseBuilder()
+    builder.init()
+}
+
+course {
+    module("Основы") {
+        lesson("01-introduction", "Введение")
+
+        // module("Ошибка") { }
+        // Такой вызов должен быть ошибкой компиляции:
+        // module принадлежит outer CourseBuilder, а ближайший receiver — ModuleBuilder.
+    }
+}
+```
+
+Если outer receiver действительно нужен, его можно вызвать явно через label.
+
+```kotlin
+course outer@{
+    module("Основы") {
+        this@outer.module("Явный вызов outer receiver") {
+            lesson("explicit", "Так делать можно, но стоит редко")
+        }
+    }
+}
+```
+
+Explicit receiver делает намерение заметным.
+
+<MouseTrap>
+Если тебе часто нужен `this@outer` внутри DSL, возможно, scopes спроектированы неудачно. DSL marker не должен бороться с нормальным сценарием использования.
+</MouseTrap>
+
+## `AnnotationTarget.CLASS`
+
+Чаще всего marker ставят на общий superclass или interface DSL receivers.
+
+```kotlin
+@DslMarker
+@Target(AnnotationTarget.CLASS)
+annotation class HtmlDsl
+
+@HtmlDsl
+abstract class Tag(
+    val name: String
+)
+
+class Html : Tag("html")
+class Head : Tag("head")
+class Body : Tag("body")
+```
+
+Если все DSL classes наследуются от `Tag`, достаточно пометить `Tag`.
+
+```kotlin
+abstract class TagWithChildren(name: String) : Tag(name) {
+    private val children = mutableListOf<Tag>()
+
+    protected fun <T : Tag> initTag(tag: T, init: T.() -> Unit): T {
+        tag.init()
+        children.add(tag)
+        return tag
+    }
+}
+```
+
+Наследники будут восприниматься compiler-ом как часть того же DSL.
+
+## `AnnotationTarget.TYPE`
+
+Marker можно применить прямо к function type receiver, если annotation target включает `TYPE`.
+
+```kotlin
+@DslMarker
+@Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE)
+annotation class FormDsl
+
+class FormBuilder {
+    fun section(init: @FormDsl SectionBuilder.() -> Unit) {
+        val builder = SectionBuilder()
+        builder.init()
+    }
+}
+
+class SectionBuilder {
+    fun field(name: String) {
+        println("field=$name")
+    }
+}
+```
+
+Этот подход полезен, когда ты не можешь или не хочешь annotating class declaration.
+
+## Scope leakage
+
+Scope leakage — ситуация, когда nested scope случайно видит операции outer scope.
+
+```kotlin
+@CourseDsl
+class PageBuilder {
+    fun header(init: HeaderBuilder.() -> Unit) {
+        HeaderBuilder().init()
+    }
+
+    fun footer(text: String) {
+        println("footer=$text")
+    }
+}
+
+@CourseDsl
+class HeaderBuilder {
+    fun title(text: String) {
+        println("title=$text")
+    }
+}
+```
+
+С marker-ом inside `header` виден `title`, но `footer` без explicit receiver недоступен.
+
+```kotlin
+fun page(init: PageBuilder.() -> Unit) {
+    PageBuilder().init()
+}
+
+page {
+    header {
+        title("kotlingo")
+        // footer("случайный footer") // compiler должен запретить неявный вызов.
+    }
+}
+```
+
+Так DSL защищает структуру документа.
+
+## HTML-style DSL
+
+```kotlin
+@DslMarker
+annotation class HtmlTagDsl
+
+interface HtmlNode {
+    fun render(): String
+}
+
+class TextNode(
+    private val text: String
+) : HtmlNode {
+    override fun render(): String {
+        return text
+    }
+}
+
+@HtmlTagDsl
+abstract class HtmlTag(
+    private val name: String
+) : HtmlNode {
+    private val children = mutableListOf<HtmlNode>()
+
+    protected fun text(value: String) {
+        children.add(TextNode(value))
+    }
+
+    protected fun <T : HtmlTag> child(tag: T, init: T.() -> Unit): T {
+        tag.init()
+        children.add(tag)
+        return tag
+    }
+
+    override fun render(): String {
+        val body = children.joinToString(separator = "") { child ->
+            child.render()
+        }
+
+        return "<$name>$body</$name>"
+    }
+}
+
+class Html : HtmlTag("html") {
+    fun body(init: Body.() -> Unit) {
+        child(Body(), init)
+    }
+}
+
+class Body : HtmlTag("body") {
+    fun h1(text: String) {
+        child(H1()) {
+            content(text)
+        }
+    }
+
+    fun p(text: String) {
+        child(P()) {
+            content(text)
+        }
+    }
+}
+
+class H1 : HtmlTag("h1") {
+    fun content(text: String) {
+        text(text)
+    }
+}
+
+class P : HtmlTag("p") {
+    fun content(text: String) {
+        text(text)
+    }
+}
+
+fun html(init: Html.() -> Unit): Html {
+    val root = Html()
+    root.init()
+    return root
+}
+
+val document = html {
+    body {
+        h1("kotlingo")
+        p("Учимся Kotlin спокойно и подробно")
+    }
+}
+
+println(document.render())
+```
+
+`@HtmlTagDsl` не дает случайно вызвать outer tag functions из глубины, если они относятся к тому же DSL.
+
+## Multiple DSLs
+
+Иногда внутри одного DSL используется другой DSL. Если markers разные, receivers из разных DSL не блокируют друг друга автоматически.
+
+```kotlin
+@DslMarker
+annotation class RouteDsl
+
+@DslMarker
+annotation class ResponseDsl
+
+@RouteDsl
+class RouteBuilder {
+    fun get(path: String, handler: ResponseBuilder.() -> Unit) {
+        val response = ResponseBuilder()
+        response.handler()
+        println("GET $path")
+    }
+}
+
+@ResponseDsl
+class ResponseBuilder {
+    fun status(code: Int) {
+        println("status=$code")
+    }
+}
+```
+
+Разные markers означают разные receiver families. Это может быть правильно, если DSL-и независимы, но опасно, если они должны быть изолированы вместе.
+
+## Marker на interface
+
+Можно пометить общий interface.
+
+```kotlin
+@DslMarker
+annotation class QueryDsl
+
+@QueryDsl
+interface QueryScope
+
+class SelectBuilder : QueryScope {
+    fun from(table: String) {
+        println("from $table")
+    }
+}
+
+class WhereBuilder : QueryScope {
+    fun eq(column: String, value: String) {
+        println("$column = $value")
+    }
+}
+```
+
+Это удобно, если hierarchy не имеет общего abstract class.
+
+## Production-пример: безопасный DSL для курса
+
+```kotlin
+@DslMarker
+annotation class SafeCourseDsl
+
+data class BuiltCourse(
+    val title: String,
+    val modules: List<BuiltModule>
+)
+
+data class BuiltModule(
+    val title: String,
+    val lessons: List<BuiltLesson>
+)
+
+data class BuiltLesson(
+    val slug: String,
+    val title: String
+)
+
+@SafeCourseDsl
+class SafeCourseBuilder {
+    private var title: String = ""
+    private val modules = mutableListOf<BuiltModule>()
+
+    fun title(value: String) {
+        title = value.trim()
+    }
+
+    fun module(title: String, init: SafeModuleBuilder.() -> Unit) {
+        val builder = SafeModuleBuilder(title)
+        builder.init()
+        modules.add(builder.build())
+    }
+
+    fun build(): BuiltCourse {
+        require(title.isNotBlank()) {
+            "Название курса обязательно"
+        }
+
+        return BuiltCourse(
+            title = title,
+            modules = modules.toList()
+        )
+    }
+}
+
+@SafeCourseDsl
+class SafeModuleBuilder(
+    private val title: String
+) {
+    private val lessons = mutableListOf<BuiltLesson>()
+
+    fun lesson(slug: String, title: String) {
+        lessons.add(BuiltLesson(slug, title))
+    }
+
+    fun build(): BuiltModule {
+        require(title.isNotBlank()) {
+            "Название модуля обязательно"
+        }
+        require(lessons.isNotEmpty()) {
+            "Модуль должен содержать уроки"
+        }
+
+        return BuiltModule(
+            title = title,
+            lessons = lessons.toList()
+        )
+    }
+}
+
+fun safeCourse(init: SafeCourseBuilder.() -> Unit): BuiltCourse {
+    val builder = SafeCourseBuilder()
+    builder.init()
+    return builder.build()
+}
+
+val course = safeCourse {
+    title("Kotlin")
+
+    module("Основы") {
+        lesson("01-introduction", "Введение")
+        // module("Ошибка") { } // Благодаря marker такой неявный вызов недоступен.
+    }
+}
+```
+
+## Что marker не делает
+
+DSL marker не валидирует бизнес-правила.
+
+```kotlin
+safeCourse {
+    title("Kotlin")
+
+    module("Основы") {
+        lesson("", "")
+    }
+}
+```
+
+Если пустой slug запрещен, это должна проверять builder validation.
+
+```kotlin
+fun lesson(slug: String, title: String) {
+    require(slug.isNotBlank()) {
+        "Slug урока обязателен"
+    }
+    require(title.isNotBlank()) {
+        "Title урока обязателен"
+    }
+
+    lessons.add(BuiltLesson(slug, title))
+}
+```
+
+DSL marker управляет scope visibility, а не корректностью данных.
+
+## Практические правила
+
+Добавляй marker, если DSL имеет nested receivers одного семейства.
+
+```kotlin
+@DslMarker
+annotation class MyDsl
+```
+
+Помечай общий superclass или interface.
+
+```kotlin
+@MyDsl
+interface MyDslScope
+```
+
+Используй `AnnotationTarget.TYPE`, если marker должен применяться к function type.
+
+```kotlin
+@Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE)
+annotation class MyDsl
+```
+
+Не делай explicit `this@outer` обычным стилем использования. Это escape hatch, а не main path.
+
+<CatTip>
+DSL marker делает builder строже и спокойнее: меньше случайных вызовов, меньше странных вложений, меньше сюрпризов при чтении.
+</CatTip>
+
+

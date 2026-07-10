@@ -1,0 +1,892 @@
+---
+title: "Первая программа: файл, пакет, main, компиляция и запуск"
+description: "Подробно разбираем структуру Kotlin-файла, варианты main-функции, top-level объявления, пакеты, импорты и запуск программы."
+order: 2
+category: "Основы"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Цель урока
+
+В этом уроке мы пишем первую программу не как магическую строку `println("Hello")`, а как полноценный вход в устройство Kotlin-файла. Ты разберешь:
+
+- из каких частей состоит `.kt`-файл;
+- где может находиться `main`;
+- какие сигнатуры `main` поддерживаются;
+- чем top-level объявления отличаются от членов класса;
+- как работают `package` и `import`;
+- как запускать программу через IDE, Gradle и командную строку;
+- какие стандартные функции помогают в первой консольной программе.
+
+## Минимальная программа
+
+Самая короткая полезная программа на Kotlin выглядит так:
+
+```kotlin
+fun main() {
+    println("Привет, kotlingo!")
+}
+```
+
+Разберем каждую часть:
+
+- `fun` объявляет функцию;
+- `main` — имя функции, которую runtime ищет как точку входа;
+- `()` означает, что функция не принимает параметры;
+- `{ ... }` содержит тело функции;
+- `println` печатает строку и добавляет перевод строки;
+- строка в двойных кавычках имеет тип `String`;
+- после строки не нужна точка с запятой.
+
+Kotlin не разрешает выполнять произвольные инструкции прямо на верхнем уровне файла. Top-level могут быть объявления: функции, свойства, классы, интерфейсы, объекты, type aliases и аннотации файла. Поэтому такая запись некорректна:
+
+```kotlin
+// Этот код не компилируется: println находится вне функции или другого объявления.
+println("Привет")
+```
+
+Правильный вариант:
+
+```kotlin
+fun main() {
+    // Инструкция находится внутри тела функции.
+    println("Привет")
+}
+```
+
+<MouseTrap title="Мышеловка: top-level не означает свободные инструкции">
+  В Kotlin top-level — это место для объявлений, а не для выполняемых строк.
+  Если хочется выполнить код, помести его в `main`, функцию, initializer класса,
+  `init`-блок, getter, setter или другой исполняемый контекст.
+</MouseTrap>
+
+## Полная структура `.kt`-файла
+
+У Kotlin-файла есть логичный порядок:
+
+- file annotations;
+- директива `package`;
+- `import`;
+- top-level объявления.
+
+Пример:
+
+```kotlin
+@file:JvmName("KotlingoApp")
+
+package academy.kotlingo.basics
+
+import kotlin.math.max
+import kotlin.text.lowercase
+
+const val COURSE_NAME: String = "kotlingo"
+
+data class LessonSummary(
+    val title: String,
+    val minutes: Int
+)
+
+fun formatSummary(summary: LessonSummary): String {
+    val safeMinutes = max(summary.minutes, 0)
+    val normalizedTitle = summary.title.lowercase()
+
+    return "$normalizedTitle: $safeMinutes мин."
+}
+
+fun main() {
+    val summary = LessonSummary(
+        title = "Первая программа",
+        minutes = 45
+    )
+
+    println(formatSummary(summary))
+    println("Курс: $COURSE_NAME")
+}
+```
+
+Здесь:
+
+- `@file:JvmName("KotlingoApp")` задает JVM-имя сгенерированного класса для top-level функций и свойств;
+- `package academy.kotlingo.basics` помещает объявления в пространство имен;
+- `import kotlin.math.max` подключает конкретную функцию;
+- `import kotlin.text.lowercase` в реальном коде обычно не нужен, потому что многие элементы `kotlin.*` импортируются по умолчанию, но пример показывает синтаксис;
+- `const val COURSE_NAME` — compile-time constant;
+- `data class LessonSummary` описывает данные;
+- `formatSummary` — top-level функция;
+- `main` запускает программу.
+
+## File annotations
+
+File annotation применяется ко всему файлу. Она должна быть написана до `package` и импортов.
+
+```kotlin
+@file:JvmName("CourseEntryPoint")
+@file:Suppress("MagicNumber")
+
+package academy.kotlingo.entry
+
+fun main() {
+    println("Файл с аннотациями успешно запущен")
+}
+```
+
+В этом примере:
+
+- `@file:JvmName` влияет на JVM-имя generated class;
+- `@file:Suppress` подавляет выбранную диагностику инструмента или компилятора для файла;
+- обе аннотации относятся к файлу целиком.
+
+File annotations часто используются в JVM-interoperability, generated code и специальных настройках инструментов. В обычных первых программах они не обязательны.
+
+## Package
+
+`package` задает пространство имен. Полное имя функции или класса складывается из package и имени объявления.
+
+```kotlin
+package academy.kotlingo.lessons
+
+data class LessonId(
+    val value: String
+)
+
+fun main() {
+    val id = LessonId("basics-02")
+    println(id.value)
+}
+```
+
+Если package не указан, объявления попадают в default package. Для учебного однофайлового примера это допустимо, но для продакшен-проекта default package почти всегда плохая идея: такие объявления труднее импортировать, группировать и сопровождать.
+
+Путь к файлу не обязан совпадать с package, но в командах обычно придерживаются соответствия:
+
+```text
+src/main/kotlin/academy/kotlingo/lessons/Main.kt
+```
+
+для:
+
+```kotlin
+package academy.kotlingo.lessons
+```
+
+Так проще искать код и меньше конфликтов при росте проекта.
+
+## Imports
+
+`import` позволяет использовать имя без полного пути.
+
+```kotlin
+package academy.kotlingo.imports
+
+import kotlin.math.PI
+import kotlin.math.roundToInt
+
+fun main() {
+    val radius = 4.0
+    val area = PI * radius * radius
+
+    println("Площадь круга: ${area.roundToInt()}")
+}
+```
+
+Без импортов можно писать полное имя:
+
+```kotlin
+package academy.kotlingo.imports
+
+fun main() {
+    val radius = 4.0
+    val area = kotlin.math.PI * radius * radius
+
+    println("Площадь круга: ${area.roundToInt()}")
+}
+```
+
+Импорт с alias помогает при конфликте имен:
+
+```kotlin
+package academy.kotlingo.imports
+
+import kotlin.text.Regex as KotlinRegex
+
+fun main() {
+    val lessonCodePattern = KotlinRegex("[a-z]+-[0-9]+")
+    val isValid = lessonCodePattern.matches("basics-02")
+
+    println("Код урока корректен: $isValid")
+}
+```
+
+Star import подключает все доступные имена из пакета:
+
+```kotlin
+package academy.kotlingo.imports
+
+import kotlin.math.*
+
+fun main() {
+    val value = sqrt(81.0)
+    val rounded = round(value)
+
+    println("Корень: $rounded")
+}
+```
+
+Star import удобен в маленьких учебных фрагментах, но в командном продакшен-коде явные импорты обычно читаются лучше, потому что по ним видно происхождение имени.
+
+## Default imports
+
+Kotlin автоматически импортирует часть пакетов. Поэтому многие типы и функции доступны без `import`:
+
+- `kotlin.*`;
+- `kotlin.annotation.*`;
+- `kotlin.collections.*`;
+- `kotlin.comparisons.*`;
+- `kotlin.io.*`;
+- `kotlin.ranges.*`;
+- `kotlin.sequences.*`;
+- `kotlin.text.*`.
+
+На JVM также доступны некоторые платформенные default imports, например `java.lang.*` и части `kotlin.jvm.*`. На JS, Native и Wasm набор платформенных импортов отличается.
+
+Это объясняет, почему `String`, `Int`, `List`, `println`, `readln`, `emptyList`, `listOf`, `mapOf`, `Comparable` и многие другие имена часто работают без явного импорта.
+
+## Top-level объявления
+
+Kotlin разрешает объявлять функции, свойства и типы на уровне файла.
+
+```kotlin
+package academy.kotlingo.top.level
+
+const val MAX_VISIBLE_LESSONS: Int = 10
+
+data class Lesson(
+    val title: String,
+    val visible: Boolean
+)
+
+fun visibleTitle(lesson: Lesson): String {
+    return if (lesson.visible) {
+        lesson.title
+    } else {
+        "скрытый урок"
+    }
+}
+
+fun main() {
+    val lesson = Lesson(
+        title = "Top-level объявления",
+        visible = true
+    )
+
+    println(visibleTitle(lesson))
+    println("Максимум на странице: $MAX_VISIBLE_LESSONS")
+}
+```
+
+Top-level функции в Kotlin не требуют класса-обертки в исходном коде. На JVM компилятор все равно создаст служебный class-файл, но разработчик работает с функциями напрямую.
+
+Когда top-level объявления хороши:
+
+- функция не зависит от состояния объекта;
+- функция выражает доменную операцию;
+- константа относится к модулю, а не к конкретному экземпляру;
+- factory-функция делает создание объекта читабельнее;
+- extension-функция должна быть импортируемой отдельно.
+
+Когда лучше выбрать класс или объект:
+
+- нужно хранить состояние;
+- нужно явно моделировать зависимость;
+- нужно реализовать интерфейс;
+- нужно сгруппировать lifecycle;
+- нужно заменить реализацию в тестах.
+
+## Варианты `main`
+
+### `fun main()`
+
+Это основной вариант для большинства программ.
+
+```kotlin
+fun main() {
+    println("Запуск без аргументов")
+}
+```
+
+Используй его, когда программа не читает аргументы командной строки напрямую.
+
+### `fun main(args: Array<String>)`
+
+Этот вариант принимает аргументы командной строки.
+
+```kotlin
+fun main(args: Array<String>) {
+    val name = args.getOrNull(0) ?: "гость"
+    println("Привет, $name")
+}
+```
+
+`args` — это массив строк. Если запустить программу с аргументами:
+
+```text
+kotlin MainKt Марта
+```
+
+то `args[0]` будет равно `"Марта"`.
+
+Безопаснее использовать `getOrNull`, потому что прямой доступ `args[0]` бросит исключение, если аргументов нет.
+
+### `fun main() = expression`
+
+Если тело состоит из одного выражения, можно использовать expression body.
+
+```kotlin
+fun main() = println("Запуск через expression body")
+```
+
+Такой стиль хорош для коротких демонстраций, но в реальном `main` часто лучше обычный block body: там удобнее добавлять валидацию, несколько шагов и обработку ошибок.
+
+### `suspend fun main()`
+
+`suspend main` позволяет вызывать suspend-функции из точки входа.
+
+```kotlin
+suspend fun main() {
+    val message = loadGreeting()
+    println(message)
+}
+
+suspend fun loadGreeting(): String {
+    return "Привет из suspend main"
+}
+```
+
+Этот вариант нужен в приложениях с корутинами. В базовых уроках мы не будем углубляться в механизм suspension, но важно знать: `suspend` не означает "запустить поток". Это маркер функции, которая может приостановиться и продолжиться позже.
+
+<CatTip title="Кошачья привычка">
+Для учебных и CLI-примеров начинай с `fun main()`. Переходи на `fun main(args: Array<String>)`, когда действительно нужны аргументы командной строки. Используй `suspend fun main()`, когда уже подключена coroutine-логика и точка входа должна вызывать suspend API.
+</CatTip>
+
+## Стандартные функции первой программы
+
+### `println(value: Any?)`
+
+Печатает значение и перевод строки.
+
+```kotlin
+fun main() {
+    println("Первая строка")
+    println("Вторая строка")
+}
+```
+
+Когда использовать:
+
+- показать результат вычисления;
+- вывести подсказку пользователю;
+- временно проверить значение во время обучения;
+- написать простую CLI-утилиту.
+
+### `print(value: Any?)`
+
+Печатает значение без перевода строки.
+
+```kotlin
+fun main() {
+    print("Введите название урока: ")
+    val title = readln()
+
+    println("Вы выбрали: $title")
+}
+```
+
+Когда использовать:
+
+- приглашение к вводу;
+- вывод элементов в одну строку;
+- ручное форматирование консольного текста.
+
+### `readln()`
+
+Читает одну строку из стандартного ввода. Возвращает `String`.
+
+```kotlin
+fun main() {
+    print("Сколько минут длился урок? ")
+    val rawMinutes = readln()
+    val minutes = rawMinutes.toInt()
+
+    println("Длительность: $minutes мин.")
+}
+```
+
+Этот пример намеренно простой. `toInt()` бросит исключение, если пользователь введет не число. В продакшен-коде лучше использовать `toIntOrNull()`.
+
+### `readlnOrNull()`
+
+Читает строку или возвращает `null`, если ввод недоступен.
+
+```kotlin
+fun main() {
+    print("Введите имя: ")
+    val name = readlnOrNull()
+
+    if (name == null) {
+        println("Ввод завершен до получения строки")
+        return
+    }
+
+    println("Привет, $name")
+}
+```
+
+Когда использовать:
+
+- программа может получать пустой input stream;
+- код запускается в автоматизированной среде;
+- нужно явно обработать отсутствие ввода.
+
+### `String.toInt()`
+
+Преобразует строку в `Int` или бросает `NumberFormatException`.
+
+```kotlin
+fun main() {
+    val rawValue = "42"
+    val value = rawValue.toInt()
+
+    println(value + 1)
+}
+```
+
+Используй `toInt()`, когда строка уже проверена или источник полностью контролируется.
+
+### `String.toIntOrNull()`
+
+Преобразует строку в `Int` или возвращает `null`.
+
+```kotlin
+fun main() {
+    print("Введите номер урока: ")
+    val lessonNumber = readln().toIntOrNull()
+
+    if (lessonNumber == null) {
+        println("Номер урока должен быть целым числом")
+        return
+    }
+
+    println("Открываем урок $lessonNumber")
+}
+```
+
+Это основной вариант для пользовательского ввода.
+
+### `Array<String>.getOrNull(index)`
+
+Возвращает элемент массива или `null`, если индекс вне границ.
+
+```kotlin
+fun main(args: Array<String>) {
+    val command = args.getOrNull(0) ?: "help"
+
+    println("Команда: $command")
+}
+```
+
+Когда использовать:
+
+- аргументы командной строки опциональны;
+- прямой доступ по индексу может упасть;
+- отсутствие значения — нормальный сценарий.
+
+### `Array<String>.joinToString()`
+
+Собирает массив в строку.
+
+```kotlin
+fun main(args: Array<String>) {
+    val visibleArgs = args.joinToString(
+        separator = ", ",
+        prefix = "[",
+        postfix = "]"
+    )
+
+    println("Аргументы: $visibleArgs")
+}
+```
+
+`joinToString` полезен для логов, диагностики и форматированного вывода коллекций.
+
+### `Array<String>.forEachIndexed`
+
+Выполняет действие для каждого элемента и дает индекс.
+
+```kotlin
+fun main(args: Array<String>) {
+    args.forEachIndexed { index, value ->
+        println("Аргумент $index: $value")
+    }
+}
+```
+
+Это читаемый способ пройти по аргументам без ручного счетчика.
+
+## Полная CLI-программа с аргументами
+
+Следующая программа принимает команду и название урока. Она не использует заглушки: все ветки завершены и дают понятный вывод.
+
+```kotlin
+fun printHelp() {
+    println("Доступные команды:")
+    println("  open <название>      открыть урок")
+    println("  complete <название>  отметить урок пройденным")
+    println("  help                 показать справку")
+}
+
+fun normalizeTitle(rawTitle: String): String {
+    return rawTitle
+        .trim()
+        .replace(Regex("\\s+"), " ")
+}
+
+fun openLesson(title: String) {
+    val normalizedTitle = normalizeTitle(title)
+
+    if (normalizedTitle.isBlank()) {
+        println("Название урока не должно быть пустым")
+        return
+    }
+
+    println("Открываем урок: $normalizedTitle")
+}
+
+fun completeLesson(title: String) {
+    val normalizedTitle = normalizeTitle(title)
+
+    if (normalizedTitle.isBlank()) {
+        println("Название урока не должно быть пустым")
+        return
+    }
+
+    println("Урок отмечен как пройденный: $normalizedTitle")
+}
+
+fun main(args: Array<String>) {
+    val command = args.getOrNull(0) ?: "help"
+    val title = args.drop(1).joinToString(separator = " ")
+
+    when (command) {
+        "open" -> openLesson(title)
+        "complete" -> completeLesson(title)
+        "help" -> printHelp()
+        else -> {
+            println("Неизвестная команда: $command")
+            printHelp()
+        }
+    }
+}
+```
+
+Разбор:
+
+- `printHelp` печатает все поддерживаемые команды;
+- `normalizeTitle` убирает лишние пробелы по краям и схлопывает повторяющиеся пробелы внутри;
+- `openLesson` и `completeLesson` валидируют название;
+- `main` берет первый аргумент как команду;
+- `args.drop(1)` берет все аргументы после команды;
+- `joinToString(" ")` собирает название из нескольких слов;
+- `when` явно обрабатывает все известные команды и fallback.
+
+## Запуск через Gradle
+
+Для Gradle-проекта нужны минимум два файла.
+
+`settings.gradle.kts`:
+
+```kotlin
+pluginManagement {
+    repositories {
+        // Репозиторий Gradle-плагинов нужен для поиска Kotlin Gradle Plugin.
+        gradlePluginPortal()
+
+        // Maven Central часто нужен плагинам и зависимостям.
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+    repositories {
+        // Все зависимости проекта берутся из Maven Central.
+        mavenCentral()
+    }
+}
+
+rootProject.name = "kotlingo-first-program"
+```
+
+`build.gradle.kts`:
+
+```kotlin
+plugins {
+    // Версия должна совпадать с выбранной версией Kotlin в проекте.
+    kotlin("jvm") version "2.4.0"
+
+    // Плагин application добавляет запуск через Gradle.
+    application
+}
+
+kotlin {
+    // JDK 21 — современная долгосрочная версия для JVM-проектов.
+    jvmToolchain(21)
+}
+
+application {
+    // Если файл называется Main.kt и package отсутствует, JVM main class будет MainKt.
+    mainClass.set("MainKt")
+}
+```
+
+`src/main/kotlin/Main.kt`:
+
+```kotlin
+fun main() {
+    println("Программа запущена через Gradle")
+}
+```
+
+Команды:
+
+```text
+./gradlew run
+./gradlew build
+./gradlew test
+```
+
+На Windows обычно используется:
+
+```text
+gradlew.bat run
+gradlew.bat build
+gradlew.bat test
+```
+
+## Запуск через Kotlin CLI
+
+Для маленького однофайлового эксперимента можно использовать CLI.
+
+`Main.kt`:
+
+```kotlin
+fun main() {
+    println("Программа запущена через Kotlin CLI")
+}
+```
+
+Компиляция в jar:
+
+```text
+kotlinc Main.kt -include-runtime -d app.jar
+```
+
+Запуск:
+
+```text
+java -jar app.jar
+```
+
+Если компилировать без `-include-runtime`, jar не будет содержать Kotlin runtime, и запуск потребует корректного classpath. Для обучения и маленьких CLI-примеров `-include-runtime` проще.
+
+## Несколько файлов в одном package
+
+Файл `Lesson.kt`:
+
+```kotlin
+package academy.kotlingo.multi
+
+data class Lesson(
+    val title: String,
+    val minutes: Int
+)
+```
+
+Файл `Formatting.kt`:
+
+```kotlin
+package academy.kotlingo.multi
+
+fun formatLesson(lesson: Lesson): String {
+    return "${lesson.title}: ${lesson.minutes} мин."
+}
+```
+
+Файл `Main.kt`:
+
+```kotlin
+package academy.kotlingo.multi
+
+fun main() {
+    val lesson = Lesson(
+        title = "Несколько файлов",
+        minutes = 30
+    )
+
+    println(formatLesson(lesson))
+}
+```
+
+Все три файла находятся в одном package, поэтому `Lesson` и `formatLesson` доступны без import. Если бы они находились в разных package, потребовались бы imports.
+
+## Частые ошибки первой программы
+
+### Неверная сигнатура `main`
+
+```kotlin
+// Такая функция не будет точкой входа, потому что параметр имеет неверный тип.
+fun main(args: List<String>) {
+    println(args)
+}
+```
+
+Правильно:
+
+```kotlin
+fun main(args: Array<String>) {
+    println(args.joinToString())
+}
+```
+
+### Прямой доступ к отсутствующему аргументу
+
+```kotlin
+fun main(args: Array<String>) {
+    // Если аргументов нет, программа завершится с ArrayIndexOutOfBoundsException.
+    val command = args[0]
+
+    println(command)
+}
+```
+
+Безопаснее:
+
+```kotlin
+fun main(args: Array<String>) {
+    val command = args.getOrNull(0) ?: "help"
+
+    println(command)
+}
+```
+
+### Слишком раннее усложнение
+
+Новички иногда создают класс только ради `main`, потому что привыкли к Java.
+
+```kotlin
+class Application {
+    fun run() {
+        println("Запуск")
+    }
+}
+
+fun main() {
+    val application = Application()
+    application.run()
+}
+```
+
+Такой код корректен, но для простой программы класс не нужен.
+
+```kotlin
+fun main() {
+    println("Запуск")
+}
+```
+
+Класс стоит добавлять, когда появляется состояние, интерфейс, несколько зависимостей или lifecycle.
+
+## Практика: интерактивная программа
+
+Ниже программа спрашивает имя, номер урока и печатает аккуратный результат. Ввод валидируется без падения на неверном числе.
+
+```kotlin
+fun readRequiredLine(label: String): String {
+    print(label)
+
+    val value = readlnOrNull()
+
+    if (value == null) {
+        println("Ввод недоступен")
+        return ""
+    }
+
+    return value.trim()
+}
+
+fun readLessonNumber(): Int? {
+    val rawNumber = readRequiredLine("Введите номер урока: ")
+
+    if (rawNumber.isBlank()) {
+        println("Номер урока не должен быть пустым")
+        return null
+    }
+
+    val lessonNumber = rawNumber.toIntOrNull()
+
+    if (lessonNumber == null) {
+        println("Номер урока должен быть целым числом")
+        return null
+    }
+
+    if (lessonNumber <= 0) {
+        println("Номер урока должен быть положительным")
+        return null
+    }
+
+    return lessonNumber
+}
+
+fun main() {
+    val name = readRequiredLine("Введите имя: ")
+
+    if (name.isBlank()) {
+        println("Имя не должно быть пустым")
+        return
+    }
+
+    val lessonNumber = readLessonNumber()
+
+    if (lessonNumber == null) {
+        println("Не удалось открыть урок")
+        return
+    }
+
+    println("Привет, $name!")
+    println("Открываем урок $lessonNumber")
+}
+```
+
+Здесь уже виден стиль Kotlin:
+
+- маленькие функции с понятной ответственностью;
+- `String?` и `Int?` показывают, где значение может отсутствовать;
+- `return` используется для раннего выхода из ошибочного сценария;
+- `toIntOrNull` превращает потенциальное исключение в явный nullable-результат;
+- `isBlank` проверяет пустые строки и строки из пробелов.
+
+## Итоги
+
+После этого урока ты умеешь читать и писать базовый `.kt`-файл:
+
+- file annotations идут до `package`;
+- `package` задает пространство имен;
+- `import` подключает имена из других пакетов;
+- top-level объявления не требуют класса-обертки;
+- `main` бывает в формах `fun main()`, `fun main(args: Array<String>)`, expression body и `suspend fun main()`;
+- для ввода и вывода на старте важны `println`, `print`, `readln`, `readlnOrNull`;
+- пользовательский ввод лучше обрабатывать через безопасные функции вроде `toIntOrNull` и `getOrNull`.
+

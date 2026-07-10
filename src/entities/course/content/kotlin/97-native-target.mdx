@@ -1,0 +1,401 @@
+---
+title: "Native Target"
+description: "Kotlin/Native target: memory manager, C interop, Objective-C/Swift interop, Apple frameworks, XCFramework, native binaries, freezing history and modern behavior."
+order: 97
+category: "Kotlin Multiplatform"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое Kotlin/Native
+
+Kotlin/Native компилирует Kotlin code в native binaries for platforms where JVM is not the runtime.
+
+Use cases:
+
+- iOS shared modules;
+- macOS command-line tools;
+- Linux native services or tools;
+- Windows native tools;
+- libraries exported to C/C++ consumers;
+- Apple frameworks used from Swift/Objective-C;
+- code sharing between mobile platforms through KMP.
+
+```kotlin
+kotlin {
+    iosArm64()
+    iosSimulatorArm64()
+    macosArm64()
+    linuxX64()
+}
+```
+
+Native target produces `klib` by default. To produce executable, static/shared library or Apple framework, configure `binaries`.
+
+<CatTip>
+Kotlin/Native — это кот без JVM-переноски: Kotlin code идет прямо в native runtime и должен уважать правила C, Swift, Objective-C, linker-а и платформенной памяти.
+</CatTip>
+
+## Native source sets
+
+Typical iOS layout:
+
+```text
+src/
+  commonMain/
+    kotlin/
+  iosMain/
+    kotlin/
+  iosArm64Main/
+    kotlin/
+  iosSimulatorArm64Main/
+    kotlin/
+```
+
+Shared iOS code goes to `iosMain`.
+
+```kotlin
+// iosMain/kotlin/platform/IosDeviceInfo.kt
+package platform
+
+import platform.UIKit.UIDevice
+
+class IosDeviceInfo {
+    fun modelName(): String {
+        return UIDevice.currentDevice.model
+    }
+}
+```
+
+Put target-specific differences into `iosArm64Main` or `iosSimulatorArm64Main` only when really necessary.
+
+## Memory manager
+
+Modern Kotlin/Native uses automatic memory management with tracing garbage collector. It is integrated with Swift/Objective-C ARC at interop boundaries.
+
+Practical implications:
+
+- ordinary Kotlin object graphs no longer require old freezing discipline;
+- shared mutable state still needs concurrency design;
+- retain cycles with Objective-C/Swift objects still matter;
+- native resources still require explicit closing or scoped ownership;
+- performance needs measurement on target devices.
+
+```kotlin
+// commonMain/kotlin/state/LessonCache.kt
+package state
+
+class LessonCache {
+    private val lessons = mutableMapOf<String, String>()
+
+    fun put(slug: String, title: String) {
+        lessons[slug] = title
+    }
+
+    fun get(slug: String): String? {
+        return lessons[slug]
+    }
+}
+```
+
+This is ordinary mutable Kotlin state. It still needs synchronization if accessed from multiple coroutines/threads.
+
+<MouseTrap>
+«Старого freezing ада больше нет» не означает «гонки данных исчезли». Shared mutable state still needs ownership, confinement, mutex or immutable snapshots.
+</MouseTrap>
+
+## Freezing history and modern behavior
+
+Older Kotlin/Native memory model required freezing objects to share them across threads. Frozen objects could not be mutated, and many designs had to avoid common JVM-style mutable state.
+
+Modern Kotlin/Native memory manager removed that mental model from ordinary application code.
+
+What still matters:
+
+- do not rely on global mutable state without synchronization;
+- use structured concurrency;
+- isolate platform callbacks;
+- keep Swift/Objective-C ownership in mind;
+- close native resources deterministically.
+
+```kotlin
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+class NativeSafeCounter {
+    private val mutex = Mutex()
+    private var value = 0
+
+    suspend fun increment(): Int = mutex.withLock {
+        value += 1
+        value
+    }
+}
+```
+
+Use common concurrency tools; do not resurrect old freezing workarounds unless you are maintaining legacy code.
+
+## C interop
+
+Kotlin/Native can call C libraries through cinterop.
+
+General workflow:
+
+- create `.def` file;
+- point Gradle to the cinterop definition;
+- generate Kotlin bindings;
+- call generated APIs from native source set;
+- wrap generated low-level API behind safe Kotlin API.
+
+Gradle:
+
+```kotlin
+kotlin {
+    linuxX64 {
+        compilations.getByName("main") {
+            cinterops {
+                val libcurl by creating {
+                    definitionFile.set(project.file("src/nativeInterop/cinterop/libcurl.def"))
+                    packageName("curl")
+                }
+            }
+        }
+    }
+}
+```
+
+Definition file:
+
+```properties
+headers = curl/curl.h
+headerFilter = curl/*
+compilerOpts = -I/usr/include
+linkerOpts = -lcurl
+```
+
+Wrapper:
+
+```kotlin
+// linuxX64Main/kotlin/http/CurlVersion.kt
+package http
+
+import curl.curl_version
+import kotlinx.cinterop.toKString
+
+class CurlInfo {
+    fun version(): String {
+        // Generated C interop API stays inside native adapter.
+        return curl_version()?.toKString().orEmpty()
+    }
+}
+```
+
+<MouseTrap>
+C interop bindings are low-level. Не разносите generated pointer-heavy API по common code. Сразу оборачивайте его в маленькие Kotlin abstractions.
+</MouseTrap>
+
+## Native resources
+
+C and platform APIs often return resources that must be closed.
+
+```kotlin
+package nativeio
+
+import kotlinx.cinterop.CPointer
+import platform.posix.FILE
+import platform.posix.fclose
+import platform.posix.fopen
+
+class NativeFile private constructor(
+    private val pointer: CPointer<FILE>
+) {
+    fun close() {
+        fclose(pointer)
+    }
+
+    companion object {
+        fun open(path: String, mode: String): NativeFile {
+            val file = fopen(path, mode)
+                ?: error("Не удалось открыть файл $path")
+
+            return NativeFile(file)
+        }
+    }
+}
+```
+
+Safer scoped helper:
+
+```kotlin
+package nativeio
+
+inline fun <T> withNativeFile(path: String, mode: String, block: (NativeFile) -> T): T {
+    val file = NativeFile.open(path, mode)
+
+    return try {
+        block(file)
+    } finally {
+        // Native resource закрывается детерминированно.
+        file.close()
+    }
+}
+```
+
+## Objective-C and Swift interop
+
+Kotlin/Native interoperates with Swift through Objective-C.
+
+You can:
+
+- call Objective-C frameworks from Kotlin;
+- use pre-imported Apple frameworks like Foundation and UIKit;
+- export Kotlin module as framework;
+- call Kotlin from Swift/Objective-C;
+- refine exported API with annotations.
+
+Calling Apple API:
+
+```kotlin
+// iosMain/kotlin/platform/IosUuid.kt
+package platform
+
+import platform.Foundation.NSUUID
+
+class IosUuidGenerator {
+    fun next(): String {
+        return NSUUID().UUIDString()
+    }
+}
+```
+
+Hiding Kotlin declarations from Swift/Objective-C:
+
+```kotlin
+package api
+
+import kotlin.native.HiddenFromObjC
+
+class LessonApi {
+    fun publicTitle(slug: String): String {
+        return "Урок $slug"
+    }
+
+    @HiddenFromObjC
+    fun kotlinOnlyDebugLine(): String {
+        return "internal-debug"
+    }
+}
+```
+
+## Exceptions at Swift boundary
+
+Kotlin exceptions need deliberate mapping.
+
+```kotlin
+package api
+
+class LessonNotFoundException(
+    slug: String
+) : Exception("Урок не найден: $slug")
+
+class NativeLessonApi {
+    @Throws(LessonNotFoundException::class)
+    fun title(slug: String): String {
+        if (slug.isBlank()) {
+            throw LessonNotFoundException(slug)
+        }
+
+        return "Урок $slug"
+    }
+}
+```
+
+Without `@Throws`, non-suspend Kotlin exceptions crossing into Swift/Objective-C are not ordinary Swift errors and can terminate the program. Design Swift-facing API intentionally.
+
+## Framework export
+
+Apple targets can build Objective-C frameworks.
+
+```kotlin
+kotlin {
+    iosArm64()
+    iosSimulatorArm64()
+
+    targets.withType<org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget>().configureEach {
+        binaries.framework {
+            baseName = "KotlingoShared"
+            isStatic = true
+        }
+    }
+}
+```
+
+For multi-architecture Apple delivery, use XCFramework.
+
+```kotlin
+import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
+
+kotlin {
+    val xcf = XCFramework("KotlingoShared")
+
+    listOf(
+        iosArm64(),
+        iosSimulatorArm64()
+    ).forEach { target ->
+        target.binaries.framework {
+            baseName = "KotlingoShared"
+            isStatic = true
+            xcf.add(this)
+        }
+    }
+}
+```
+
+Build tasks include XCFramework assembly tasks generated by Gradle plugin.
+
+## Export dependencies carefully
+
+Framework can export dependencies, but exported dependencies become part of framework API and binary.
+
+```kotlin
+kotlin {
+    iosArm64 {
+        binaries.framework {
+            baseName = "KotlingoShared"
+
+            // Export only dependencies that Swift callers must directly see.
+            export(project(":shared-api"))
+        }
+    }
+
+    sourceSets {
+        iosMain.dependencies {
+            api(project(":shared-api"))
+        }
+    }
+}
+```
+
+Avoid transitive export unless you truly need it. It increases binary size and API surface.
+
+## Production checklist
+
+For Native target:
+
+- declare only targets you test;
+- use intermediate source sets like `iosMain` deliberately;
+- keep C interop behind wrappers;
+- close native resources deterministically;
+- design Swift/Objective-C API separately from Kotlin internal API;
+- use `@Throws` for Swift-facing errors;
+- hide or refine declarations that should not be public to Swift;
+- configure frameworks or XCFrameworks intentionally;
+- measure on real devices;
+- remember memory manager is modern, but concurrency still needs design.
+
+<CatTip>
+Native target rewards clean edges: common code stays calm, native adapters are small, frameworks expose friendly API, and every pointer has a responsible owner.
+</CatTip>
+

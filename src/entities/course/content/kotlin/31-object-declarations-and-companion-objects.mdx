@@ -1,0 +1,631 @@
+---
+title: "Object declarations и companion objects"
+description: "Изучаем singleton object, companion object, object expressions, data object, initialization, shared state, factories и JVM-интероперабельность через JvmStatic и JvmField."
+order: 31
+category: "Классы и объекты"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Один экземпляр без ручного singleton boilerplate
+
+Object declaration одновременно объявляет тип и его единственный instance.
+
+```kotlin
+object LessonNumberFormatter {
+    fun format(order: Int, title: String): String {
+        require(order > 0) { "Порядок должен быть положительным" }
+        return "$order. ${title.trim()}"
+    }
+}
+
+fun main() {
+    println(LessonNumberFormatter.format(31, "Object declarations"))
+}
+```
+
+Не нужно вызывать constructor, хранить `INSTANCE` или писать double-checked locking. Имя `LessonNumberFormatter` обозначает singleton value.
+
+## Что может содержать object
+
+Object declaration поддерживает почти те же members, что class:
+
+- properties;
+- functions;
+- `init` blocks;
+- nested classes/objects;
+- реализацию interfaces;
+- наследование одного класса;
+- visibility modifiers.
+
+У object нет вызываемого client constructor и нельзя создать второй instance обычным способом.
+
+```kotlin
+interface Clock {
+    fun nowMillis(): Long
+}
+
+object SystemClock : Clock {
+    override fun nowMillis(): Long {
+        return System.currentTimeMillis()
+    }
+}
+```
+
+Object можно передать как implementation:
+
+```kotlin
+class AuditService(private val clock: Clock) {
+    fun entry(message: String): String {
+        return "${clock.nowMillis()} | $message"
+    }
+}
+
+val audit = AuditService(SystemClock)
+```
+
+## Инициализация object declaration
+
+Object declaration инициализируется лениво при первом безопасном доступе согласно platform semantics. На JVM class initialization обеспечивает thread-safe публикацию singleton.
+
+```kotlin
+object LessonIndex {
+    init {
+        println("Создаём индекс уроков")
+    }
+
+    val titles: Map<Int, String> = mapOf(
+        30 to "Nested classes",
+        31 to "Object declarations"
+    )
+}
+```
+
+Первое обращение `LessonIndex.titles` запускает initialization. Повторные обращения используют тот же instance.
+
+Initialization должна быть:
+
+- короткой;
+- детерминированной;
+- без блокирующей сети;
+- без cyclic dependencies между objects;
+- без failures, после которых runtime class initialization остаётся повреждённой.
+
+Тяжёлую загрузку лучше сделать явным suspend/service operation или контролируемым `lazy`.
+
+<MouseTrap title="Мышеловка: singleton initialization не место для I/O">
+Сетевой запрос или подключение к базе в `init` делает первый случайный доступ медленным и failure-prone. Object хранит stateless policy/factory, а resources создаёт lifecycle container.
+</MouseTrap>
+
+## Object и shared mutable state
+
+Mutable property object является process-wide shared state.
+
+```kotlin
+object UnsafeProgress {
+    var completed: Int = 0
+}
+```
+
+Проблемы:
+
+- race conditions;
+- tests влияют друг на друга;
+- state переживает screens/requests;
+- dependency скрыта за global access;
+- невозможно иметь две независимые sessions.
+
+Thread-safe counter не решает architectural global-state issue, хотя устраняет data race:
+
+```kotlin
+import java.util.concurrent.atomic.AtomicInteger
+
+object Metrics {
+    private val openedLessons = AtomicInteger(0)
+
+    fun lessonOpened() {
+        openedLessons.incrementAndGet()
+    }
+
+    fun openedCount(): Int = openedLessons.get()
+}
+```
+
+Global metrics registry может быть осознанным singleton, но user progress должен быть instance service/repository.
+
+<CatTip title="Котосовет: object лучше для stateless behavior">
+Formatter, parser policy, comparator и no-op implementation естественно singleton. Если данные имеют lifecycle пользователя, запроса или теста, создавай class instance и передавай dependency явно.
+</CatTip>
+
+## Object наследует class и interfaces
+
+```kotlin
+open class BaseLogger(private val prefix: String) {
+    protected fun line(message: String): String = "$prefix: $message"
+}
+
+interface LessonLogger {
+    fun info(message: String)
+}
+
+object ConsoleLessonLogger : BaseLogger("LESSON"), LessonLogger {
+    override fun info(message: String) {
+        println(line(message))
+    }
+}
+```
+
+Base constructor вызывается в declaration один раз при initialization singleton.
+
+## Nested object
+
+Object declaration можно вложить в class/object. Она не хранит outer instance, как обычная nested declaration.
+
+```kotlin
+class LessonRules {
+    object Defaults {
+        const val MIN_TITLE_LENGTH: Int = 3
+        const val MAX_TITLE_LENGTH: Int = 120
+    }
+}
+
+val maximum = LessonRules.Defaults.MAX_TITLE_LENGTH
+```
+
+Для связи с class API чаще используют companion object.
+
+## Локальный named object
+
+Named object declaration нельзя объявить как обычную local declaration внутри function. Для локального anonymous instance используй object expression:
+
+```kotlin
+fun localFormatter(): (String) -> String {
+    val formatter = object {
+        fun format(value: String): String = value.trim().uppercase()
+    }
+
+    return formatter::format
+}
+```
+
+Object expression создаёт новый объект при выполнении функции.
+
+## Companion object
+
+Companion object — object, связанный с class и доступный через имя class.
+
+```kotlin
+class LessonId private constructor(val value: Int) {
+    companion object {
+        fun of(value: Int): LessonId {
+            require(value > 0) { "Идентификатор должен быть положительным" }
+            return LessonId(value)
+        }
+    }
+}
+
+val id = LessonId.of(31)
+```
+
+Companion имеет доступ к private constructor и private members class declaration where language visibility permits. Он часто хранит:
+
+- named factories;
+- constants;
+- parsers;
+- serializers/adapters tied to type;
+- empty/default instances.
+
+У класса может быть только один companion object.
+
+## Companion — настоящий объект
+
+Companion можно назвать и использовать как value.
+
+```kotlin
+interface LessonFactory<T> {
+    fun create(raw: String): T
+}
+
+class Lesson private constructor(val title: String) {
+    companion object Factory : LessonFactory<Lesson> {
+        override fun create(raw: String): Lesson {
+            val title = raw.trim()
+            require(title.isNotEmpty()) { "Название обязательно" }
+            return Lesson(title)
+        }
+    }
+}
+
+fun <T> createWith(raw: String, factory: LessonFactory<T>): T {
+    return factory.create(raw)
+}
+
+fun main() {
+    val lesson = createWith("  Companion objects  ", Lesson)
+    println(lesson.title)
+}
+```
+
+В expression context имя class `Lesson` может обозначать его companion object. Явные формы — `Lesson.Factory` для named companion или `Lesson.Companion` для unnamed.
+
+Companion members похожи на static syntax, но в Kotlin семантически являются members singleton object.
+
+## Named companion
+
+```kotlin
+class Course {
+    companion object Creator {
+        fun empty(): Course = Course()
+    }
+}
+
+val first = Course.empty()
+val second = Course.Creator.empty()
+```
+
+Обе формы обращаются к одному companion.
+
+## Factory methods
+
+Named factory превосходит overloaded constructor, когда нужно выразить источник/семантику.
+
+```kotlin
+class StudySession private constructor(
+    val student: String,
+    val lessonId: Int,
+    val restored: Boolean
+) {
+    companion object {
+        fun start(student: String, lessonId: Int): StudySession {
+            return create(student, lessonId, restored = false)
+        }
+
+        fun restore(student: String, lessonId: Int): StudySession {
+            return create(student, lessonId, restored = true)
+        }
+
+        private fun create(
+            student: String,
+            lessonId: Int,
+            restored: Boolean
+        ): StudySession {
+            val normalizedStudent = student.trim()
+            require(normalizedStudent.isNotEmpty()) { "Имя обязательно" }
+            require(lessonId > 0) { "Идентификатор должен быть положительным" }
+
+            return StudySession(normalizedStudent, lessonId, restored)
+        }
+    }
+}
+```
+
+Factory может:
+
+- вернуть subtype/interface;
+- вернуть cached instance;
+- вернуть nullable/result;
+- иметь имя;
+- выполнить parsing до construction.
+
+## Constants в companion
+
+```kotlin
+class LessonTitle {
+    companion object {
+        const val MIN_LENGTH: Int = 3
+        const val MAX_LENGTH: Int = 120
+    }
+}
+```
+
+В Kotlin: `LessonTitle.MAX_LENGTH`.
+
+`const val` ограничен compile-time primitive/String и может быть встроен в client code. Runtime values остаются обычными `val`:
+
+```kotlin
+class BuildInfo {
+    companion object {
+        val startedAt: Long = System.currentTimeMillis()
+    }
+}
+```
+
+## Extension для companion
+
+Если class объявляет companion, его можно расширить:
+
+```kotlin
+class ExternalLesson(val id: Int) {
+    companion object
+}
+
+fun ExternalLesson.Companion.fromText(raw: String): ExternalLesson? {
+    val id = raw.trim().toIntOrNull() ?: return null
+    return id.takeIf { it > 0 }?.let(::ExternalLesson)
+}
+
+val lesson = ExternalLesson.fromText("31")
+```
+
+Extension не получает private access и выбирается статически. Он полезен для factory чужого type, если companion существует.
+
+## `data object`
+
+`data object` — singleton с generated data-like methods.
+
+```kotlin
+sealed interface SyncState {
+    data object Idle : SyncState
+    data object Syncing : SyncState
+    data class Failed(val reason: String) : SyncState
+}
+```
+
+Для data object compiler обеспечивает:
+
+- понятный `toString` с declaration name;
+- equality/hash semantics, подходящие singleton data variant;
+- отсутствие `copy`;
+- отсутствие `componentN`.
+
+```kotlin
+println(SyncState.Idle)
+```
+
+Data object особенно уместен рядом с data classes в sealed hierarchy.
+
+Data object не должен содержать mutable per-process state только потому, что он `data`: singleton nature остаётся.
+
+## Object expression
+
+Object expression начинается с `object` и создаёт anonymous instance немедленно.
+
+```kotlin
+interface RetryPolicy {
+    fun shouldRetry(attempt: Int, error: Throwable): Boolean
+}
+
+fun cautiousPolicy(maxAttempts: Int): RetryPolicy {
+    require(maxAttempts > 0) { "Число попыток должно быть положительным" }
+
+    return object : RetryPolicy {
+        override fun shouldRetry(attempt: Int, error: Throwable): Boolean {
+            return attempt < maxAttempts && error !is IllegalArgumentException
+        }
+    }
+}
+```
+
+Каждый вызов `cautiousPolicy` создаёт новый policy с captured `maxAttempts`.
+
+### Declaration против expression
+
+Object declaration:
+
+- имеет имя;
+- singleton;
+- lazy/thread-safe initialization по platform rules;
+- не захватывает local variables;
+- подходит stable shared implementation.
+
+Object expression:
+
+- anonymous;
+- создаёт instance при каждом выполнении;
+- может захватывать local variables;
+- подходит contextual implementation/listener.
+
+## Anonymous object type visibility
+
+```kotlin
+private fun diagnostics() = object {
+    val healthy = true
+    val lessonCount = 31
+}
+
+fun printDiagnostics() {
+    val value = diagnostics()
+    println("${value.healthy}: ${value.lessonCount}")
+}
+```
+
+Private/local inferred return может сохранять anonymous members для использования в доступной области согласно compiler rules. Если function public, anonymous type расширяется до declared supertype или `Any`, и unique members теряются.
+
+Public API должен возвращать named type:
+
+```kotlin
+data class Diagnostics(
+    val healthy: Boolean,
+    val lessonCount: Int
+)
+```
+
+## JVM static interoperability
+
+Без специальных annotations companion members обычно видны Java через companion instance:
+
+```kotlin
+class LessonParser {
+    companion object {
+        fun parse(raw: String): String = raw.trim()
+    }
+}
+```
+
+Java form концептуально использует `LessonParser.Companion.parse(...)`.
+
+### `@JvmStatic`
+
+```kotlin
+class JavaFriendlyLessonParser {
+    companion object {
+        @JvmStatic
+        fun parse(raw: String): String = raw.trim()
+    }
+}
+```
+
+Compiler генерирует static bridge, позволяющий Java-вызов вида `JavaFriendlyLessonParser.parse(...)`. Companion method также существует для Kotlin semantics/compatibility.
+
+`@JvmStatic` применим и к members object declaration в поддерживаемых JVM-контекстах. Не добавляй его, если Java client не нужен: annotation расширяет bytecode/API surface.
+
+### `@JvmField`
+
+```kotlin
+class JavaDefaults {
+    companion object {
+        @JvmField
+        val defaultCategory: String = "Классы и объекты"
+    }
+}
+```
+
+`@JvmField` exposes field вместо обычных accessors для Java. Property не может иметь custom accessors и должна соблюдать annotation restrictions.
+
+`const val` уже имеет специальное static compile-time representation на JVM. Точная generated surface зависит от placement/toolchain; проверяй bytecode/API при библиотечном interop.
+
+<MouseTrap title="Мышеловка: companion не равен Java static во всех деталях">
+Kotlin-вызов `Class.member()` удобен, но member принадлежит companion instance. Для Java-friendly static shape нужны `@JvmStatic`, `@JvmField` или `const` по конкретному контракту.
+</MouseTrap>
+
+## Initialization dependencies и циклы
+
+```kotlin
+object FirstRegistry {
+    val value: String = SecondRegistry.value
+}
+
+object SecondRegistry {
+    val value: String = "ready"
+}
+```
+
+Простая зависимость может работать, но взаимные cycles способны наблюдать partially initialized platform state или вызвать initialization failures/deadlocks in complex threaded scenarios.
+
+Разрывай cycles через:
+
+- constructor dependency injection;
+- explicit bootstrap order;
+- stateless interfaces;
+- lazy dependency с продуманной reentrancy;
+- объединение неразделимых constants в один owner.
+
+## Object и serialization
+
+Serializer должен восстанавливать singleton instance, а не создавать логически новый объект через reflection. Современные Kotlin serializers знают object/data object declarations при правильной конфигурации.
+
+Для sealed wire model назначай stable serial name, не полагайся на Kotlin class name.
+
+## Практический пример: registry встроенных форматов
+
+```kotlin
+interface LessonFormat {
+    val code: String
+    fun render(title: String, content: String): String
+}
+
+data object PlainTextFormat : LessonFormat {
+    override val code: String = "text"
+
+    override fun render(title: String, content: String): String {
+        return "${title.trim()}\n\n${content.trim()}"
+    }
+}
+
+data object MarkdownFormat : LessonFormat {
+    override val code: String = "markdown"
+
+    override fun render(title: String, content: String): String {
+        return "# ${title.trim()}\n\n${content.trim()}"
+    }
+}
+
+class HtmlFormat private constructor(
+    private val articleClass: String
+) : LessonFormat {
+    override val code: String = "html"
+
+    override fun render(title: String, content: String): String {
+        val safeTitle = escape(title.trim())
+        val safeContent = escape(content.trim())
+        return "<article class=\"$articleClass\"><h1>$safeTitle</h1><p>$safeContent</p></article>"
+    }
+
+    private fun escape(value: String): String {
+        return value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+    }
+
+    companion object {
+        fun withClass(rawClass: String): HtmlFormat {
+            val normalized = rawClass.trim()
+            require(normalized.matches(Regex("""[a-zA-Z][a-zA-Z0-9_-]*"""))) {
+                "Некорректный CSS class"
+            }
+            return HtmlFormat(normalized)
+        }
+    }
+}
+
+object LessonFormatRegistry {
+    private val builtIns: Map<String, LessonFormat> = listOf(
+        PlainTextFormat,
+        MarkdownFormat
+    ).associateBy(LessonFormat::code)
+
+    fun find(code: String): LessonFormat? {
+        return builtIns[code.trim().lowercase()]
+    }
+
+    fun codes(): Set<String> = builtIns.keys
+}
+
+fun main() {
+    val markdown = requireNotNull(LessonFormatRegistry.find("markdown"))
+    println(markdown.render("Objects", "Singleton declarations"))
+
+    val html = HtmlFormat.withClass("lesson-content")
+    println(html.render("Objects", "<безопасный текст>"))
+
+    val custom = object : LessonFormat {
+        override val code: String = "preview"
+
+        override fun render(title: String, content: String): String {
+            return "${title.trim()}: ${content.trim().take(20)}"
+        }
+    }
+    println(custom.render("Предпросмотр", "Локальный anonymous formatter"))
+}
+```
+
+Здесь формы objects имеют разные роли:
+
+- stateless built-in formats — `data object`;
+- registry — singleton object с immutable map;
+- configurable HTML formatter — class с companion factory;
+- contextual preview format — object expression;
+- shared mutable state отсутствует;
+- HTML content экранируется, factory валидирует CSS class;
+- Java static annotations не добавлены без interop requirement.
+
+## Итоги
+
+- object declaration создаёт именованный singleton;
+- initialization происходит при первом доступе и безопасно публикуется platform runtime;
+- тяжёлый I/O и cyclic dependencies не должны жить в object init;
+- mutable object state является global shared state;
+- object может наследовать class и реализовывать interfaces;
+- companion object связан с class, но является настоящим object;
+- companion factory получает доступ к private constructor;
+- companion можно именовать, передавать как value и расширять;
+- `data object` даёт data-like string/equality для singleton variant;
+- object expression создаёт новый anonymous object при выполнении и захватывает locals;
+- anonymous type не подходит для public API;
+- `@JvmStatic` и `@JvmField` адаптируют companion/object для Java;
+- stateless singleton и explicit instance dependencies безопаснее скрытого global state.
+

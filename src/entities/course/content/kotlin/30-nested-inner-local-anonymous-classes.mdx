@@ -1,0 +1,655 @@
+---
+title: "Nested, inner, local и anonymous classes"
+description: "Разбираем вложенные и inner-классы Kotlin, local classes, object expressions, qualified this, захват внешнего состояния, lifetime и границы anonymous type."
+order: 30
+category: "Классы и объекты"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Четыре способа локализовать тип
+
+Kotlin позволяет объявлять типы не только на top level:
+
+- **nested class** находится внутри другого declaration, но не хранит outer instance;
+- **inner class** хранит ссылку на экземпляр внешнего класса;
+- **local class** объявляется внутри функции/block и виден только там;
+- **anonymous class** создаётся object expression без собственного имени типа.
+
+Выбор влияет на область видимости, доступ к состоянию, allocation и lifetime объектов.
+
+## Nested class
+
+Класс внутри другого класса по умолчанию является nested, а не inner.
+
+```kotlin
+class Course {
+    class Lesson(
+        val title: String
+    ) {
+        fun display(): String = "Урок: $title"
+    }
+}
+
+fun main() {
+    val lesson = Course.Lesson("Nested classes")
+    println(lesson.display())
+}
+```
+
+Для создания не нужен экземпляр `Course`. Квалифицированное имя — `Course.Lesson`.
+
+Это отличается от Java, где non-static member class имеет implicit outer reference; Kotlin требует явный `inner`.
+
+## Nested class не видит instance state
+
+```kotlin
+class Course(private val courseTitle: String) {
+    class Lesson(private val lessonTitle: String) {
+        fun display(): String {
+            return lessonTitle
+        }
+    }
+}
+```
+
+`Lesson` не может обратиться к `courseTitle`, потому что не привязан к конкретному `Course`.
+
+Он может обращаться к доступным static-like declarations companion object:
+
+```kotlin
+class Course {
+    companion object {
+        const val MAX_LESSONS: Int = 200
+    }
+
+    class Validator {
+        fun validCount(count: Int): Boolean {
+            return count in 1..MAX_LESSONS
+        }
+    }
+}
+```
+
+## Зачем группировать nested type
+
+Nested type полезен, если он:
+
+- является implementation detail внешнего класса;
+- логически принадлежит namespace внешнего API;
+- не имеет смысла как отдельный top-level concept;
+- не требует outer state.
+
+```kotlin
+class LessonParser {
+    data class Result(
+        val title: String,
+        val tags: List<String>
+    )
+
+    fun parse(raw: String): Result {
+        val parts = raw.split('|', limit = 2)
+        val title = parts.first().trim()
+        val tags = parts.getOrNull(1)
+            ?.split(',')
+            ?.map(String::trim)
+            ?.filter(String::isNotEmpty)
+            .orEmpty()
+
+        return Result(title, tags)
+    }
+}
+```
+
+Client видит `LessonParser.Result`, что показывает происхождение типа.
+
+Не превращай один внешний класс в огромный namespace из десятков слабо связанных nested declarations. Package уже решает организацию top-level типов.
+
+## Visibility nested class
+
+```kotlin
+class Catalog {
+    private data class Record(
+        val id: Int,
+        val title: String
+    )
+
+    fun titles(): List<String> {
+        val records = listOf(Record(30, "Nested classes"))
+        return records.map(Record::title)
+    }
+}
+```
+
+Private nested class скрывает storage model. Public signature не должна раскрывать private type.
+
+## `inner` class
+
+Модификатор `inner` связывает объект вложенного класса с конкретным outer instance.
+
+```kotlin
+class Course(private val title: String) {
+    inner class Lesson(private val lessonTitle: String) {
+        fun display(): String {
+            return "$title: $lessonTitle"
+        }
+    }
+}
+
+fun main() {
+    val course = Course("kotlingo")
+    val lesson = course.Lesson("Inner classes")
+
+    println(lesson.display())
+}
+```
+
+Создание выполняется через instance `course.Lesson(...)`, а не `Course.Lesson(...)`.
+
+Каждый `Lesson` хранит hidden reference на тот `Course`, через который создан.
+
+## `this` в inner class
+
+Неqualified `this` относится к inner instance. Outer instance доступен через qualified `this@OuterClass`.
+
+```kotlin
+class Course(private val title: String) {
+    inner class Lesson(private val title: String) {
+        fun label(): String {
+            return "${this@Course.title}: ${this.title}"
+        }
+    }
+}
+```
+
+Qualification устраняет shadowing.
+
+Inner class может читать private members outer class:
+
+```kotlin
+class Session(private val token: String) {
+    inner class RequestBuilder {
+        fun authorizationHeader(): String {
+            return "Bearer $token"
+        }
+    }
+}
+```
+
+Обратное направление не автоматическое: outer object не содержит конкретный inner instance, пока не сохранит/создаст его.
+
+## Lifetime и memory retention
+
+Inner instance удерживает outer instance.
+
+```kotlin
+class LargeCourse(private val payload: ByteArray) {
+    inner class Listener {
+        fun payloadSize(): Int = payload.size
+    }
+}
+```
+
+Если long-lived registry сохранит `Listener`, весь `LargeCourse` и `payload` останутся reachable.
+
+<MouseTrap title="Мышеловка: inner продлевает жизнь outer object">
+Не делай listener/callback inner-классом, если он уходит в глобальную подписку и не управляется lifecycle. Nested class с явными минимальными dependencies удерживает меньше состояния.
+</MouseTrap>
+
+Безопасная альтернатива:
+
+```kotlin
+class PayloadSizeListener(private val size: Int) {
+    fun payloadSize(): Int = size
+}
+```
+
+Передаётся только необходимое значение, а не весь outer graph.
+
+## Когда `inner` уместен
+
+- iterator тесно связан с private storage конкретного container;
+- builder изменяет конкретный outer aggregate;
+- UI helper имеет lifecycle строго короче outer owner;
+- implementation требует identity одного outer instance.
+
+Даже тогда composition с явной reference часто проще тестировать:
+
+```kotlin
+class CourseEditor(private val course: MutableCourse) {
+    fun rename(title: String) {
+        course.rename(title)
+    }
+}
+
+class MutableCourse(initialTitle: String) {
+    var title: String = initialTitle
+        private set
+
+    fun rename(rawTitle: String) {
+        val title = rawTitle.trim()
+        require(title.isNotEmpty()) { "Название обязательно" }
+        this.title = title
+    }
+}
+```
+
+## Nested class внутри interface
+
+Interface может содержать nested types, которые не привязаны к instance implementor.
+
+```kotlin
+interface LessonRepository {
+    data class Query(
+        val text: String,
+        val limit: Int
+    )
+
+    fun search(query: Query): List<String>
+}
+```
+
+Вызов создаёт `LessonRepository.Query(...)`.
+
+## Local class
+
+Local class объявляется внутри function/block и виден только в этой области.
+
+```kotlin
+fun groupLessons(titles: List<String>): Map<Char, List<String>> {
+    data class IndexedTitle(
+        val initial: Char,
+        val title: String
+    )
+
+    return titles
+        .map { title ->
+            val normalized = title.trim()
+            require(normalized.isNotEmpty()) { "Название не должно быть пустым" }
+            IndexedTitle(normalized.first().uppercaseChar(), normalized)
+        }
+        .groupBy(
+            keySelector = IndexedTitle::initial,
+            valueTransform = IndexedTitle::title
+        )
+}
+```
+
+`IndexedTitle` — implementation detail одного алгоритма. Его невозможно использовать извне.
+
+Local declarations не нуждаются и не принимают обычные public/private modifiers: block scope уже задаёт visibility.
+
+## Захват local variables
+
+Local class может обращаться к variables enclosing function.
+
+```kotlin
+fun createFormatter(prefix: String): Any {
+    class Formatter {
+        fun format(value: String): String {
+            return "$prefix: ${value.trim()}"
+        }
+    }
+
+    return Formatter()
+}
+```
+
+Но return type `Any` скрывает method `format`; local type нельзя назвать снаружи. Полезнее вернуть public interface:
+
+```kotlin
+fun interface TextFormatter {
+    fun format(value: String): String
+}
+
+fun createTextFormatter(prefix: String): TextFormatter {
+    class PrefixFormatter : TextFormatter {
+        override fun format(value: String): String {
+            return "$prefix: ${value.trim()}"
+        }
+    }
+
+    return PrefixFormatter()
+}
+```
+
+Для одного SAM method lambda ещё проще:
+
+```kotlin
+fun createFormatterLambda(prefix: String): TextFormatter {
+    return TextFormatter { value -> "$prefix: ${value.trim()}" }
+}
+```
+
+## Захват mutable local state
+
+```kotlin
+fun counter(): () -> Int {
+    var value = 0
+
+    class Counter {
+        fun next(): Int {
+            value += 1
+            return value
+        }
+    }
+
+    val counter = Counter()
+    return counter::next
+}
+```
+
+Captured mutable variable может быть boxed/heap-allocated backend, потому что должна жить после возврата функции. Она не thread-safe.
+
+```kotlin
+val next = counter()
+println(next())
+println(next())
+```
+
+Для concurrent use нужен atomic/synchronization или immutable state transition.
+
+## Ограничения local class
+
+Local class не имеет stable qualified name для public API/serialization/reflection. Он не подходит для:
+
+- DTO serializer, ожидающего named type;
+- dependency injection registration по class;
+- public return/parameter type;
+- persistent polymorphic discriminator;
+- reuse между functions.
+
+Если type становится важным concept, вынеси его в private nested или top-level declaration.
+
+## Anonymous class через object expression
+
+Object expression создаёт объект anonymous class на месте.
+
+```kotlin
+interface LessonListener {
+    fun onOpened(id: Int)
+    fun onCompleted(id: Int)
+}
+
+fun main() {
+    val listener = object : LessonListener {
+        override fun onOpened(id: Int) {
+            println("Открыт урок $id")
+        }
+
+        override fun onCompleted(id: Int) {
+            println("Завершён урок $id")
+        }
+    }
+
+    listener.onOpened(30)
+    listener.onCompleted(30)
+}
+```
+
+Expression выполняется сразу и создаёт новый instance при каждом выполнении.
+
+Это отличается от object declaration singleton, изучаемого в следующем уроке.
+
+## Anonymous object без supertype
+
+```kotlin
+fun renderDebug() {
+    val metrics = object {
+        val lessonCount = 30
+        val category = "Классы и объекты"
+    }
+
+    println("${metrics.lessonCount}: ${metrics.category}")
+}
+```
+
+В local/private scope compiler может сохранить anonymous type, поэтому members доступны.
+
+При выходе через public/internal API anonymous type стирается до declared supertype или `Any`:
+
+```kotlin
+class Diagnostics {
+    fun publicValue(): Any {
+        return object {
+            val status = "ok"
+        }
+    }
+}
+```
+
+Client получает `Any` и не видит `status`. Для API объяви data class/interface.
+
+<CatTip title="Котосовет: anonymous object — локальная реализация, не модель API">
+Если caller должен читать его properties, тип заслуживает имени. Object expression хорош для listener, strategy и узкой adapter implementation.
+</CatTip>
+
+## Наследование class и interfaces в object expression
+
+```kotlin
+open class BaseFormatter(private val prefix: String) {
+    open fun format(value: String): String = "$prefix: $value"
+}
+
+interface CloseableFormatter {
+    fun close()
+}
+
+fun createFormatter(): BaseFormatter {
+    return object : BaseFormatter("Урок"), CloseableFormatter {
+        override fun format(value: String): String {
+            return super.format(value.trim())
+        }
+
+        override fun close() {
+            println("Formatter закрыт")
+        }
+    }
+}
+```
+
+Return type `BaseFormatter` скрывает `CloseableFormatter.close` от caller. Если нужны обе capabilities, объяви общий named interface.
+
+Object expression может наследовать один class и реализовать несколько interfaces по обычным правилам.
+
+## Захват outer variables object expression
+
+```kotlin
+fun loggingListener(prefix: String): LessonListener {
+    var completedCount = 0
+
+    return object : LessonListener {
+        override fun onOpened(id: Int) {
+            println("$prefix открыт $id")
+        }
+
+        override fun onCompleted(id: Int) {
+            completedCount += 1
+            println("$prefix завершён $id; всего $completedCount")
+        }
+    }
+}
+```
+
+Anonymous object захватывает `prefix` и mutable `completedCount`. Его lifetime продлевает lifetime captured values. Mutable count не thread-safe.
+
+## Object expression и SAM lambda
+
+Для interface с одним abstract method lambda обычно короче:
+
+```kotlin
+fun interface LessonFilter {
+    fun accepts(title: String): Boolean
+}
+
+val filter = LessonFilter { title -> title.isNotBlank() }
+```
+
+Object expression нужен, если:
+
+- abstract methods несколько;
+- нужен собственный state/members;
+- нужно наследовать class;
+- требуется explicit `this` identity;
+- override нескольких defaults.
+
+## Anonymous object и equality
+
+Обычный anonymous class наследует identity equality `Any`, если не override methods. Два выполнения expression создают разные объекты:
+
+```kotlin
+fun marker(): Any = object {}
+
+fun main() {
+    println(marker() == marker())
+}
+```
+
+Результат `false`. Для value semantics нужен named data class/value type.
+
+## Выбор формы
+
+Используй nested class, когда type логически сгруппирован, но outer instance не нужен.
+
+Используй inner class, когда каждый instance неразрывно связан с конкретным outer object и lifecycle контролируется.
+
+Используй local class, когда сложная вспомогательная структура нужна только одному algorithm.
+
+Используй object expression для одноразовой implementation interface/class.
+
+Используй lambda для простого SAM/callback.
+
+## Практический пример: обработчик импорта курса
+
+```kotlin
+interface ImportObserver {
+    fun onRowAccepted(row: Int, title: String)
+    fun onRowRejected(row: Int, reason: String)
+}
+
+class CourseImporter(private val courseName: String) {
+    data class Report(
+        val accepted: Int,
+        val rejected: Int,
+        val titles: List<String>
+    )
+
+    private class RowParser {
+        data class ParsedRow(
+            val order: Int,
+            val title: String
+        )
+
+        fun parse(raw: String): Result<ParsedRow> {
+            val parts = raw.split(';', limit = 2)
+            if (parts.size != 2) {
+                return Result.failure(
+                    IllegalArgumentException("Ожидался формат order;title")
+                )
+            }
+
+            val order = parts[0].trim().toIntOrNull()
+                ?: return Result.failure(
+                    IllegalArgumentException("Порядок должен быть числом")
+                )
+            val title = parts[1].trim()
+
+            if (order <= 0) {
+                return Result.failure(
+                    IllegalArgumentException("Порядок должен быть положительным")
+                )
+            }
+            if (title.isEmpty()) {
+                return Result.failure(
+                    IllegalArgumentException("Название обязательно")
+                )
+            }
+
+            return Result.success(ParsedRow(order, title))
+        }
+    }
+
+    inner class Session(private val observer: ImportObserver) {
+        fun import(lines: List<String>): Report {
+            val parser = RowParser()
+            val acceptedTitles = mutableListOf<String>()
+            var rejected = 0
+
+            lines.forEachIndexed { index, raw ->
+                val rowNumber = index + 1
+                parser.parse(raw)
+                    .onSuccess { parsed ->
+                        val title = "$courseName / ${parsed.order}. ${parsed.title}"
+                        acceptedTitles += title
+                        observer.onRowAccepted(rowNumber, title)
+                    }
+                    .onFailure { error ->
+                        rejected += 1
+                        observer.onRowRejected(
+                            rowNumber,
+                            error.message ?: "Неизвестная ошибка"
+                        )
+                    }
+            }
+
+            return Report(
+                accepted = acceptedTitles.size,
+                rejected = rejected,
+                titles = acceptedTitles.toList()
+            )
+        }
+    }
+}
+
+fun main() {
+    val observer = object : ImportObserver {
+        override fun onRowAccepted(row: Int, title: String) {
+            println("Строка $row принята: $title")
+        }
+
+        override fun onRowRejected(row: Int, reason: String) {
+            println("Строка $row отклонена: $reason")
+        }
+    }
+
+    val importer = CourseImporter("kotlingo")
+    val session = importer.Session(observer)
+    val report = session.import(
+        listOf(
+            "30;Nested classes",
+            "wrong;Без номера",
+            "31;Object declarations"
+        )
+    )
+
+    println(report)
+}
+```
+
+Структура примера:
+
+- public nested `Report` группируется с importer, но не удерживает его;
+- private nested `RowParser` не требует outer state;
+- его nested `ParsedRow` является локальной storage model parser;
+- inner `Session` сознательно использует конкретный `courseName`;
+- anonymous observer реализует два callback без отдельного named class;
+- report возвращается как устойчивый named data type;
+- listener lifetime должен оставаться не длиннее session/importer.
+
+## Итоги
+
+- nested class не имеет implicit outer reference;
+- nested instance создаётся как `Outer.Nested()`;
+- `inner` хранит конкретный outer instance и создаётся через него;
+- `this@Outer` обращается к внешнему receiver;
+- inner object может продлить lifetime большого outer graph;
+- local class виден только внутри блока и может захватывать variables;
+- captured mutable state требует concurrency discipline;
+- object expression создаёт новый anonymous instance при каждом выполнении;
+- anonymous type не должен выходить как public model;
+- object expression подходит multi-method listener/adapter;
+- SAM lambda проще для одного abstract method;
+- выбирай минимальную форму, не захватывающую лишнее состояние.
+

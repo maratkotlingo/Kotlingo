@@ -1,0 +1,494 @@
+---
+title: "Lambdas"
+description: "Изучаем синтаксис lambda expressions, it и явные параметры, вывод типов, trailing lambdas, labeled и non-local returns, closures, захват mutable state и SAM conversion."
+order: 40
+category: "Функциональный Kotlin"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Lambda expression
+
+Lambda — function literal без отдельного имени declaration.
+
+```kotlin
+val square: (Int) -> Int = { value -> value * value }
+
+println(square(8))
+```
+
+Полная форма:
+
+```kotlin
+{ parameters -> body }
+```
+
+Lambda всегда заключена в фигурные скобки. Стрелка отделяет parameters от body.
+
+## Явные types parameters
+
+```kotlin
+val sum = { left: Int, right: Int ->
+    left + right
+}
+```
+
+Если expected function type известен, types можно опустить:
+
+```kotlin
+val sum: (Int, Int) -> Int = { left, right ->
+    left + right
+}
+```
+
+Если нет ни expected type, ни annotations parameters, compiler не может вывести их:
+
+```kotlin
+// val ambiguous = { value -> value }
+```
+
+Укажи parameter type или variable type.
+
+## Result последнего expression
+
+```kotlin
+val normalize: (String) -> String = { raw ->
+    val trimmed = raw.trim()
+    trimmed.replace(Regex("""\s+"""), " ")
+}
+```
+
+Последнее expression становится result. Ключевое слово `return` для обычного local result lambda не используется без label.
+
+Если ожидается Unit, последнее value отбрасывается:
+
+```kotlin
+val audit: (String) -> Unit = { message ->
+    println(message)
+    message.length
+}
+```
+
+Такой лишний result confusing; оставляй effect expression последним.
+
+## `it` для одного parameter
+
+Если lambda имеет один parameter и его type выводится, доступно implicit имя `it`.
+
+```kotlin
+val lengths = listOf("Kotlin", "Lambda").map { it.length }
+```
+
+`it` удобно в коротком block. Для длинной или nested lambda имя яснее:
+
+```kotlin
+val normalized = listOf(" Kotlin ", " Lambdas ").map { title ->
+    title.trim().lowercase()
+}
+```
+
+<CatTip title="Котосовет: it только для короткой очевидной lambda">
+В нескольких строках или nested callbacks назови parameter: `lesson`, `event`, `response`. Это дешевле, чем выяснять, к какому уровню относится очередной `it`.
+</CatTip>
+
+## Несколько parameters
+
+```kotlin
+val compareByLength: (String, String) -> Int = { first, second ->
+    first.length.compareTo(second.length)
+}
+```
+
+`it` недоступен при двух parameters.
+
+Unused parameter обозначается underscore:
+
+```kotlin
+val withIndex = listOf("a", "b").mapIndexed { index, _ ->
+    "Элемент $index"
+}
+```
+
+## Destructuring parameter
+
+```kotlin
+val lessons = mapOf(39 to "Function types", 40 to "Lambdas")
+
+lessons.forEach { (order, title) ->
+    println("$order. $title")
+}
+```
+
+Один parameter `Map.Entry` destructured в два names. Можно добавить explicit type whole parameter только через отдельную форму/variable; types отдельных destructured components напрямую в обычной lambda syntax не задаются как независимые parameters.
+
+Пропуск:
+
+```kotlin
+lessons.forEach { (_, title) -> println(title) }
+```
+
+## Trailing lambda
+
+Если последний argument function type, lambda можно вынести за круглые скобки.
+
+```kotlin
+fun transformTitle(title: String, transform: (String) -> String): String {
+    return transform(title)
+}
+
+val result = transformTitle("  Kotlin  ") { raw ->
+    raw.trim().uppercase()
+}
+```
+
+Если lambda — единственный argument, круглые скобки опускаются:
+
+```kotlin
+fun execute(action: () -> Unit) {
+    action()
+}
+
+execute {
+    println("Действие выполнено")
+}
+```
+
+Trailing syntax относится к lambda, но не к anonymous function: `fun(...)` остаётся внутри parentheses.
+
+## Lambda как argument среди других
+
+```kotlin
+fun retry(
+    attempts: Int,
+    onFailure: (Int, Throwable) -> Unit,
+    action: () -> String
+): String {
+    require(attempts > 0) { "Число попыток должно быть положительным" }
+
+    var lastError: Throwable? = null
+    repeat(attempts) { index ->
+        try {
+            return action()
+        } catch (error: RuntimeException) {
+            lastError = error
+            onFailure(index + 1, error)
+        }
+    }
+
+    throw requireNotNull(lastError)
+}
+```
+
+Вызов:
+
+```kotlin
+val value = retry(
+    attempts = 3,
+    onFailure = { attempt, error ->
+        println("Попытка $attempt: ${error.message}")
+    }
+) {
+    "Успех"
+}
+```
+
+Последняя lambda вынесена, предыдущая остаётся named argument.
+
+## Захват variables: closure
+
+Lambda видит enclosing scope.
+
+```kotlin
+fun prefixer(prefix: String): (String) -> String {
+    return { value -> "$prefix: ${value.trim()}" }
+}
+
+val lessonPrefix = prefixer("Урок")
+println(lessonPrefix("Lambdas"))
+```
+
+Returned lambda продолжает удерживать `prefix` после завершения `prefixer`.
+
+## Захват mutable variable
+
+```kotlin
+fun counter(): () -> Int {
+    var value = 0
+
+    return {
+        value += 1
+        value
+    }
+}
+```
+
+Compiler/backend хранит captured mutable state так, чтобы последующие calls видели изменения.
+
+```kotlin
+val next = counter()
+println(next())
+println(next())
+```
+
+Это stateful function object. Он не thread-safe.
+
+```kotlin
+import java.util.concurrent.atomic.AtomicInteger
+
+fun atomicCounter(): () -> Int {
+    val value = AtomicInteger(0)
+    return value::incrementAndGet
+}
+```
+
+Atomic решает data race для счётчика, но lifecycle state всё равно должен быть явным.
+
+<MouseTrap title="Мышеловка: closure может скрыть mutable state">
+Lambda выглядит как функция, но captured `var`, collection или service делают результат зависимым от истории. Для сложного state используй именованный class с явными invariants.
+</MouseTrap>
+
+## Захват большого object graph
+
+```kotlin
+class CourseScreen(private val payload: ByteArray) {
+    fun listener(): () -> Int {
+        return { payload.size }
+    }
+}
+```
+
+Listener захватывает `this` и удерживает весь `CourseScreen`. Если callback сохраняется в singleton registry, возможна memory leak. Захватывай минимальные values и отписывай lifecycle listeners.
+
+## Shadowing
+
+```kotlin
+val title = "Outer"
+val render: (String) -> String = { title ->
+    "Inner: $title"
+}
+```
+
+Lambda parameter скрывает outer variable. Это допустимо, но разные names уменьшают confusion.
+
+## Local return через label
+
+Обычный `return` из lambda не означает «вернуть result lambda». Для local early exit используй label.
+
+```kotlin
+fun printValidScores(scores: List<Int>) {
+    scores.forEach { score ->
+        if (score !in 0..100) return@forEach
+        println(score)
+    }
+
+    println("Обработка завершена")
+}
+```
+
+`return@forEach` завершает текущий invocation lambda, похоже на `continue` этого обхода.
+
+## Явный label
+
+```kotlin
+fun firstValidText(values: List<String>): String? {
+    var result: String? = null
+
+    values.forEach search@{ value ->
+        val normalized = value.trim()
+        if (normalized.isEmpty()) return@search
+        if (result == null) result = normalized
+    }
+
+    return result
+}
+```
+
+Implicit label совпадает с именем called function; explicit label полезен при nesting.
+
+Для поиска лучше стандартный `firstNotNullOfOrNull`, `firstOrNull` или обычный loop без mutable capture. Label здесь демонстрирует semantics.
+
+## Non-local return
+
+Lambda, переданная inline function и вызванная directly, может выполнить bare `return` из enclosing named function.
+
+```kotlin
+fun containsNegative(values: List<Int>): Boolean {
+    values.forEach { value ->
+        if (value < 0) return true
+    }
+
+    return false
+}
+```
+
+`forEach` inline, поэтому `return true` завершает `containsNegative`, а не lambda.
+
+Non-local return невозможен для lambda, сохранённой в variable или переданной non-inline function:
+
+```kotlin
+fun executeLater(action: () -> Unit) {
+    action()
+}
+
+fun example() {
+    executeLater {
+        // bare return из example здесь недопустим.
+        println("Выполнение")
+    }
+}
+```
+
+## Non-local `break` и `continue`
+
+Актуальный Kotlin поддерживает non-local jump expressions в подходящих inline-lambda contexts, но допустимость зависит от того, действительно ли inline function оборачивает loop и compiler/language version. Для обычной collection operation чаще яснее обычный `for`.
+
+```kotlin
+fun firstPassing(scores: List<Int>): Int? {
+    for (score in scores) {
+        if (score !in 0..100) continue
+        if (score >= 60) return score
+    }
+    return null
+}
+```
+
+Не усложняй control flow только ради functional syntax.
+
+## Receiver lambda
+
+```kotlin
+val configure: StringBuilder.() -> Unit = {
+    append("Урок ")
+    append(40)
+    append(": Lambdas")
+}
+
+val text = buildString(configure)
+```
+
+В body implicit `this` — StringBuilder. `it` не создаётся для receiver.
+
+## SAM conversion
+
+```kotlin
+fun interface LessonPredicate {
+    fun test(title: String): Boolean
+}
+
+val predicate = LessonPredicate { title -> title.isNotBlank() }
+```
+
+Compiler создаёт implementation functional interface. SAM type и `(String) -> Boolean` различны, conversion выполняется в подходящем context.
+
+## Lambda и exceptions
+
+Lambda не объявляет checked exceptions в Kotlin. Error contract должен быть документирован через result/sealed type или exception policy higher-order API.
+
+```kotlin
+fun <T> attempt(action: () -> T): Result<T> {
+    return runCatching(action)
+}
+```
+
+Не ловите `Throwable` без причины: cancellation/fatal errors требуют отдельной политики.
+
+## Lambda allocation и inline
+
+Capturing lambda обычно требует хранить captured values. Non-capturing может быть singleton/cached implementation. Inline higher-order function может вставить body и убрать allocation/virtual call.
+
+Это optimization detail:
+
+- benchmark hot path;
+- не делай lambda global mutable singleton;
+- учитывай code size inline;
+- readability важнее микровыигрыша вне hot code.
+
+## Практический пример: правила доступа
+
+```kotlin
+data class Student(
+    val name: String,
+    val level: Int,
+    val completedLessons: Set<Int>
+)
+
+data class Lesson(
+    val id: Int,
+    val requiredLevel: Int,
+    val prerequisites: Set<Int>
+)
+
+typealias AccessRule = (Student, Lesson) -> String?
+
+val levelRule: AccessRule = { student, lesson ->
+    if (student.level >= lesson.requiredLevel) {
+        null
+    } else {
+        "Требуется уровень ${lesson.requiredLevel}"
+    }
+}
+
+val prerequisiteRule: AccessRule = { student, lesson ->
+    val missing = lesson.prerequisites - student.completedLessons
+    if (missing.isEmpty()) {
+        null
+    } else {
+        "Не завершены уроки: ${missing.sorted().joinToString()}"
+    }
+}
+
+fun accessErrors(
+    student: Student,
+    lesson: Lesson,
+    rules: List<AccessRule>
+): List<String> {
+    return rules.mapNotNull { rule -> rule(student, lesson) }
+}
+
+fun main() {
+    val student = Student(
+        name = "Анна",
+        level = 2,
+        completedLessons = setOf(38, 39)
+    )
+    val lesson = Lesson(
+        id = 40,
+        requiredLevel = 2,
+        prerequisites = setOf(38, 39)
+    )
+
+    val auditPrefix = "Проверка ${student.name}"
+    val rules = listOf(
+        levelRule,
+        prerequisiteRule,
+        { currentStudent, currentLesson ->
+            println("$auditPrefix: урок ${currentLesson.id}")
+            if (currentStudent.name.isBlank()) "Имя обязательно" else null
+        }
+    )
+
+    val errors = accessErrors(student, lesson, rules)
+    println(if (errors.isEmpty()) "Доступ разрешён" else errors.joinToString())
+}
+```
+
+Пример использует explicit parameters, nullable result как отсутствие ошибки, captured immutable audit prefix и list composable rules без hidden mutable state.
+
+## Итоги
+
+- lambda записывается `{ parameters -> body }`;
+- последнее expression является result;
+- expected function type позволяет опустить parameter types;
+- `it` уместен для одной короткой obvious lambda;
+- trailing lambda выносится за parentheses;
+- underscore пропускает unused parameter;
+- closure захватывает enclosing val/var и может продлить lifetime объектов;
+- captured mutable state не thread-safe автоматически;
+- `return@label` завершает lambda locally;
+- bare return возможен как non-local только в подходящем inline context;
+- receiver lambda использует implicit `this`;
+- SAM conversion создаёт functional interface implementation;
+- allocation/performance зависят от capture, inline и backend.
+

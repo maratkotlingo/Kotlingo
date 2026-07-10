@@ -1,0 +1,560 @@
+---
+title: "Объявление функций"
+description: "Изучаем сигнатуры функций Kotlin, параметры и результаты, expression body и block body, локальные и top-level функции, область видимости и чистые контракты."
+order: 16
+category: "Функции"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Функция как именованный контракт
+
+Функция объединяет имя, входные параметры, возвращаемый тип и реализацию. Хорошая функция отвечает на один понятный вопрос или выполняет одно законченное действие.
+
+```kotlin
+fun completionPercent(completed: Int, total: Int): Int {
+    require(completed >= 0) { "Число завершённых уроков не может быть отрицательным" }
+    require(total > 0) { "Общее число уроков должно быть положительным" }
+    require(completed <= total) { "Завершённых уроков не может быть больше общего числа" }
+
+    return completed * 100 / total
+}
+```
+
+Разберём объявление:
+
+- `fun` начинает объявление функции;
+- `completionPercent` — имя, по которому функцию вызывают;
+- `completed: Int` и `total: Int` — параметры с именами и типами;
+- `: Int` после круглых скобок — тип результата;
+- тело между фигурными скобками выполняет проверки и возвращает значение;
+- `return` завершает текущий вызов и передаёт результат вызывающему коду.
+
+## Имена функций
+
+Обычное имя пишется в `lowerCamelCase` и начинается с буквы или подчёркивания. Имя должно выражать действие или вычисление:
+
+```kotlin
+fun calculateScore(correctAnswers: Int, totalQuestions: Int): Int =
+    correctAnswers * 100 / totalQuestions
+
+fun isLessonAvailable(requiredLevel: Int, studentLevel: Int): Boolean =
+    studentLevel >= requiredLevel
+
+fun printCertificate(studentName: String) {
+    println("Сертификат: $studentName")
+}
+```
+
+Глагол `calculate` говорит о вычислении, префикс `is` — о булевом вопросе, `print` — о побочном эффекте.
+
+Имена в обратных кавычках могут содержать пробелы и символы. Они полезны главным образом в тестах:
+
+```kotlin
+fun `процент равен ста после завершения всех уроков`() {
+    check(completionPercent(completed = 12, total = 12) == 100)
+}
+```
+
+В production API такие имена неудобны для Java interop, поиска и навигации.
+
+## Параметры
+
+Каждый параметр объявляется как `имя: Тип`. В отличие от локальных переменных, тип параметра нельзя опустить.
+
+```kotlin
+fun lessonLabel(index: Int, title: String, completed: Boolean): String {
+    val status = if (completed) "завершён" else "не завершён"
+    return "$index. $title — $status"
+}
+```
+
+Параметры доступны только внутри функции. По смыслу они являются неизменяемыми: присвоить параметру новое значение нельзя.
+
+```kotlin
+fun normalizedTitle(title: String): String {
+    val normalized = title.trim()
+    return normalized.ifEmpty { "Без названия" }
+}
+```
+
+Создание локального `val` явно отделяет вход от преобразованного значения.
+
+<MouseTrap title="Мышеловка: параметр нельзя переопределить">
+Kotlin не разрешает `title = title.trim()` внутри функции. Параметр — часть входного контракта, а не локальная изменяемая ячейка. Создай `val normalizedTitle` или, если алгоритм требует шагов, отдельный локальный `var`.
+</MouseTrap>
+
+## Возвращаемый тип
+
+Тип результата пишется после списка параметров:
+
+```kotlin
+fun nextLesson(current: Int): Int {
+    return current + 1
+}
+```
+
+Если функция не возвращает полезное значение, результат — `Unit`. Его обычно опускают:
+
+```kotlin
+fun announceLesson(title: String) {
+    println("Открываем урок: $title")
+}
+```
+
+Nullable-результат сообщает, что значение может отсутствовать:
+
+```kotlin
+fun findTitle(id: String, titles: Map<String, String>): String? {
+    return titles[id]
+}
+```
+
+`Nothing` означает, что функция никогда не завершится нормально:
+
+```kotlin
+fun invalidLesson(id: String): Nothing {
+    throw IllegalArgumentException("Некорректный идентификатор урока: $id")
+}
+```
+
+### Явный тип публичной функции
+
+Для block body функции с полезным результатом возвращаемый тип обязателен. Компилятор не выводит его по `return`:
+
+```kotlin
+fun levelFor(score: Int): String {
+    return if (score >= 80) "Продвинутый" else "Начальный"
+}
+```
+
+Для expression body тип можно вывести, но в публичном API явный тип стабилизирует контракт и упрощает review:
+
+```kotlin
+fun isPassing(score: Int): Boolean = score >= 70
+```
+
+Если реализация позже изменится, публичный тип не расширится случайно до `Any` или nullable-типа.
+
+## Block body
+
+Block body использует фигурные скобки. Он подходит для нескольких шагов, проверок, ветвлений и побочных эффектов.
+
+```kotlin
+fun calculateFinalScore(theory: Int, practice: Int): Int {
+    require(theory in 0..100) { "Балл за теорию должен быть от 0 до 100" }
+    require(practice in 0..100) { "Балл за практику должен быть от 0 до 100" }
+
+    val weightedTheory = theory * 40
+    val weightedPractice = practice * 60
+
+    return (weightedTheory + weightedPractice) / 100
+}
+```
+
+Все пути выполнения функции с non-`Unit` результатом должны вернуть значение или завершиться выражением `Nothing`:
+
+```kotlin
+fun grade(score: Int): String {
+    return when (score) {
+        in 90..100 -> "Отлично"
+        in 75..89 -> "Хорошо"
+        in 60..74 -> "Зачёт"
+        in 0..59 -> "Нужно повторить"
+        else -> error("Балл вне диапазона: $score")
+    }
+}
+```
+
+Ранний `return` уменьшает вложенность:
+
+```kotlin
+fun certificateTitle(studentName: String?, score: Int): String? {
+    val name = studentName?.trim()
+    if (name.isNullOrEmpty()) return null
+    if (score < 80) return null
+
+    return "Сертификат Kotlin: $name"
+}
+```
+
+## Expression body
+
+Если вся функция — одно выражение, фигурные скобки и `return` заменяются знаком `=`.
+
+```kotlin
+fun doubledScore(score: Int): Int = score * 2
+
+fun displayName(name: String?): String = name?.trim().orEmpty().ifBlank {
+    "Гость"
+}
+```
+
+После `=` может стоять не только короткая арифметика, но и `if`, `when`, `try`, вызов другой функции или scope function.
+
+```kotlin
+fun accessLabel(score: Int): String = when {
+    score >= 90 -> "Все материалы открыты"
+    score >= 70 -> "Открыта практика"
+    else -> "Открыта теория"
+}
+```
+
+Expression body подчёркивает, что функция вычисляет значение. Однако длинное выражение с множеством вложенных вызовов хуже читается, чем block body с промежуточными именами.
+
+<CatTip title="Котосовет: форма тела должна показывать намерение">
+Используй expression body для компактного преобразования или предиката. Выбирай block body, когда нужны проверки, несколько смысловых этапов, логирование или ранние выходы. Краткость не должна скрывать алгоритм.
+</CatTip>
+
+### Вывод типа expression body
+
+```kotlin
+fun lessonCount() = 108
+```
+
+Компилятор выводит `Int`. Но такой публичный контракт зависит от реализации. Предпочтительнее:
+
+```kotlin
+fun lessonCount(): Int = 108
+```
+
+Для рекурсивной функции явный возвращаемый тип обязателен, потому что вывод образует цикл:
+
+```kotlin
+fun factorial(value: Int): Long = when (value) {
+    0, 1 -> 1L
+    else -> value * factorial(value - 1)
+}
+```
+
+Production-версия также должна проверять отрицательные значения и переполнение; здесь пример сосредоточен на типе рекурсивной функции.
+
+## Вызов и вычисление аргументов
+
+Функция вызывается по имени со списком аргументов:
+
+```kotlin
+fun formatProgress(completed: Int, total: Int): String {
+    return "$completed из $total"
+}
+
+fun main() {
+    val text = formatProgress(7, 12)
+    println(text)
+}
+```
+
+Аргументы вычисляются до входа в функцию в порядке, определённом выражением вызова. Не стоит строить логику на побочных эффектах в аргументах:
+
+```kotlin
+fun next(counter: Int): Int = counter + 1
+
+fun main() {
+    val current = 4
+    val first = next(current)
+    val second = next(first)
+
+    println("$first, $second")
+}
+```
+
+Именованные аргументы будут подробно разобраны в следующем уроке.
+
+## Top-level функции
+
+Функция может находиться прямо в Kotlin-файле, вне класса или объекта.
+
+```kotlin
+package kotlingo.progress
+
+fun percent(completed: Int, total: Int): Int {
+    require(total > 0) { "Общее число должно быть положительным" }
+    return completed * 100 / total
+}
+```
+
+Top-level функция не является глобальной в смысле отсутствия структуры. Она принадлежит package, импортируется обычным `import` и компилируется в платформенное представление, выбранное backend.
+
+Она уместна, когда поведение:
+
+- не требует состояния экземпляра;
+- является общим преобразованием или фабрикой;
+- логически относится к package или типу через имя/параметры;
+- не нуждается в искусственном классе `Utils`.
+
+```kotlin
+package kotlingo.progress
+
+data class Progress(val completed: Int, val total: Int)
+
+fun Progress.percent(): Int {
+    require(total > 0) { "Общее число должно быть положительным" }
+    return completed * 100 / total
+}
+```
+
+Это extension-функция верхнего уровня; extensions подробно рассматриваются в уроке 19.
+
+### Visibility top-level функций
+
+К top-level функции применяются модификаторы видимости:
+
+- `public` — доступна везде, это значение по умолчанию;
+- `internal` — доступна внутри текущего module;
+- `private` — доступна только в текущем файле;
+- `protected` для top-level объявлений недопустим.
+
+```kotlin
+internal fun sanitizeTitle(raw: String): String = raw.trim()
+
+private fun fallbackTitle(): String = "Без названия"
+```
+
+`private` top-level helper удобен для сокрытия деталей реализации файла.
+
+## Member-функции
+
+Функция внутри класса или object называется member-функцией. Она имеет доступ к состоянию экземпляра и вызывается через receiver.
+
+```kotlin
+class ProgressTracker(private val total: Int) {
+    private var completed: Int = 0
+
+    fun completeNext(): Boolean {
+        if (completed >= total) return false
+
+        completed += 1
+        return true
+    }
+
+    fun percent(): Int {
+        if (total == 0) return 0
+        return completed * 100 / total
+    }
+}
+```
+
+Внутри member-функции неявный receiver доступен как `this`. Квалификатор часто можно опустить:
+
+```kotlin
+class Lesson(private val title: String) {
+    fun printTitle() {
+        println(this.title)
+    }
+}
+```
+
+Выбирай member-функцию, когда поведение поддерживает инварианты объекта или использует его закрытое состояние.
+
+## Локальные функции
+
+Функцию можно объявить внутри другой функции. Она видна только в окружающем блоке и может захватывать локальные значения.
+
+```kotlin
+fun validateRegistration(name: String, email: String): List<String> {
+    val errors = mutableListOf<String>()
+
+    fun rejectIf(condition: Boolean, message: String) {
+        if (condition) {
+            errors += message
+        }
+    }
+
+    rejectIf(name.isBlank(), "Имя обязательно")
+    rejectIf('@' !in email, "Email должен содержать @")
+    rejectIf(email.length > 254, "Email слишком длинный")
+
+    return errors.toList()
+}
+```
+
+`rejectIf` инкапсулирует повторяющийся шаг и захватывает `errors`. Её невозможно вызвать за пределами `validateRegistration`.
+
+### Захват состояния
+
+Локальная функция может читать и изменять переменные окружающей функции:
+
+```kotlin
+fun countPassing(scores: List<Int>): Int {
+    var passing = 0
+
+    fun inspect(score: Int) {
+        require(score in 0..100) { "Некорректный балл: $score" }
+        if (score >= 60) {
+            passing += 1
+        }
+    }
+
+    scores.forEach(::inspect)
+    return passing
+}
+```
+
+Захват mutable-состояния усложняет параллельное выполнение и тестирование. Для сложной логики лучше вернуть вычисленный результат или вынести отдельный объект.
+
+### Рекурсивная локальная функция
+
+Локальная функция может вызывать себя, если имеет явный тип результата.
+
+```kotlin
+data class Topic(
+    val title: String,
+    val children: List<Topic> = emptyList()
+)
+
+fun countTopics(root: Topic): Int {
+    fun count(topic: Topic): Int {
+        return 1 + topic.children.sumOf(::count)
+    }
+
+    return count(root)
+}
+```
+
+## Область видимости и затенение
+
+Локальное объявление с тем же именем скрывает внешнее в своей области.
+
+```kotlin
+fun label(score: Int): String = "Балл: $score"
+
+fun report(score: Int): String {
+    fun label(score: Int): String = "Локальный балл: $score"
+
+    return label(score)
+}
+```
+
+Такое затенение разрешено, но может запутать читателя. Разные обязанности лучше выражать разными именами.
+
+<MouseTrap title="Мышеловка: функция не обязана жить в классе">
+Не создавай `LessonUtils` только ради хранения статических методов. Top-level функция — штатная часть Kotlin. Класс нужен для состояния, полиморфизма, жизненного цикла или явной зависимости, а не как контейнер для имени.
+</MouseTrap>
+
+## Функции и побочные эффекты
+
+Функция может быть вычислительной или выполнять эффект.
+
+```kotlin
+fun normalizedSlug(title: String): String =
+    title.trim().lowercase().replace(' ', '-')
+
+fun persistSlug(slug: String) {
+    println("Сохраняем slug: $slug")
+}
+```
+
+`normalizedSlug` зависит только от аргумента и возвращает результат. `persistSlug` изменяет внешний мир. Отделение вычислений от эффектов делает код проще для тестирования и повторного использования.
+
+Kotlin не имеет ключевого слова `pure`: чистота — архитектурное свойство, а не проверяемый компилятором модификатор.
+
+## Документация функции
+
+Публичный контракт документируют через KDoc. Описывай смысл, единицы измерения, границы и исключения, а не повторяй синтаксис.
+
+```kotlin
+/**
+ * Вычисляет целый процент завершения курса.
+ *
+ * Дробная часть отбрасывается. Значение [completed] должно находиться
+ * в диапазоне от нуля до [total] включительно.
+ *
+ * @throws IllegalArgumentException если аргументы нарушают диапазон.
+ */
+fun coursePercent(completed: Int, total: Int): Int {
+    require(total > 0) { "Общее число уроков должно быть положительным" }
+    require(completed in 0..total) { "Некорректное число завершённых уроков" }
+    return completed * 100 / total
+}
+```
+
+## Практический пример: сервис рекомендаций
+
+```kotlin
+data class LessonProgress(
+    val lessonId: String,
+    val score: Int?,
+    val completed: Boolean
+)
+
+data class Recommendation(
+    val lessonId: String,
+    val reason: String
+)
+
+fun recommendNextLesson(
+    progress: List<LessonProgress>,
+    orderedLessonIds: List<String>
+): Recommendation? {
+    require(orderedLessonIds.distinct().size == orderedLessonIds.size) {
+        "Порядок уроков не должен содержать дубликаты"
+    }
+
+    fun progressFor(lessonId: String): LessonProgress? =
+        progress.firstOrNull { item -> item.lessonId == lessonId }
+
+    fun reasonFor(item: LessonProgress?): String = when {
+        item == null -> "Урок ещё не начат"
+        !item.completed -> "Урок начат, но не завершён"
+        item.score != null && item.score < 70 -> "Стоит улучшить результат"
+        else -> ""
+    }
+
+    for (lessonId in orderedLessonIds) {
+        val item = progressFor(lessonId)
+        val reason = reasonFor(item)
+
+        if (reason.isNotEmpty()) {
+            return Recommendation(lessonId, reason)
+        }
+    }
+
+    return null
+}
+
+fun printRecommendation(recommendation: Recommendation?) {
+    if (recommendation == null) {
+        println("Все доступные уроки освоены")
+        return
+    }
+
+    println("Следующий урок: ${recommendation.lessonId}")
+    println("Причина: ${recommendation.reason}")
+}
+
+fun main() {
+    val progress = listOf(
+        LessonProgress("15", score = 95, completed = true),
+        LessonProgress("16", score = null, completed = false)
+    )
+    val order = listOf("15", "16", "17")
+
+    val recommendation = recommendNextLesson(progress, order)
+    printRecommendation(recommendation)
+}
+```
+
+В этом примере:
+
+- top-level функции образуют публичный сценарий;
+- локальные функции скрывают детали поиска и формирования причины;
+- expression body подходит компактным вычислениям;
+- block body управляет проверками и ранним `return`;
+- nullable-результат честно моделирует отсутствие следующего урока;
+- `Unit`-функция печати отделена от функции вычисления.
+
+## Итоги
+
+- объявление начинается с `fun`, затем идут имя, параметры и тип результата;
+- тип каждого параметра обязателен, а сам параметр неизменяем;
+- block body подходит для пошагового алгоритма и требует явного типа полезного результата;
+- expression body записывается через `=` и позволяет вывести тип;
+- для публичного API явный тип результата делает контракт устойчивее;
+- top-level функции не требуют искусственного utility-класса;
+- member-функции уместны для поведения, связанного с состоянием объекта;
+- локальные функции скрывают детали и могут захватывать окружающие значения;
+- ранние возвраты уменьшают вложенность;
+- отделение чистых вычислений от эффектов улучшает тестируемость.
+

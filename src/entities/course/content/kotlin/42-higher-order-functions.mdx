@@ -1,0 +1,466 @@
+---
+title: "Higher-order functions"
+description: "Разбираем функции высшего порядка: приём и возврат функций, generic transformations, композицию и декораторы, callbacks, error/lifecycle contracts и проектирование API."
+order: 42
+category: "Функциональный Kotlin"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Функция, работающая с функциями
+
+Higher-order function принимает function value как parameter, возвращает function value или делает оба действия.
+
+```kotlin
+fun transformTitle(
+    title: String,
+    transform: (String) -> String
+): String {
+    return transform(title)
+}
+
+val normalized = transformTitle("  Kotlin  ") { raw -> raw.trim() }
+```
+
+Higher-order APIs позволяют отделить неизменный algorithm от изменяемой policy.
+
+## Приём функции
+
+```kotlin
+fun selectLessons(
+    titles: List<String>,
+    predicate: (String) -> Boolean
+): List<String> {
+    return titles.filter(predicate)
+}
+```
+
+Caller выбирает rule:
+
+```kotlin
+val longTitles = selectLessons(
+    listOf("Lambda", "Higher-order functions")
+) { title -> title.length > 10 }
+```
+
+Algorithm traversal один, criterion передаётся отдельно.
+
+## Generic higher-order function
+
+```kotlin
+fun <T, R> mapOne(value: T, transform: (T) -> R): R {
+    return transform(value)
+}
+
+val length: Int = mapOne("Kotlin", String::length)
+```
+
+`T` связывает input value и function parameter, `R` — function result и whole result.
+
+## Несколько function parameters
+
+```kotlin
+fun <T> process(
+    value: T,
+    validate: (T) -> Boolean,
+    onValid: (T) -> Unit,
+    onInvalid: (T) -> Unit
+) {
+    if (validate(value)) onValid(value) else onInvalid(value)
+}
+```
+
+Named arguments обязательны для readability:
+
+```kotlin
+process(
+    value = "Higher-order functions",
+    validate = String::isNotBlank,
+    onValid = { title -> println("Принято: $title") },
+    onInvalid = { title -> println("Отклонено: '$title'") }
+)
+```
+
+Если callbacks много и связаны одним lifecycle, interface/configuration object может быть понятнее.
+
+## Default callback
+
+```kotlin
+fun saveLesson(
+    title: String,
+    audit: (String) -> Unit = {}
+) {
+    require(title.isNotBlank()) { "Название обязательно" }
+    audit("Сохранён урок: ${title.trim()}")
+}
+```
+
+No-op default безопасен только если callback действительно optional. Не скрывай обязательное logging/security/audit требование default пустой lambda.
+
+## Возврат функции
+
+```kotlin
+fun titlePrefixer(prefix: String): (String) -> String {
+    val normalizedPrefix = prefix.trim()
+    require(normalizedPrefix.isNotEmpty()) { "Префикс обязателен" }
+
+    return { title -> "$normalizedPrefix: ${title.trim()}" }
+}
+
+val lessonPrefixer = titlePrefixer("Урок")
+println(lessonPrefixer("Higher-order functions"))
+```
+
+Returned closure сохраняет prefix configuration.
+
+## Factory strategies
+
+```kotlin
+enum class NormalizeMode {
+    TRIM,
+    UPPERCASE,
+    SLUG
+}
+
+fun normalizer(mode: NormalizeMode): (String) -> String = when (mode) {
+    NormalizeMode.TRIM -> String::trim
+    NormalizeMode.UPPERCASE -> { value -> value.trim().uppercase() }
+    NormalizeMode.SLUG -> { value ->
+        value.trim().lowercase().replace(Regex("""\s+"""), "-")
+    }
+}
+```
+
+Factory возвращает behaviour. Если strategies имеют state, lifecycle или несколько methods, named classes/interfaces масштабируются лучше.
+
+## Композиция функций
+
+```kotlin
+fun <A, B, C> compose(
+    first: (A) -> B,
+    second: (B) -> C
+): (A) -> C {
+    return { value -> second(first(value)) }
+}
+```
+
+```kotlin
+val trim: (String) -> String = String::trim
+val length: (String) -> Int = String::length
+val trimmedLength: (String) -> Int = compose(trim, length)
+
+println(trimmedLength(" Kotlin "))
+```
+
+Направление важно: сначала `first`, затем `second`.
+
+Можно определить extension:
+
+```kotlin
+infix fun <A, B, C> ((A) -> B).then(next: (B) -> C): (A) -> C {
+    return { value -> next(this(value)) }
+}
+
+val pipeline = trim then length
+```
+
+Infix уместен только если команда использует consistent convention.
+
+## Предикаты: AND, OR, NOT
+
+```kotlin
+typealias Predicate<T> = (T) -> Boolean
+
+infix fun <T> Predicate<T>.and(other: Predicate<T>): Predicate<T> {
+    return { value -> this(value) && other(value) }
+}
+
+infix fun <T> Predicate<T>.or(other: Predicate<T>): Predicate<T> {
+    return { value -> this(value) || other(value) }
+}
+
+fun <T> Predicate<T>.not(): Predicate<T> {
+    return { value -> !this(value) }
+}
+```
+
+Short-circuit semantics сохраняются благодаря `&&`/`||`.
+
+## Decorator функции
+
+Decorator принимает function и возвращает function с дополнительным поведением.
+
+```kotlin
+fun <T, R> logged(
+    name: String,
+    log: (String) -> Unit,
+    operation: (T) -> R
+): (T) -> R {
+    return { value ->
+        log("Начало: $name")
+        try {
+            operation(value)
+        } finally {
+            log("Конец: $name")
+        }
+    }
+}
+```
+
+`finally` гарантирует завершающий log даже при exception. Не логируй sensitive `value` автоматически.
+
+## Partial application
+
+```kotlin
+fun formatProgress(completed: Int, total: Int): String {
+    return "$completed из $total"
+}
+
+fun progressFor(total: Int): (Int) -> String {
+    require(total > 0) { "Общее число должно быть положительным" }
+    return { completed ->
+        require(completed in 0..total) { "Некорректный прогресс" }
+        formatProgress(completed, total)
+    }
+}
+```
+
+`total` фиксируется, returned function ждёт только completed.
+
+Kotlin не требует formal currying style; data/configuration object часто читается проще длинной цепочки функций.
+
+## Callback API
+
+```kotlin
+fun loadLesson(
+    id: Int,
+    onSuccess: (String) -> Unit,
+    onMissing: (Int) -> Unit
+) {
+    val title = if (id == 42) "Higher-order functions" else null
+    if (title != null) onSuccess(title) else onMissing(id)
+}
+```
+
+Callback contract должен отвечать:
+
+- sync или async invocation;
+- вызывается ноль, один или много раз;
+- на каком thread/context;
+- можно ли re-enter owner;
+- как отменить subscription;
+- как передаются errors;
+- можно ли хранить callback после возврата.
+
+Без этого function type недостаточно документирует lifecycle.
+
+## Sync result лучше пары callbacks
+
+Если операция synchronous и возвращает один result, sealed type проще:
+
+```kotlin
+sealed interface LoadResult {
+    data class Success(val title: String) : LoadResult
+    data class Missing(val id: Int) : LoadResult
+}
+```
+
+Callbacks полезнее для event stream, async bridge или customizable effects.
+
+<CatTip title="Котосовет: возвращай значение, если можешь вернуть значение">
+Две callbacks для синхронного результата усложняют control flow и testing. Используй return/sealed result; callbacks оставь реальным inversion of control.
+</CatTip>
+
+## Subscription и отписка
+
+```kotlin
+fun interface Subscription {
+    fun cancel()
+}
+
+class LessonEvents {
+    private val listeners = mutableSetOf<(Int) -> Unit>()
+
+    fun subscribe(listener: (Int) -> Unit): Subscription {
+        listeners += listener
+        return Subscription { listeners -= listener }
+    }
+
+    fun publish(id: Int) {
+        listeners.toList().forEach { listener -> listener(id) }
+    }
+}
+```
+
+Snapshot `toList()` защищает iteration от modification callback. Для concurrency нужна synchronization/thread-safe structure.
+
+Callback может захватить owner; обязательная cancellation предотвращает leaks.
+
+## Error contract callback
+
+```kotlin
+fun <T> recover(
+    operation: () -> T,
+    fallback: (RuntimeException) -> T
+): T {
+    return try {
+        operation()
+    } catch (error: RuntimeException) {
+        fallback(error)
+    }
+}
+```
+
+Не перехватывай `Throwable`: VM errors и coroutine cancellation требуют особого обращения. В suspend code cancellation exception обычно нужно rethrow.
+
+## Higher-order function и resources
+
+```kotlin
+fun <R> withLessonTransaction(block: (Transaction) -> R): R {
+    val transaction = Transaction()
+    return try {
+        val result = block(transaction)
+        transaction.commit()
+        result
+    } catch (error: RuntimeException) {
+        transaction.rollback()
+        throw error
+    } finally {
+        transaction.close()
+    }
+}
+
+class Transaction {
+    fun commit() = println("Транзакция подтверждена")
+    fun rollback() = println("Транзакция отменена")
+    fun close() = println("Транзакция закрыта")
+}
+```
+
+Function scopes resource lifetime. Production implementation должна учитывать failure commit/rollback/close и suppressed exceptions.
+
+## Receiver higher-order APIs
+
+```kotlin
+fun <T> configure(value: T, block: T.() -> Unit): T {
+    value.block()
+    return value
+}
+```
+
+Это упрощённый `apply`. Не создавай собственную function, если standard scope function уже точно выражает contract.
+
+## Composition и side effects
+
+Чистые functions compose проще:
+
+```kotlin
+val normalize: (String) -> String = String::trim
+val slug: (String) -> String = { it.lowercase().replace(' ', '-') }
+```
+
+Если каждый stage пишет database/log/global state, порядок становится critical. Делай effects явными и тестируй failure/partial execution.
+
+## Нежелательная сложность
+
+```kotlin
+fun <A, B, C, D> complex(
+    first: (A) -> B,
+    second: (B) -> C,
+    third: (C) -> D
+): (A) -> D = { value -> third(second(first(value))) }
+```
+
+Generic composition полезна, но domain pipeline с именованными steps/services часто легче диагностировать. Не превращай весь application flow в opaque function algebra.
+
+<MouseTrap title="Мышеловка: callback signature не описывает lifecycle">
+`(Event) -> Unit` не сообщает, когда и сколько раз он вызывается, на каком thread и как отписаться. Эти правила являются частью API contract и должны быть выражены именами/types/docs.
+</MouseTrap>
+
+## Практический пример: конвейер публикации
+
+```kotlin
+data class LessonDraft(
+    val id: Int,
+    val title: String,
+    val content: String,
+    val published: Boolean = false
+)
+
+typealias DraftTransform = (LessonDraft) -> LessonDraft
+typealias DraftCheck = (LessonDraft) -> List<String>
+
+fun normalizeDraft(): DraftTransform {
+    return { draft ->
+        draft.copy(
+            title = draft.title.trim().replace(Regex("""\s+"""), " "),
+            content = draft.content.trim()
+        )
+    }
+}
+
+fun composeTransforms(transforms: List<DraftTransform>): DraftTransform {
+    return { initial ->
+        transforms.fold(initial) { current, transform -> transform(current) }
+    }
+}
+
+val requiredFields: DraftCheck = { draft ->
+    buildList {
+        if (draft.title.isBlank()) add("Название обязательно")
+        if (draft.content.isBlank()) add("Содержание обязательно")
+    }
+}
+
+val validId: DraftCheck = { draft ->
+    if (draft.id > 0) emptyList() else listOf("ID должен быть положительным")
+}
+
+fun publish(
+    draft: LessonDraft,
+    transform: DraftTransform,
+    checks: List<DraftCheck>,
+    onPublished: (LessonDraft) -> Unit
+): Result<LessonDraft> {
+    val normalized = transform(draft)
+    val errors = checks.flatMap { check -> check(normalized) }
+
+    if (errors.isNotEmpty()) {
+        return Result.failure(IllegalArgumentException(errors.joinToString("; ")))
+    }
+
+    val published = normalized.copy(published = true)
+    onPublished(published)
+    return Result.success(published)
+}
+
+fun main() {
+    val result = publish(
+        draft = LessonDraft(42, "  Higher-order   functions ", "Composition"),
+        transform = composeTransforms(listOf(normalizeDraft())),
+        checks = listOf(requiredFields, validId),
+        onPublished = { lesson -> println("Опубликован урок ${lesson.id}") }
+    )
+
+    println(result.getOrThrow())
+}
+```
+
+Algorithm остаётся одним, transformations/checks/effect передаются отдельно. Synchronous failure возвращается result, callback используется только для post-success effect.
+
+## Итоги
+
+- higher-order function принимает или возвращает function value;
+- generic parameters связывают input/output strategy с algorithm;
+- returned closure сохраняет configuration;
+- composition соединяет compatible outputs и inputs;
+- decorators добавляют logging, timing, retry и другие cross-cutting policies;
+- callbacks требуют явного lifecycle/thread/error contract;
+- synchronous result обычно лучше пары callbacks;
+- long-lived callback должен иметь cancellation mechanism;
+- resource-scoped HOF гарантирует cleanup через try/finally;
+- чистые transformations compose безопаснее effects;
+- при росте state/operations named interface/class читается лучше набора functions.
+

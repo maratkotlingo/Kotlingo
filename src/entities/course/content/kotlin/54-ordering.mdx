@@ -1,0 +1,448 @@
+---
+title: "Ordering"
+description: "Сортировка и порядок коллекций: sorted, sortedDescending, sortedBy, sortedWith, compareBy, thenBy, nullsFirst, nullsLast, reversed, asReversed, shuffled и стабильность результата."
+order: 54
+category: "Коллекции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Ordering управляет порядком элементов
+
+Ordering operations создают новое представление collection в нужном порядке: natural order, descending order, order by property, custom comparator, reversed view, shuffled list.
+
+```kotlin
+val scores = listOf(70, 100, 45, 85)
+
+val sortedScores = scores.sorted()
+
+println(sortedScores) // [45, 70, 85, 100]
+```
+
+Исходный read-only list не меняется.
+
+```kotlin
+println(scores) // [70, 100, 45, 85]
+```
+
+<CatTip>
+Сортировка — это не дрессировка исходного списка, а аккуратная перестановка копии: котики на полке остаются целыми, меняется только порядок выдачи.
+</CatTip>
+
+## Natural order и `Comparable`
+
+`sorted` работает для элементов, которые имеют natural order. Например, `Int`, `Long`, `Double`, `String`, `Char` уже comparable.
+
+```kotlin
+val titles = listOf("Null-safety", "Basics", "Collections")
+
+println(titles.sorted()) // [Basics, Collections, Null-safety]
+```
+
+Для собственного типа можно реализовать `Comparable`.
+
+```kotlin
+data class Version(
+    val major: Int,
+    val minor: Int,
+    val patch: Int
+) : Comparable<Version> {
+    override fun compareTo(other: Version): Int {
+        // compareValuesBy последовательно сравнивает свойства.
+        return compareValuesBy(
+            this,
+            other,
+            Version::major,
+            Version::minor,
+            Version::patch
+        )
+    }
+}
+
+val versions = listOf(
+    Version(1, 0, 2),
+    Version(1, 0, 0),
+    Version(2, 0, 0)
+)
+
+println(versions.sorted()) // [Version(major=1, minor=0, patch=0), Version(major=1, minor=0, patch=2), Version(major=2, minor=0, patch=0)]
+```
+
+Но если порядок нужен только в одном месте, чаще лучше comparator, а не global natural order.
+
+## `sorted` и `sortedDescending`
+
+`sorted` возвращает list по возрастанию.
+
+```kotlin
+val minutes = listOf(35, 14, 28)
+
+val fromShortToLong = minutes.sorted()
+
+println(fromShortToLong) // [14, 28, 35]
+```
+
+`sortedDescending` возвращает list по убыванию.
+
+```kotlin
+val fromLongToShort = minutes.sortedDescending()
+
+println(fromLongToShort) // [35, 28, 14]
+```
+
+Обе операции создают новый `List`.
+
+## `sortedBy` и `sortedByDescending`
+
+`sortedBy` сортирует elements по selected key.
+
+```kotlin
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val minutes: Int,
+    val rating: Double?
+)
+
+val lessons = listOf(
+    Lesson("03-null-safety", "Null-safety", 35, 4.9),
+    Lesson("01-introduction", "Введение", 14, 4.7),
+    Lesson("02-types", "Типы", 28, null)
+)
+
+val byDuration = lessons.sortedBy { lesson ->
+    lesson.minutes
+}
+
+println(byDuration.map { it.title }) // [Введение, Типы, Null-safety]
+```
+
+`sortedByDescending` меняет направление.
+
+```kotlin
+val byDurationDesc = lessons.sortedByDescending { lesson ->
+    lesson.minutes
+}
+
+println(byDurationDesc.map { it.title }) // [Null-safety, Типы, Введение]
+```
+
+Selector может вернуть nullable comparable value. Для `sortedBy`, `null` обычно оказывается перед non-null values; для production-кода явное правило читается надежнее через comparator.
+
+## `sortedWith`
+
+`sortedWith` принимает `Comparator`.
+
+```kotlin
+val byRatingThenDuration = lessons.sortedWith(
+    compareByDescending<Lesson> { lesson ->
+        // Сначала лучшие рейтинги.
+        lesson.rating ?: 0.0
+    }.thenBy { lesson ->
+        // При одинаковом рейтинге более короткий урок выше.
+        lesson.minutes
+    }
+)
+```
+
+Comparator должен соблюдать контракт сравнения:
+
+- возвращать negative value, если первый element должен идти раньше второго;
+- возвращать zero, если элементы равны для этого ordering;
+- возвращать positive value, если первый element должен идти позже второго;
+- быть consistent: не менять ответ случайно при повторном сравнении тех же элементов.
+
+```kotlin
+val customComparator = Comparator<Lesson> { left, right ->
+    // Сначала сравниваем по длительности.
+    val durationCompare = left.minutes.compareTo(right.minutes)
+
+    if (durationCompare != 0) {
+        durationCompare
+    } else {
+        // Если длительность одинаковая, сравниваем title.
+        left.title.compareTo(right.title)
+    }
+}
+
+val customSorted = lessons.sortedWith(customComparator)
+```
+
+<MouseTrap>
+Не делай comparator, который зависит от текущего времени, random value или изменяемого внешнего состояния. Сортировка может вызывать comparator много раз, и inconsistent results приводят к трудноуловимым ошибкам.
+</MouseTrap>
+
+## `compareBy`, `compareByDescending`, `thenBy`, `thenByDescending`
+
+`compareBy` строит comparator по selector.
+
+```kotlin
+val byTitle = compareBy<Lesson> { lesson ->
+    lesson.title
+}
+
+val sortedByTitle = lessons.sortedWith(byTitle)
+```
+
+`thenBy` добавляет следующий criterion.
+
+```kotlin
+val courseOrder = compareBy<Lesson> { lesson ->
+    lesson.minutes
+}.thenBy { lesson ->
+    lesson.title
+}
+
+val sortedForCatalog = lessons.sortedWith(courseOrder)
+```
+
+`compareByDescending` и `thenByDescending` задают descending order для конкретного criterion.
+
+```kotlin
+val leaderboardOrder = compareByDescending<Lesson> { lesson ->
+    // Уроки с большим рейтингом выше.
+    lesson.rating ?: 0.0
+}.thenBy { lesson ->
+    // При равном рейтинге короткие уроки выше.
+    lesson.minutes
+}.thenBy { lesson ->
+    // Последний tie-breaker делает порядок предсказуемым.
+    lesson.slug
+}
+```
+
+<CatTip>
+Добавляй последний стабильный tie-breaker вроде `id` или `slug`, если результат показывается пользователю. Тогда одинаковые элементы не будут «прыг до прыг» между перерисовками.
+</CatTip>
+
+## `nullsFirst` и `nullsLast`
+
+Для nullable values полезно явно указать, где должны быть `null`.
+
+```kotlin
+val byRatingNullsLast = lessons.sortedWith(
+    compareBy<Lesson, Double?>(
+        nullsLast()
+    ) { lesson ->
+        lesson.rating
+    }
+)
+```
+
+`nullsFirst` помещает `null` раньше non-null values.
+
+```kotlin
+val byRatingNullsFirst = lessons.sortedWith(
+    compareBy<Lesson, Double?>(
+        nullsFirst()
+    ) { lesson ->
+        lesson.rating
+    }
+)
+```
+
+Для descending nullable order можно комбинировать comparator.
+
+```kotlin
+val bestRatedFirst = lessons.sortedWith(
+    compareBy<Lesson, Double?>(
+        nullsLast(reverseOrder())
+    ) { lesson ->
+        lesson.rating
+    }
+)
+```
+
+Здесь `reverseOrder()` сортирует non-null ratings по убыванию, а `nullsLast` оставляет отсутствующий рейтинг в конце.
+
+## `reversed`
+
+`reversed` возвращает новый list с обратным порядком.
+
+```kotlin
+val path = listOf("start", "practice", "quiz", "finish")
+
+val backtrack = path.reversed()
+
+println(backtrack) // [finish, quiz, practice, start]
+```
+
+`reversed` не сортирует. Он просто переворачивает текущий порядок.
+
+```kotlin
+val numbers = listOf(3, 1, 2)
+
+println(numbers.reversed()) // [2, 1, 3]
+println(numbers.sortedDescending()) // [3, 2, 1]
+```
+
+## `asReversed`
+
+`asReversed` возвращает reversed view над list.
+
+```kotlin
+val mutable = mutableListOf("a", "b", "c")
+val reversedView = mutable.asReversed()
+
+println(reversedView) // [c, b, a]
+
+mutable.add("d")
+
+println(reversedView) // [d, c, b, a]
+```
+
+View связан с исходным list. Изменения исходного list видны во view.
+
+<MouseTrap>
+Не возвращай `asReversed()` наружу API, если caller не должен видеть будущие изменения исходного mutable list. В таких случаях безопаснее `reversed()`.
+</MouseTrap>
+
+## `shuffled`
+
+`shuffled` возвращает новый list в случайном порядке.
+
+```kotlin
+val quizQuestions = listOf("q1", "q2", "q3", "q4")
+
+val randomized = quizQuestions.shuffled()
+
+println(randomized)
+```
+
+Для воспроизводимого результата передай `Random`.
+
+```kotlin
+val deterministic = quizQuestions.shuffled(kotlin.random.Random(seed = 42))
+
+println(deterministic)
+```
+
+Это важно для тестов, repeatable quizzes и debugging.
+
+```kotlin
+fun pickDailyQuestions(
+    questions: List<String>,
+    dayNumber: Int,
+    count: Int
+): List<String> {
+    return questions
+        .shuffled(kotlin.random.Random(seed = dayNumber))
+        .take(count)
+}
+```
+
+## Sorting mutable collections
+
+Для mutable lists есть in-place operations: `sort`, `sortDescending`, `sortBy`, `sortByDescending`, `sortWith`.
+
+```kotlin
+val mutableScores = mutableListOf(70, 100, 45, 85)
+
+mutableScores.sort()
+
+println(mutableScores) // [45, 70, 85, 100]
+```
+
+In-place sorting меняет сам list. Используй ее, когда владеешь mutable collection и mutation ожидаема.
+
+```kotlin
+fun normalizeScores(scores: MutableList<Int>) {
+    scores.sortDescending()
+}
+```
+
+Если функция не должна менять input, принимай `List` и возвращай новый result.
+
+```kotlin
+fun normalizedScores(scores: List<Int>): List<Int> {
+    return scores.sortedDescending()
+}
+```
+
+## Production-пример: порядок каталога уроков
+
+```kotlin
+enum class Difficulty {
+    BEGINNER,
+    INTERMEDIATE,
+    ADVANCED
+}
+
+data class CatalogLesson(
+    val slug: String,
+    val title: String,
+    val difficulty: Difficulty,
+    val minutes: Int,
+    val rating: Double?,
+    val completed: Boolean
+)
+
+fun sortForCatalog(lessons: List<CatalogLesson>): List<CatalogLesson> {
+    val difficultyRank = mapOf(
+        Difficulty.BEGINNER to 0,
+        Difficulty.INTERMEDIATE to 1,
+        Difficulty.ADVANCED to 2
+    )
+
+    return lessons.sortedWith(
+        compareBy<CatalogLesson> { lesson ->
+            // Незавершенные уроки показываем раньше завершенных.
+            lesson.completed
+        }.thenBy { lesson ->
+            // Затем идем от простого к сложному.
+            difficultyRank.getValue(lesson.difficulty)
+        }.thenByDescending { lesson ->
+            // Внутри уровня выше поднимаем уроки с хорошим рейтингом.
+            lesson.rating ?: 0.0
+        }.thenBy { lesson ->
+            // Короткие уроки удобнее начать прямо сейчас.
+            lesson.minutes
+        }.thenBy { lesson ->
+            // Стабильный tie-breaker.
+            lesson.slug
+        }
+    )
+}
+```
+
+В этом примере каждый criterion имеет бизнес-смысл. Такой comparator легче тестировать, чем большую функцию с nested `if`.
+
+## Стоимость сортировки
+
+Sorting обычно дороже filtering и mapping, потому что сравнения выполняются многократно. Для больших collections:
+
+- фильтруй данные до сортировки, если возможно;
+- сортируй только нужный subset;
+- не делай expensive work внутри selector/comparator;
+- предварительно вычисляй expensive keys, если selector тяжелый;
+- используй deterministic tie-breaker для стабильного UX.
+
+```kotlin
+data class PreparedLesson(
+    val lesson: CatalogLesson,
+    val normalizedTitle: String
+)
+
+val sorted = lessons
+    .map { lesson ->
+        // Дорогую нормализацию делаем один раз на element.
+        PreparedLesson(
+            lesson = lesson,
+            normalizedTitle = lesson.title.trim().lowercase()
+        )
+    }
+    .sortedBy { prepared ->
+        prepared.normalizedTitle
+    }
+    .map { prepared ->
+        prepared.lesson
+    }
+```
+
+<CatTip>
+Порядок — часть пользовательского опыта. Если элементы выглядят «почти одинаково», добавь явный tie-breaker, чтобы интерфейс не казался непредсказуемым.
+</CatTip>
+
+
