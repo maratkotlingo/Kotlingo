@@ -1,0 +1,703 @@
+---
+title: "Animation specs"
+description: "Разбираем AnimationSpec в Jetpack Compose: tween, spring, keyframes, keyframesWithSpline, snap, repeatable, infiniteRepeatable, StartOffset, RepeatMode, Easing, dampingRatio, stiffness, visibilityThreshold и выбор motion-кривой."
+order: 68
+category: "Compose: Animation and motion"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `AnimationSpec`
+
+`AnimationSpec` описывает, как animated value движется от начального значения к целевому. Target value говорит "куда прийти", а spec говорит "каким движением прийти": быстро, медленно, с пружиной, по ключевым кадрам, мгновенно, с повторением или с постоянной скоростью.
+
+Почти все animation API в Compose принимают `animationSpec`:
+
+- `animateFloatAsState`;
+- `animateDpAsState`;
+- `animateColorAsState`;
+- `updateTransition` child animations;
+- `Animatable.animateTo`;
+- `AnimatedVisibility` transitions;
+- `AnimatedContent` transitions;
+- `rememberInfiniteTransition` child animations через `infiniteRepeatable`.
+
+```kotlin
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberCardAlpha(
+    visible: Boolean
+): Float {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) {
+            1f
+        } else {
+            0f
+        },
+        animationSpec = tween(
+            durationMillis = 220,
+            easing = FastOutSlowInEasing
+        ),
+        label = "card alpha"
+    )
+
+    return alpha
+}
+```
+
+Без spec Compose использует defaults, которые часто хороши. Но production UI обычно требует осознанного motion: одно действие должно быть быстрым, другое мягким, третье физичным.
+
+<CatTip>
+Не подбирайте `durationMillis` наугад. Сначала определите смысл движения: feedback, navigation, reveal, loading, drag release. После этого выбрать spec намного проще.
+</CatTip>
+
+## Карта основных specs
+
+Основные функции:
+
+- `tween`: фиксированная длительность и easing;
+- `spring`: физическая модель пружины;
+- `keyframes`: значения в конкретные моменты времени;
+- `keyframesWithSpline`: keyframes с более плавной spline-интерполяцией;
+- `snap`: мгновенная смена;
+- `repeatable`: конечное повторение finite animation;
+- `infiniteRepeatable`: бесконечное повторение;
+- `exponentialDecay` и decay specs: затухающее движение для fling-like сценариев.
+
+Как выбирать:
+
+- простая смена alpha/color: `tween`;
+- natural expand/collapse: `spring`;
+- attention shake или staged motion: `keyframes`;
+- мгновенное отключение motion: `snap`;
+- повторить 3 раза: `repeatable`;
+- shimmer или pulse: `infiniteRepeatable`;
+- fling после жеста: decay spec с `Animatable.animateDecay`.
+
+## `tween`
+
+`tween` — duration-based animation. Она длится заданное количество миллисекунд и использует easing curve.
+
+Параметры:
+
+- `durationMillis`: длительность;
+- `delayMillis`: задержка перед стартом;
+- `easing`: кривая изменения progress.
+
+```kotlin
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun TweenPaddingBox(
+    expanded: Boolean
+) {
+    val padding by animateDpAsState(
+        targetValue = if (expanded) {
+            24.dp
+        } else {
+            8.dp
+        },
+        animationSpec = tween(
+            durationMillis = 220,
+            easing = FastOutSlowInEasing
+        ),
+        label = "padding tween"
+    )
+
+    Box(
+        modifier = Modifier.padding(padding)
+    )
+}
+```
+
+`tween` хорошо подходит для predictable UI motion. Пользователь видит движение одинаковой длительности, независимо от расстояния между значениями.
+
+## Easing
+
+`Easing` преобразует linear progress от `0f` до `1f` в curved progress. Это меняет ощущение движения.
+
+Частые easing:
+
+- `LinearEasing`: постоянная скорость;
+- `FastOutSlowInEasing`: быстро стартует, мягко замедляется;
+- `LinearOutSlowInEasing`: starts linear, ends slow;
+- `FastOutLinearInEasing`: starts fast, ends linear;
+- custom `CubicBezierEasing`.
+
+```kotlin
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+val EmphasizedEasing = CubicBezierEasing(
+    a = 0.2f,
+    b = 0f,
+    c = 0f,
+    d = 1f
+)
+
+@Composable
+fun rememberEmphasizedProgress(
+    expanded: Boolean
+): Float {
+    val progress by animateFloatAsState(
+        targetValue = if (expanded) {
+            1f
+        } else {
+            0f
+        },
+        animationSpec = tween(
+            durationMillis = 300,
+            easing = EmphasizedEasing
+        ),
+        label = "emphasized progress"
+    )
+
+    return progress
+}
+```
+
+Custom easing лучше держать в design system или motion tokens, чтобы product motion оставался единым.
+
+<MouseTrap>
+Не используйте `LinearEasing` для всех UI-анимаций. Постоянная скорость хорошо подходит для rotation и shimmer, но обычные reveal/transition часто выглядят механически.
+</MouseTrap>
+
+## `spring`
+
+`spring` использует физическую модель. У него нет фиксированной длительности в том же смысле, что у `tween`. Движение завершается, когда значение достаточно близко к target.
+
+Параметры:
+
+- `dampingRatio`: насколько быстро гаснут колебания;
+- `stiffness`: жесткость пружины;
+- `visibilityThreshold`: порог завершения для value type.
+
+```kotlin
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+
+@Composable
+fun SpringScaleBox(
+    selected: Boolean
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (selected) {
+            1.08f
+        } else {
+            1f
+        },
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "spring scale"
+    )
+
+    Box(
+        modifier = Modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+    )
+}
+```
+
+`spring` подходит для gesture release, cards, sheets, playful feedback. Для строгих enterprise UI часто выбирают менее bouncy damping.
+
+## `dampingRatio`
+
+`dampingRatio` управляет колебаниями:
+
+- `Spring.DampingRatioNoBouncy`: без заметного overshoot;
+- `Spring.DampingRatioLowBouncy`: выраженная прыгучесть;
+- `Spring.DampingRatioMediumBouncy`: умеренная прыгучесть;
+- `Spring.DampingRatioHighBouncy`: сильные колебания.
+
+```kotlin
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun rememberSheetHeight(
+    expanded: Boolean
+): Dp {
+    val height by animateDpAsState(
+        targetValue = if (expanded) {
+            360.dp
+        } else {
+            96.dp
+        },
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "sheet height"
+    )
+
+    return height
+}
+```
+
+Для bottom sheet и dialog surfaces часто лучше no-bouncy, потому что overshoot может выглядеть как ошибка layout.
+
+## `stiffness`
+
+`stiffness` влияет на скорость и жесткость реакции:
+
+- `Spring.StiffnessVeryLow`: медленная мягкая пружина;
+- `Spring.StiffnessLow`: мягкое движение;
+- `Spring.StiffnessMedium`: умеренная реакция;
+- `Spring.StiffnessHigh`: быстрое движение;
+- `Spring.StiffnessVeryHigh`: резкий быстрый отклик.
+
+```kotlin
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberPressScale(
+    pressed: Boolean
+): Float {
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) {
+            0.96f
+        } else {
+            1f
+        },
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessHigh
+        ),
+        label = "press scale"
+    )
+
+    return scale
+}
+```
+
+Нажатие должно быть быстрым. Для него высокая stiffness уместнее, чем длинный `tween`.
+
+## `keyframes`
+
+`keyframes` задает значения в конкретные моменты времени. Это полезно для staged motion: shake, bounce, attention cue.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+
+@Composable
+fun ErrorShakeBox(
+    errorVersion: Int,
+    content: @Composable () -> Unit
+) {
+    val offsetX = remember {
+        Animatable(initialValue = 0f)
+    }
+
+    LaunchedEffect(errorVersion) {
+        if (errorVersion == 0) {
+            return@LaunchedEffect
+        }
+
+        offsetX.snapTo(targetValue = 0f)
+        offsetX.animateTo(
+            targetValue = 0f,
+            animationSpec = keyframes {
+                durationMillis = 360
+                0f at 0
+                -14f at 60
+                14f at 120
+                -8f at 190
+                8f at 260
+                0f at 360
+            }
+        )
+    }
+
+    Box(
+        modifier = Modifier.offset {
+            IntOffset(
+                x = offsetX.value.roundToInt(),
+                y = 0
+            )
+        }
+    ) {
+        content()
+    }
+}
+```
+
+Здесь `errorVersion` работает как явный сигнал нового события ошибки. `Animatable` удобен для shake, потому что последовательность смещений описана прямо в animation spec, а итоговое значение возвращается в `0f`.
+
+## `snap`
+
+`snap` мгновенно меняет значение, при необходимости с задержкой. Он полезен, когда motion нужно выключить для конкретного transition или когда состояние должно измениться сразу.
+
+```kotlin
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberImmediateAlpha(
+    visible: Boolean
+): Float {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) {
+            1f
+        } else {
+            0f
+        },
+        animationSpec = snap(),
+        label = "immediate alpha"
+    )
+
+    return alpha
+}
+```
+
+`snap` полезен также в tests и accessibility modes, если вы вводите настройку "уменьшить движение" внутри приложения.
+
+## `repeatable`
+
+`repeatable` повторяет finite animation заданное количество раз.
+
+```kotlin
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.repeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberAttentionAlpha(
+    highlighted: Boolean
+): Float {
+    val alpha by animateFloatAsState(
+        targetValue = if (highlighted) {
+            1f
+        } else {
+            0.5f
+        },
+        animationSpec = repeatable(
+            iterations = 3,
+            animation = tween(durationMillis = 180),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "attention alpha"
+    )
+
+    return alpha
+}
+```
+
+Если повторение должно быть бесконечным, используйте `infiniteRepeatable` внутри `rememberInfiniteTransition`.
+
+## `infiniteRepeatable`
+
+`infiniteRepeatable` повторяет animation бесконечно. Обычно он используется с `rememberInfiniteTransition`.
+
+```kotlin
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberSpinnerRotation(): Float {
+    val transition = rememberInfiniteTransition(
+        label = "spinner"
+    )
+
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 1_000,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "spinner rotation"
+    )
+
+    return rotation
+}
+```
+
+Не используйте `infiniteRepeatable` для animation, которая должна завершиться сама. Это loading/decorative loop tool.
+
+## `StartOffset`
+
+`StartOffset` задает сдвиг старта для repeatable animation. Он бывает полезен для staggered indicators.
+
+```kotlin
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberStaggeredDotScale(
+    dotIndex: Int
+): Float {
+    val transition = rememberInfiniteTransition(
+        label = "dot $dotIndex"
+    )
+
+    val scale by transition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 480),
+            repeatMode = RepeatMode.Reverse,
+            initialStartOffset = StartOffset(
+                offsetMillis = dotIndex * 120
+            )
+        ),
+        label = "dot scale"
+    )
+
+    return scale
+}
+```
+
+Для трех точек такой подход понятен. Для десятков элементов лучше подумать о более легком drawing-based indicator.
+
+## `visibilityThreshold`
+
+`visibilityThreshold` не является отдельным spec, но тесно связан со spec. Он говорит animation API, насколько близко значение должно подойти к target, чтобы считаться завершенным.
+
+```kotlin
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberPreciseProgress(
+    targetProgress: Float
+): Float {
+    val progress by animateFloatAsState(
+        targetValue = targetProgress.coerceIn(0f, 1f),
+        animationSpec = spring(),
+        visibilityThreshold = 0.001f,
+        label = "precise progress"
+    )
+
+    return progress
+}
+```
+
+Слишком крупный threshold может завершить анимацию заметно раньше target. Слишком маленький threshold без причины может сделать завершение менее практичным.
+
+## Motion tokens
+
+В больших приложениях specs лучше не копировать по экранам. Создайте motion tokens в design system.
+
+```kotlin
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.unit.Dp
+
+object AppMotion {
+    val StandardEasing: Easing = CubicBezierEasing(
+        a = 0.2f,
+        b = 0f,
+        c = 0f,
+        d = 1f
+    )
+
+    fun <T> standardTween() = tween<T>(
+        durationMillis = 220,
+        easing = StandardEasing
+    )
+
+    fun <T> emphasizedTween() = tween<T>(
+        durationMillis = 320,
+        easing = StandardEasing
+    )
+
+    fun <T> noBounceSpring() = spring<T>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMedium
+    )
+
+    fun sheetSpring() = spring<Dp>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow
+    )
+}
+```
+
+Теперь компоненты используют один язык движения.
+
+```kotlin
+val alpha by animateFloatAsState(
+    targetValue = if (visible) {
+        1f
+    } else {
+        0f
+    },
+    animationSpec = AppMotion.standardTween(),
+    label = "standard fade"
+)
+```
+
+## Production-пример: specs по направлению transition
+
+В `updateTransition` spec может зависеть от пары states.
+
+```kotlin
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+enum class DetailsPanelState {
+    Hidden,
+    Peek,
+    Expanded
+}
+
+@Composable
+fun rememberDetailsPanelHeight(
+    state: DetailsPanelState
+): Dp {
+    val transition = updateTransition(
+        targetState = state,
+        label = "details panel"
+    )
+
+    val height by transition.animateDp(
+        transitionSpec = {
+            when {
+                DetailsPanelState.Hidden isTransitioningTo DetailsPanelState.Expanded -> {
+                    spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                }
+
+                DetailsPanelState.Expanded isTransitioningTo DetailsPanelState.Hidden -> {
+                    tween(durationMillis = 180)
+                }
+
+                else -> {
+                    tween(durationMillis = 240)
+                }
+            }
+        },
+        label = "details panel height"
+    ) { targetState ->
+        when (targetState) {
+            DetailsPanelState.Hidden -> 0.dp
+            DetailsPanelState.Peek -> 96.dp
+            DetailsPanelState.Expanded -> 420.dp
+        }
+    }
+
+    return height
+}
+```
+
+Раскрытие на весь экран может быть пружинным, а закрытие быстрым и строгим. Это разные UX-смыслы, и spec может это выразить.
+
+## Типичные ошибки
+
+### Подбирать duration без смысла
+
+200 мс, 300 мс и 500 мс должны соответствовать роли motion. Быстрый feedback, reveal content и navigation transition не обязаны иметь одинаковую длительность.
+
+### Использовать bouncy spring для системных поверхностей
+
+Dialog, sheet и top app bar часто выглядят странно с overshoot. Для них лучше no-bouncy spring или tween.
+
+### Использовать tween для gesture release
+
+После drag пользователь ожидает физичный возврат с учетом velocity. Часто лучше `spring` или decay.
+
+### Делать все linear
+
+Linear хорош для бесконечного rotation и shimmer. Для обычного UI он часто выглядит искусственно.
+
+### Дублировать specs по всему проекту
+
+Если motion важен для бренда, вынесите specs в design system.
+
+### Использовать infinite repeat для конечной задачи
+
+Если animation должна закончиться, не делайте ее бесконечной. Используйте finite spec или `Animatable` sequence.
+
+## Итоги
+
+`AnimationSpec` задает характер движения:
+
+- `tween` дает фиксированную длительность и easing;
+- `spring` дает физическое движение через damping и stiffness;
+- `keyframes` задает значения на конкретных временных отметках;
+- `snap` меняет значение мгновенно;
+- `repeatable` повторяет animation конечное число раз;
+- `infiniteRepeatable` создает бесконечный loop;
+- `Easing` управляет кривой progress;
+- `visibilityThreshold` помогает определить завершение;
+- specs лучше выбирать по смыслу motion;
+- в больших приложениях полезны motion tokens в design system.

@@ -1,0 +1,676 @@
+# kotlingo: полный силлабус Jetpack Compose
+
+Курс ориентирован на современный Jetpack Compose для Android, Material 3, Kotlin 2.x, Compose Compiler Gradle Plugin и актуальную модель Compose BOM. Карта ниже задает порядок генерации уроков: каждая тема будет разворачиваться в отдельный MDX-материал с теорией, синтаксисом, разбором API, типичными ошибками и цельными production-ready примерами на Kotlin.
+
+## Уровень 0. Вход в Compose и рабочая среда
+
+- 1.  Что такое Jetpack Compose и зачем он нужен
+  - Декларативный UI вместо императивной View-иерархии
+  - Compose Runtime, Compose UI, Foundation, Material, Material 3, Animation, Compiler
+  - Android-only Compose, Compose Multiplatform и границы курса
+  - Минимальная архитектура Android-приложения на Compose
+  - Как читать официальную документацию, release notes и BOM mapping
+- 2.  Настройка проекта и зависимостей
+  - Android Gradle Plugin, Kotlin Gradle Plugin, Compose Compiler Gradle Plugin
+  - `androidx.compose:compose-bom`
+  - `activity-compose`, `ui`, `ui-tooling-preview`, `material3`, `foundation`
+  - Debug-only зависимости `ui-tooling` и `ui-test-manifest`
+  - Version Catalog, module-level Gradle, Kotlin DSL
+- 3.  Первая Compose-активити
+  - `ComponentActivity`
+  - `setContent`
+  - `enableEdgeToEdge`
+  - `MaterialTheme`
+  - `Surface`
+  - Preview и запуск на устройстве
+- 4.  Ментальная модель Compose
+  - UI как функция состояния
+  - Composition, Recomposition, Apply Changes
+  - Slot Table, группы, ключи и позиционная идентичность
+  - Почему composable-функции должны быть быстрыми, идемпотентными и side-effect free
+  - Skipping, restartable/skippable-функции и границы оптимизации
+- 5.  Жизненный цикл composable-функций
+  - Вход в Composition
+  - Recomposition 0 или больше раз
+  - Выход из Composition
+  - Что считается идентичностью вызова
+  - Почему порядок вызовов влияет на remembered state
+- 6.  `@Composable`: синтаксис и правила вызова
+  - Аннотация `@Composable`
+  - Контекст композиции
+  - Почему composable нельзя вызвать из обычной функции
+  - Unit-returning UI-функции
+  - Именование, параметры, default arguments, overloads
+
+## Уровень 1. UI Fundamentals
+
+- 7.  `Text`: вывод текста
+  - `text`, `modifier`, `color`, `fontSize`, `fontStyle`, `fontWeight`
+  - `fontFamily`, `letterSpacing`, `textDecoration`, `textAlign`
+  - `lineHeight`, `overflow`, `softWrap`, `maxLines`, `minLines`
+  - `onTextLayout`, `style`, `inlineContent`
+  - Text resources и локализация
+- 8.  Типографика и стили текста
+  - `TextStyle`
+  - `MaterialTheme.typography`
+  - `AnnotatedString`, `SpanStyle`, `ParagraphStyle`
+  - Ссылки, выделение, `SelectionContainer`
+  - Шрифты, downloadable fonts, variable fonts
+- 9.  Базовые действия: `Button` и семейство кнопок
+  - `Button`
+  - `ElevatedButton`
+  - `FilledTonalButton`
+  - `OutlinedButton`
+  - `TextButton`
+  - `IconButton`, `IconToggleButton`
+  - `FloatingActionButton`, `ExtendedFloatingActionButton`
+  - `SegmentedButton`
+- 10. Изображения и иконки
+  - `Image`
+  - `Icon`
+  - `painterResource`, `ImageBitmap`, `ImageVector`
+  - `ContentScale`, `Alignment`, `alpha`, `colorFilter`
+  - Vector drawable, bitmap, adaptive icons, memory considerations
+- 11. Material 3 foundation
+  - `MaterialTheme`
+  - `ColorScheme`
+  - `Typography`
+  - `Shapes`
+  - `Surface`
+  - Dynamic color
+  - Expressive APIs и осторожность с experimental-компонентами
+- 12. Простые контейнеры контента
+  - `Surface`
+  - `Card`, `ElevatedCard`, `OutlinedCard`
+  - `ListItem`
+  - `HorizontalDivider`, `VerticalDivider`
+  - `Spacer`
+  - Когда контейнер является семантической частью UI, а когда он лишний
+- 13. Индикаторы и feedback
+  - `CircularProgressIndicator`
+  - `LinearProgressIndicator`
+  - `Snackbar`
+  - `Badge`, `BadgedBox`
+  - Empty, loading, error и content states
+- 14. Поля ввода
+  - `TextField`
+  - `OutlinedTextField`
+  - State-based text fields
+  - `TextFieldState`
+  - `KeyboardOptions`, `KeyboardActions`
+  - `VisualTransformation`, `OutputTransformation`
+  - Ошибки, supporting text, prefix/suffix, leading/trailing icons
+- 15. Selection controls
+  - `Checkbox`
+  - `TriStateCheckbox`
+  - `RadioButton`
+  - `Switch`
+  - `Slider`, `RangeSlider`
+  - `FilterChip`, `InputChip`, `SuggestionChip`, `AssistChip`
+- 16. Диалоги, меню и временные поверхности
+  - `AlertDialog`
+  - `BasicAlertDialog`
+  - `Dialog`
+  - `DropdownMenu`
+  - `ExposedDropdownMenuBox`
+  - `ModalBottomSheet`
+  - `TooltipBox`
+
+## Уровень 2. Layouts, constraints и Modifier
+
+- 17. `Modifier` как фундамент Compose UI
+  - Иммутабельная цепочка `Modifier`
+  - Порядок модификаторов
+  - Parent data modifiers
+  - Layout, draw, pointer, semantics modifiers
+  - Переиспользование chains без лишней аллокации
+- 18. Размеры, отступы и ограничения
+  - `size`, `width`, `height`, `requiredSize`
+  - `fillMaxSize`, `fillMaxWidth`, `fillMaxHeight`
+  - `wrapContentSize`
+  - `padding`, `absolutePadding`, `systemBarsPadding`, `imePadding`
+  - Constraints и почему child не может выбрать любой размер
+- 19. `Box`
+  - Stack layout
+  - `contentAlignment`
+  - `Modifier.align`
+  - `matchParentSize`
+  - Overlay, scrim, badges, loading layers
+- 20. `Row` и `Column`
+  - `horizontalArrangement`, `verticalArrangement`
+  - `horizontalAlignment`, `verticalAlignment`
+  - `weight`
+  - Baseline alignment
+  - Intrinsics в простых линейных layout
+- 21. Scrollable containers
+  - `verticalScroll`
+  - `horizontalScroll`
+  - `rememberScrollState`
+  - `scrollable`
+  - Nested scroll
+  - Two-dimensional scrolling
+- 22. Lazy lists
+  - `LazyColumn`
+  - `LazyRow`
+  - `LazyListScope`
+  - `item`, `items`, `itemsIndexed`
+  - Keys, content type, sticky headers
+  - `LazyListState`, scroll position, prefetch
+- 23. Lazy grids and staggered grids
+  - `LazyVerticalGrid`
+  - `LazyHorizontalGrid`
+  - `GridCells.Fixed`, `GridCells.Adaptive`
+  - `LazyVerticalStaggeredGrid`
+  - Span, keys, item placement animation
+- 24. Pager
+  - `HorizontalPager`
+  - `VerticalPager`
+  - `PagerState`
+  - Offscreen limits, snapping, indicators
+- 25. Flow layouts and adaptive rows
+  - `FlowRow`
+  - `FlowColumn`
+  - `ContextualFlowRow`
+  - Overflow handling
+  - Chips, tags, responsive wrapping
+- 26. Custom layout
+  - `Layout`
+  - `MeasurePolicy`
+  - `Measurable`, `Placeable`
+  - `SubcomposeLayout`
+  - `BoxWithConstraints`
+  - Alignment lines
+  - Intrinsic measurements
+- 27. Custom modifiers
+  - `Modifier.Node`
+  - `composed`
+  - `layout`
+  - `drawBehind`, `drawWithContent`, `drawWithCache`
+  - `pointerInput`
+  - `semantics`
+  - Inspector info and reusable APIs
+
+## Уровень 3. State, snapshots и управление данными UI
+
+- 28. State в Compose
+  - `State<T>`
+  - `MutableState<T>`
+  - `mutableStateOf`
+  - Snapshot system
+  - Mutation policies: structural, referential, never equal
+- 29. `remember`
+  - Позиционная память
+  - Keys
+  - Reset state
+  - Ошибки при изменении порядка вызовов
+- 30. `rememberSaveable`
+  - Bundle-backed сохранение
+  - `Saver`
+  - `listSaver`, `mapSaver`
+  - Ограничения размера и типов
+- 31. State hoisting
+  - Stateful vs stateless composables
+  - `value` и `onValueChange`
+  - Lowest common ancestor
+  - UI element state vs screen UI state
+- 32. Derived state
+  - `derivedStateOf`
+  - Когда он нужен
+  - Когда он добавляет лишнюю сложность
+  - Scroll thresholds и expensive derived values
+- 33. Snapshot collections
+  - `mutableStateListOf`
+  - `mutableStateMapOf`
+  - `SnapshotStateList`
+  - `SnapshotStateMap`
+  - Immutable collections и стабильность
+- 34. Flow, LiveData и Rx interop
+  - `collectAsState`
+  - `collectAsStateWithLifecycle`
+  - `observeAsState`
+  - `subscribeAsState`
+  - Initial value, lifecycle, cancellation
+- 35. ViewModel и state holders
+  - `viewModel()`
+  - UI state data classes
+  - Events as lambdas
+  - One-off events без SingleLiveEvent
+  - Screen state holder vs element state holder
+- 36. State restoration strategy
+  - `SavedStateHandle`
+  - Navigation arguments
+  - Process death
+  - Persisted app data vs transient UI state
+
+## Уровень 4. Side Effects, coroutines и CompositionLocal
+
+- 37. Side effects overview
+  - Почему composable-функции должны быть чистыми
+  - Effect после успешной composition
+  - Отмена и restart effects
+- 38. `LaunchedEffect`
+  - Coroutine scope, keys
+  - Restart behavior
+  - Snackbar, scroll, animation, network trigger pitfalls
+- 39. `rememberCoroutineScope`
+  - User event handlers
+  - Manual coroutine launch
+  - Scope lifetime
+- 40. `DisposableEffect`
+  - Подписки
+  - Lifecycle observers
+  - Register/unregister
+  - Correct keys
+- 41. `SideEffect`
+  - Publish Compose state to external objects
+  - Analytics properties
+  - Когда не использовать
+- 42. `produceState`
+  - Bridge callback, suspend и observable sources
+  - `awaitDispose`
+  - Loading/error modeling
+- 43. `rememberUpdatedState`
+  - Fresh lambda inside long-lived effect
+  - Splash timeout, callbacks, timers
+- 44. `snapshotFlow`
+  - Convert snapshot reads to Flow
+  - `distinctUntilChanged`
+  - Analytics and scroll events
+  - Backpressure and cancellation
+- 45. CompositionLocal
+  - `compositionLocalOf`
+  - `staticCompositionLocalOf`
+  - `CompositionLocalProvider`
+  - Theme, density, layout direction, inspection mode
+  - Avoiding hidden dependencies
+
+## Уровень 5. Material 3 components and app structure
+
+- 46. `Scaffold`
+  - `topBar`, `bottomBar`, `snackbarHost`, `floatingActionButton`
+  - `contentWindowInsets`
+  - Inner padding
+  - Edge-to-edge layouts
+- 47. App bars
+  - `TopAppBar`
+  - `CenterAlignedTopAppBar`
+  - `MediumTopAppBar`
+  - `LargeTopAppBar`
+  - `TopAppBarDefaults`
+  - Scroll behavior
+- 48. Navigation surfaces
+  - `NavigationBar`
+  - `NavigationRail`
+  - `NavigationDrawer`
+  - `ModalNavigationDrawer`
+  - Adaptive navigation
+- 49. Sheets
+  - `ModalBottomSheet`
+  - Partial sheets
+  - `SheetState`
+  - Scrim, drag handle, confirm value change
+- 50. Search
+  - `SearchBar`
+  - `DockedSearchBar`
+  - Suggestions, history, active state
+- 51. Pickers
+  - Date picker
+  - Date range picker
+  - Time picker
+  - Dialog integration and state objects
+- 52. Pull to refresh
+  - `PullToRefreshBox`
+  - Indicator state
+  - Refresh ownership
+- 53. Material component customization
+  - Defaults objects
+  - `ButtonDefaults`, `CardDefaults`, `TextFieldDefaults`
+  - Colors, elevation, shapes
+  - Stable API wrappers
+
+## Уровень 6. Navigation and architecture
+
+- 54. Navigation Compose basics
+  - `NavHost`
+  - `rememberNavController`
+  - Destinations
+  - Back stack
+- 55. Type-safe navigation
+  - Serializable routes
+  - Arguments
+  - Deep links
+  - Saved state
+- 56. Nested graphs and multiple back stacks
+  - Bottom navigation
+  - Adaptive navigation
+  - State restoration per tab
+- 57. Architecture layering with Compose
+  - UI layer
+  - State holders
+  - Domain layer
+  - Data layer
+  - UDF, MVI, MVVM tradeoffs
+- 58. Events and one-off actions
+  - UI events
+  - Navigation events
+  - Snackbar events
+  - SharedFlow vs Channel vs state-driven effects
+- 59. Modular Compose
+  - Feature modules
+  - Design system modules
+  - Preview fixtures
+  - Public composable APIs
+
+## Уровень 7. Animation and motion
+
+- 60. Animation API map
+  - High-level vs low-level APIs
+  - Value animation, content animation, transition animation
+- 61. `animate*AsState`
+  - `animateDpAsState`, `animateColorAsState`, `animateFloatAsState`
+  - Animation specs
+  - Labeling animations
+- 62. `AnimatedVisibility`
+  - Enter and exit transitions
+  - Size transform
+  - Nested animated content
+- 63. `AnimatedContent`
+  - Target state
+  - `transitionSpec`
+  - Direction-aware changes
+- 64. `Crossfade`
+  - Simple content transitions
+  - Limitations
+- 65. `updateTransition`
+  - Multiple animated values
+  - State machines
+- 66. `Animatable`
+  - Coroutine-driven animation
+  - Gesture-driven motion
+  - Bounds, decay, snapping
+- 67. Infinite animations
+  - `rememberInfiniteTransition`
+  - Pulsing, shimmer, progress loops
+  - Battery and lifecycle concerns
+- 68. Animation specs
+  - `tween`
+  - `spring`
+  - `keyframes`
+  - `repeatable`
+  - `infiniteRepeatable`
+  - Easing
+- 69. Shared elements
+  - Shared transition layout
+  - Navigation integration
+  - Debugging and limitations
+- 70. Testing and profiling animations
+  - Animation clock
+  - Deterministic UI tests
+  - Jank and trace analysis
+
+## Уровень 8. Graphics, Canvas and drawing
+
+- 71. Drawing modifiers
+  - `drawBehind`
+  - `drawWithContent`
+  - `drawWithCache`
+  - Cache invalidation
+- 72. `Canvas`
+  - `DrawScope`
+  - Coordinates
+  - Density
+  - `drawLine`, `drawRect`, `drawCircle`, `drawRoundRect`
+  - `drawPath`, `drawArc`, `drawImage`
+- 73. Brush, gradients and color filters
+  - Solid colors
+  - Linear, radial, sweep gradients
+  - Mesh gradients
+  - `ColorFilter`
+- 74. Shapes, clipping and shadows
+  - `Shape`
+  - `RoundedCornerShape`, `CutCornerShape`, custom `Shape`
+  - `clip`, `graphicsLayer`, `shadow`
+  - Advanced shadows
+- 75. `graphicsLayer`
+  - Translation, scale, rotation
+  - Alpha, camera distance
+  - Render effects
+  - Clipping and offscreen layers
+- 76. Custom Painter
+  - `Painter`
+  - Intrinsic size
+  - Reusable draw logic
+- 77. Image performance
+  - Bitmap sizes
+  - Decode strategy
+  - Caching libraries
+  - Avoiding main-thread work
+
+## Уровень 9. Input, gestures, focus and accessibility
+
+- 78. Click and interaction modifiers
+  - `clickable`
+  - `combinedClickable`
+  - `selectable`
+  - `toggleable`
+  - `InteractionSource`
+  - Indication and ripple APIs
+- 79. Pointer input
+  - `pointerInput`
+  - `awaitPointerEventScope`
+  - Pointer passes
+  - Cancellation
+- 80. Gestures
+  - Tap, press, long press
+  - Drag, swipe, fling
+  - Transform gestures
+  - `anchoredDraggable`
+  - Swipe to dismiss
+- 81. Drag and drop
+  - Source, target
+  - Clip data
+  - Visual feedback
+- 82. Keyboard input
+  - `onKeyEvent`
+  - `onPreviewKeyEvent`
+  - IME actions
+  - Shortcuts helper
+- 83. Focus
+  - `focusable`
+  - `FocusRequester`
+  - `focusProperties`
+  - Focus order
+  - TV, ChromeOS and keyboard-first UI
+- 84. Accessibility semantics
+  - `semantics`
+  - `contentDescription`
+  - Roles
+  - State descriptions
+  - Merge and clear semantics
+  - Traversal order
+  - Testing semantics tree
+- 85. Text input accessibility and autofill
+  - Labels
+  - Error announcements
+  - Autofill
+  - Password fields and transformations
+- 86. Stylus and Ink
+  - Stylus input
+  - Handwriting in text fields
+  - Ink API
+  - Brushes and stroke state
+
+## Уровень 10. Interoperability and migration
+
+- 87. Compose in Views
+  - `ComposeView`
+  - `ViewCompositionStrategy`
+  - Lifecycle owner, saved state owner
+  - RecyclerView pitfalls
+- 88. Views in Compose
+  - `AndroidView`
+  - `AndroidViewBinding`
+  - Update block
+  - Pooling and reuse
+- 89. XML migration strategy
+  - Screen-by-screen migration
+  - Design system first
+  - Mixed navigation
+  - Testing during migration
+- 90. Resources and Android framework APIs
+  - `stringResource`
+  - `pluralStringResource`
+  - `dimensionResource`
+  - `colorResource`
+  - `painterResource`
+  - `LocalContext`
+- 91. Window, insets and system UI
+  - Edge-to-edge
+  - System bars
+  - IME
+  - Display cutouts
+  - Foldables and posture
+- 92. Lifecycle interop
+  - `LocalLifecycleOwner`
+  - Lifecycle-aware collection
+  - Remembering external objects safely
+
+## Уровень 11. Adaptive UI and form factors
+
+- 93. Adaptive foundations
+  - Window size classes
+  - Orientation
+  - Resizability
+  - Multi-window
+- 94. Canonical layouts
+  - List-detail
+  - Supporting pane
+  - Feed
+  - Adaptive navigation patterns
+- 95. Foldables
+  - Hinges
+  - Display features
+  - Tabletop and book posture
+- 96. Large screens and desktop windowing
+  - Pointer, keyboard, focus
+  - Resizable windows
+  - Density and typography scaling
+- 97. Wear OS Compose
+  - Wear Material
+  - ScalingLazyColumn
+  - Tiles overview
+- 98. Android TV Compose
+  - Focus-first interaction
+  - Lazy rows
+  - Immersive content
+- 99. Glance widgets
+  - App widgets
+  - Remote views limitations
+  - State and updates
+- 100. Compose for Android XR and embedded surfaces
+  - Spatial considerations
+  - Input differences
+  - Experimental status
+
+## Уровень 12. Performance, stability and tooling
+
+- 101. Performance mental model
+  - Composition, Layout, Draw phases
+  - Skipping phases
+  - Measuring before optimizing
+- 102. Stability
+  - Stable, immutable, unstable types
+  - Compiler inference
+  - `@Stable`, `@Immutable`
+  - Immutable collections
+  - Strong skipping
+- 103. Recomposition diagnostics
+  - Layout Inspector recomposition counters
+  - Compose compiler reports
+  - Composition tracing
+  - Reading metrics
+- 104. Avoiding unnecessary recomposition
+  - Stable parameters
+  - Lambda stability
+  - Remembering expensive objects
+  - Deferring state reads
+- 105. Lazy performance
+  - Keys
+  - Content types
+  - Derived scroll state
+  - Item animations
+  - Paging integration
+- 106. Baseline Profiles and startup
+  - Macrobenchmark
+  - Profile installation
+  - Startup and scroll critical paths
+- 107. Memory and allocation
+  - Modifier reuse
+  - Snapshot churn
+  - Painter and brush caching
+  - Avoiding accidental object creation in hot paths
+- 108. Tooling workflow
+  - Android Studio previews
+  - Layout Inspector
+  - System Trace
+  - Macrobenchmark
+  - Screenshot testing
+
+## Уровень 13. Testing and quality
+
+- 109. Compose UI testing basics
+  - `createComposeRule`
+  - `setContent`
+  - Semantics matchers
+  - Assertions
+- 110. Finding nodes
+  - Text, content description, test tag
+  - Merged and unmerged tree
+  - Custom semantics keys
+- 111. User actions in tests
+  - Click, text input, scroll
+  - Gestures
+  - Keyboard
+- 112. Synchronization
+  - Idling
+  - Clocks
+  - Animations
+  - Coroutines and flows
+- 113. Screenshot and visual regression testing
+  - Paparazzi-style tests
+  - Roborazzi-style tests
+  - Device rendering differences
+- 114. Accessibility testing
+  - Semantics assertions
+  - Content descriptions
+  - Traversal and roles
+- 115. Preview-driven development
+  - `@Preview`
+  - Multipreview
+  - Preview parameters
+  - Fixtures and fake data
+
+## Уровень 14. Compose Multiplatform and advanced ecosystems
+
+- 116. Compose Multiplatform overview
+  - Shared UI concepts
+  - Android, Desktop, iOS and Web/Wasm status
+  - What differs from Android Compose
+- 117. Desktop Compose
+  - Window APIs
+  - Menus
+  - Pointer and keyboard
+  - Packaging
+- 118. Kotlin/Wasm Compose
+  - Browser target
+  - Resource limitations
+  - Current constraints
+- 119. Shared design systems
+  - Common composables
+  - Platform-specific expect/actual bridges
+  - Theme tokens
+- 120. Production rollout strategy
+  - Incremental adoption
+  - Version upgrades
+  - API deprecation
+  - Monitoring regressions

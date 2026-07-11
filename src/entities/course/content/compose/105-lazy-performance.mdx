@@ -1,0 +1,619 @@
+---
+title: "Lazy performance"
+description: "Разбираем performance LazyColumn, LazyRow, grids и paging в Jetpack Compose: stable keys, contentType, item state, derived scroll state, item animations, image loading, nested lazy layouts, Paging integration и диагностику jank."
+order: 105
+category: "Compose: Performance, stability and tooling"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему lazy performance отдельная тема
+
+Lazy layouts — один из самых частых performance hotspot в Compose. Список может содержать сотни элементов, но на экране одновременно видны десятки. Ошибка в item composition, keys, image loading или state ownership быстро превращается в scroll jank.
+
+Проблемы lazy performance обычно выглядят так:
+
+- scroll дергается;
+- focus/selection прыгает после update;
+- item state путается при reorder;
+- список пересоздает слишком много composition;
+- images декодируются слишком большими;
+- анимации item placement тормозят;
+- paging показывает нестабильные placeholders;
+- nested lazy layouts конфликтуют по constraints.
+
+```kotlin
+data class FeedItemUi(
+    val id: String,
+    val type: FeedItemType,
+    val title: String,
+    val imageUrl: String?,
+    val selected: Boolean
+)
+
+enum class FeedItemType {
+    Article,
+    Video,
+    Ad,
+    Header
+}
+```
+
+Lazy performance начинается с хорошей item model: stable identity, понятный type и UI-ready data.
+
+<CatTip>
+Lazy layout экономит работу только тогда, когда вы помогаете ему понимать identity и shape элементов. Без keys и contentType список начинает угадывать.
+</CatTip>
+
+## Stable keys
+
+`key` сообщает lazy layout, какой item является тем же item после insert/remove/reorder.
+
+Плохо:
+
+```kotlin
+LazyColumn {
+    items(feedItems) { item ->
+        FeedItemRow(item = item)
+    }
+}
+```
+
+По умолчанию identity часто завязана на position. При вставке сверху state может переехать в другой item.
+
+Хорошо:
+
+```kotlin
+LazyColumn {
+    items(
+        items = feedItems,
+        key = { item ->
+            item.id
+        }
+    ) { item ->
+        FeedItemRow(item = item)
+    }
+}
+```
+
+Keys должны быть:
+
+- стабильными;
+- уникальными в рамках списка;
+- не зависеть от position;
+- сохраняться между updates;
+- совместимыми с `Bundle`, если нужен saveable state внутри item.
+
+## Плохие keys
+
+Плохие варианты:
+
+```kotlin
+key = { index ->
+    index
+}
+```
+
+```kotlin
+key = { item ->
+    item.hashCode()
+}
+```
+
+```kotlin
+key = { item ->
+    "${item.title}-${System.currentTimeMillis()}"
+}
+```
+
+Index ломается при insert/remove. Hash может зависеть от mutable fields. Time-based key уничтожает reuse полностью.
+
+Правильно:
+
+```kotlin
+key = { item ->
+    item.id
+}
+```
+
+Если item является header, делайте deterministic key:
+
+```kotlin
+item(
+    key = "header:${section.id}",
+    contentType = "section-header"
+) {
+    SectionHeader(section.title)
+}
+```
+
+## `contentType`
+
+`contentType` помогает lazy layout переиспользовать composition эффективнее между похожими item types.
+
+```kotlin
+LazyColumn {
+    items(
+        items = feedItems,
+        key = { item ->
+            item.id
+        },
+        contentType = { item ->
+            item.type
+        }
+    ) { item ->
+        when (item.type) {
+            FeedItemType.Article -> ArticleRow(item)
+            FeedItemType.Video -> VideoRow(item)
+            FeedItemType.Ad -> AdRow(item)
+            FeedItemType.Header -> FeedHeader(item.title)
+        }
+    }
+}
+```
+
+Без `contentType` lazy layout может менее эффективно reuse-ить composition для mixed lists.
+
+`contentType` не обязан быть классом. Часто достаточно enum/string:
+
+```kotlin
+contentType = { item ->
+    when {
+        item.isLoadingPlaceholder -> "placeholder"
+        item.type == FeedItemType.Ad -> "ad"
+        else -> "content"
+    }
+}
+```
+
+## Item state ownership
+
+State внутри item должен иметь правильную identity.
+
+```kotlin
+@Composable
+fun ExpandableFeedItem(
+    item: FeedItemUi
+) {
+    var expanded by rememberSaveable(item.id) {
+        mutableStateOf(false)
+    }
+
+    FeedItemCard(
+        item = item,
+        expanded = expanded,
+        onToggleExpanded = {
+            expanded = !expanded
+        }
+    )
+}
+```
+
+Если expanded state должен переживать screen recreation или быть shared, храните его выше:
+
+```kotlin
+data class FeedUiState(
+    val items: List<FeedItemUi>,
+    val expandedItemIds: Set<String>
+)
+```
+
+Item-local `remember` подходит для purely visual transient state. Business state должен жить в state holder.
+
+<MouseTrap>
+`remember { mutableStateOf(...) }` внутри item без key — классический способ перепутать state при reorder.
+</MouseTrap>
+
+## Avoid heavy work in item
+
+Плохо:
+
+```kotlin
+@Composable
+fun FeedItemRow(
+    item: FeedItemUi
+) {
+    val dateText = expensiveDateFormatter.format(item.timestamp)
+    val tags = item.tags.sorted()
+
+    Text(text = dateText)
+    TagsRow(tags = tags)
+}
+```
+
+Лучше готовить UI data выше:
+
+```kotlin
+@Immutable
+data class FeedItemUi(
+    val id: String,
+    val title: String,
+    val dateText: String,
+    val sortedTags: ImmutableList<String>,
+    val imageUrl: String?
+)
+```
+
+Если computation truly UI-local, используйте `remember(item.id, item.updatedAt)`:
+
+```kotlin
+val formatted = remember(item.id, item.updatedAt) {
+    formatter.format(item.updatedAt)
+}
+```
+
+## Derived scroll state
+
+Scroll state меняется очень часто. Используйте `derivedStateOf`, если UI reaction меняется редко.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+
+@Composable
+fun ScrollAwareFab(
+    listState: LazyListState,
+    onClick: () -> Unit
+) {
+    val showFab by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 2
+        }
+    }
+
+    if (showFab) {
+        ScrollToTopFab(onClick = onClick)
+    }
+}
+```
+
+Не передавайте raw `firstVisibleItemScrollOffset` в весь screen, если он нужен только для одной кнопки/header.
+
+## `snapshotFlow` для scroll side effects
+
+Если scroll должен запускать analytics или prefetch event, используйте `snapshotFlow` внутри effect.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+
+@Composable
+fun FeedScrollAnalytics(
+    listState: LazyListState,
+    analytics: FeedAnalytics
+) {
+    LaunchedEffect(listState, analytics) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex
+        }
+            .filter { index ->
+                index > 10
+            }
+            .distinctUntilChanged()
+            .collect { index ->
+                analytics.logScrolledPast(index)
+            }
+    }
+}
+```
+
+Не пишите analytics прямо в composition. Side effects должны жить в effect API.
+
+## Item animations
+
+`animateItem` или item placement animations помогают визуально объяснить reorder/insert/remove, но могут стоить дорого на больших lists.
+
+```kotlin
+LazyColumn {
+    items(
+        items = messages,
+        key = { message ->
+            message.id
+        }
+    ) { message ->
+        MessageRow(
+            message = message,
+            modifier = Modifier.animateItem()
+        )
+    }
+}
+```
+
+Используйте item animations:
+
+- для небольших visible changes;
+- при reorder;
+- при insert/remove, которые пользователь должен понять;
+- с stable keys.
+
+Не используйте:
+
+- на огромных частых updates;
+- если список получает streaming data десятки раз в секунду;
+- если item layout очень тяжелый;
+- без измерения.
+
+## Placeholder size
+
+Loading placeholders должны иметь близкий размер к real content. Иначе при data load список прыгает и пересчитывает layout.
+
+```kotlin
+@Composable
+fun ArticlePlaceholder() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(96.dp)
+            .padding(16.dp)
+    ) {
+        PlaceholderBox(
+            modifier = Modifier.size(64.dp)
+        )
+        PlaceholderTextLines()
+    }
+}
+```
+
+Если placeholder height 40.dp, а real item 160.dp, scroll position и layout будут нестабильными.
+
+## Images in lazy items
+
+Изображения часто ломают scroll performance.
+
+Правила:
+
+- используйте image loader с size awareness;
+- не декодируйте original size для маленькой card;
+- задавайте stable aspect ratio;
+- используйте placeholder с тем же размером;
+- избегайте тяжелых transformations на каждый item;
+- не создавайте painter/request без remember, если строите вручную;
+- prefetch должен быть умеренным.
+
+```kotlin
+@Composable
+fun ArticleThumbnail(
+    url: String?,
+    modifier: Modifier = Modifier
+) {
+    AsyncImage(
+        model = url,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = modifier
+            .size(72.dp)
+            .clip(RoundedCornerShape(8.dp))
+    )
+}
+```
+
+Если используете Coil/Glide integration, позвольте integration видеть constraints, чтобы request мог выбрать подходящий размер.
+
+## Nested lazy layouts
+
+Вертикальный `LazyColumn` с горизонтальными `LazyRow` — нормальный TV/catalog pattern. Вертикальная lazy внутри вертикальной lazy без bounded height — часто ошибка.
+
+Плохо:
+
+```kotlin
+LazyColumn {
+    item {
+        LazyColumn {
+            items(comments) { comment ->
+                CommentRow(comment)
+            }
+        }
+    }
+}
+```
+
+Лучше flatten:
+
+```kotlin
+LazyColumn {
+    item(
+        key = "comments-header",
+        contentType = "header"
+    ) {
+        CommentsHeader()
+    }
+
+    items(
+        items = comments,
+        key = { comment ->
+            comment.id
+        },
+        contentType = {
+            "comment"
+        }
+    ) { comment ->
+        CommentRow(comment)
+    }
+}
+```
+
+Nested same-direction scroll часто ломает constraints и performance.
+
+## Paging integration
+
+Paging подходит для больших/infinite lists.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
+import androidx.paging.compose.itemContentType
+
+@Composable
+fun PagedArticlesList(
+    articles: LazyPagingItems<ArticleUi>,
+    onArticleClick: (String) -> Unit
+) {
+    LazyColumn {
+        items(
+            count = articles.itemCount,
+            key = articles.itemKey { article ->
+                article.id
+            },
+            contentType = articles.itemContentType { article ->
+                "article"
+            }
+        ) { index ->
+            val article = articles[index]
+
+            if (article == null) {
+                ArticlePlaceholder()
+            } else {
+                ArticleRow(
+                    article = article,
+                    onClick = {
+                        onArticleClick(article.id)
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Use `itemKey` и `itemContentType`, чтобы Paging placeholders и loaded items имели понятную identity.
+
+## Load states
+
+Paging load states должны быть частью list content.
+
+```kotlin
+import androidx.paging.LoadState
+
+fun LazyListScope.pagingLoadStateItems(
+    loadState: LoadState,
+    onRetry: () -> Unit
+) {
+    when (loadState) {
+        is LoadState.Loading -> {
+            item(
+                key = "append-loading",
+                contentType = "load-state"
+            ) {
+                LoadingRow()
+            }
+        }
+        is LoadState.Error -> {
+            item(
+                key = "append-error",
+                contentType = "load-state"
+            ) {
+                RetryRow(
+                    message = "Не удалось загрузить",
+                    onRetry = onRetry
+                )
+            }
+        }
+        is LoadState.NotLoading -> Unit
+    }
+}
+```
+
+Load state rows тоже нуждаются в keys/contentType, особенно если они появляются/исчезают внизу списка.
+
+## Prefetch and precompose caution
+
+Compose lazy layouts имеют internal prefetch behavior, а image loaders могут иметь свой prefetch. Не добавляйте агрессивный manual prefetch без measurement.
+
+Плохой pattern:
+
+```kotlin
+LaunchedEffect(listState.firstVisibleItemIndex) {
+    repository.prefetchNext50Items()
+}
+```
+
+Это может превратить scroll в сеть/диск storm. Лучше:
+
+- использовать Paging;
+- prefetch near viewport с debounce;
+- делать repository-level caching;
+- измерять network/disk/main thread.
+
+## Diagnostics checklist
+
+Для scroll jank проверьте:
+
+- `key`;
+- `contentType`;
+- stable item model;
+- Layout Inspector counters у item;
+- trace на long frames;
+- image decode/resize;
+- placeholder size;
+- nested lazy layouts;
+- item animations;
+- allocations in item;
+- heavy text measurement;
+- Paging load states.
+
+```kotlin
+data class LazyPerfFinding(
+    val listName: String,
+    val issue: String,
+    val evidence: String,
+    val fix: String
+)
+```
+
+## Типичные ошибки
+
+### Использовать position как identity
+
+Insert/remove/reorder ломает item state.
+
+### Не задавать contentType в mixed list
+
+Lazy layout хуже reuse-ит composition.
+
+### Делать сортировку внутри item
+
+Item composition должен быть легким.
+
+### Placeholder другого размера
+
+Scroll position прыгает после загрузки.
+
+### Nested same-direction lazy без constraints
+
+Получаются layout issues и лишняя работа.
+
+### Агрессивно анимировать все item updates
+
+Красиво, пока не появляется real data stream.
+
+### Paging без stable keys
+
+Focus, scroll и state становятся менее предсказуемыми.
+
+## Итоги
+
+Lazy performance строится вокруг identity и легких items:
+
+- задавайте stable `key`;
+- используйте `contentType` для mixed item types;
+- item-local state должен быть keyed или hoisted;
+- не делайте heavy work в item composition;
+- scroll-derived UI используйте через `derivedStateOf`;
+- side effects по scroll делайте через `snapshotFlow`;
+- item animations требуют stable keys и measurement;
+- placeholder должен быть близок к real item size;
+- images должны загружаться с правильным размером;
+- nested same-direction lazy layouts лучше flatten-ить;
+- Paging integration требует `itemKey`, `itemContentType` и load state rows.

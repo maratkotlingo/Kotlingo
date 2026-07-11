@@ -1,0 +1,474 @@
+---
+title: "Lazy grids and staggered grids"
+description: "Разбираем LazyVerticalGrid, LazyHorizontalGrid, GridCells.Fixed, GridCells.Adaptive, spans, LazyVerticalStaggeredGrid, StaggeredGridCells, keys, spacing и production-сценарии сеток."
+order: 23
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны lazy grids
+
+Сетка нужна, когда элементы лучше сравнивать визуально по нескольким колонкам или строкам: карточки курсов, галерея, темы, категории, плитки настроек.
+
+В Compose есть два семейства lazy grids:
+
+- `LazyVerticalGrid` и `LazyHorizontalGrid` — регулярные сетки;
+- `LazyVerticalStaggeredGrid` и `LazyHorizontalStaggeredGrid` — staggered-сетки, где элементы могут иметь разные высоты или ширины.
+
+Обычная grid хороша, когда карточки имеют одинаковую структуру. Staggered grid хороша для masonry-подобного контента: изображения разной высоты, заметки, карточки с переменным текстом.
+
+## `LazyVerticalGrid`
+
+`LazyVerticalGrid` прокручивается вертикально и раскладывает элементы по колонкам.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.Card
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CourseTileGrid(
+    courses: List<CourseTile>
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 160.dp),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(
+            items = courses,
+            key = { course -> course.id },
+            contentType = { "course-tile" }
+        ) { course ->
+            CourseTileCard(course = course)
+        }
+    }
+}
+
+data class CourseTile(
+    val id: String,
+    val title: String,
+    val lessons: Int
+)
+
+@Composable
+fun CourseTileCard(course: CourseTile) {
+    Card {
+        Text(text = course.title)
+        Text(text = "${course.lessons} уроков")
+    }
+}
+```
+
+## `GridCells.Fixed`
+
+`GridCells.Fixed(count)` задает точное количество колонок или строк.
+
+```kotlin
+@Composable
+fun FixedTwoColumnGrid(
+    courses: List<CourseTile>
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(
+            items = courses,
+            key = { course -> course.id }
+        ) { course ->
+            CourseTileCard(course = course)
+        }
+    }
+}
+```
+
+Fixed grid хорошо подходит, когда дизайн явно требует 2 или 3 колонки на конкретном breakpoint. Но на разных экранах часто удобнее adaptive grid.
+
+## `GridCells.Adaptive`
+
+`GridCells.Adaptive(minSize)` вычисляет количество колонок по доступной ширине. Каждая колонка получает не меньше `minSize`, а лишнее пространство распределяется между колонками.
+
+```kotlin
+LazyVerticalGrid(
+    columns = GridCells.Adaptive(minSize = 180.dp)
+) {
+    items(courses, key = { it.id }) { course ->
+        CourseTileCard(course = course)
+    }
+}
+```
+
+Adaptive grid удобна для телефонов, планшетов, foldables и desktop-like окон, потому что количество колонок растет с шириной.
+
+<CatTip title="Котосовет: adaptive grid часто лучше ручных breakpoints">
+  Если карточка имеет понятную минимальную ширину, `GridCells.Adaptive` позволяет сетке естественно подстроиться под экран.
+  Breakpoints нужны, когда дизайн меняет не только количество колонок, но и саму структуру элемента.
+</CatTip>
+
+## `LazyHorizontalGrid`
+
+`LazyHorizontalGrid` прокручивается горизонтально и раскладывает элементы по строкам.
+
+```kotlin
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.layout.height
+
+@Composable
+fun HorizontalTopicGrid(
+    topics: List<CourseTile>
+) {
+    LazyHorizontalGrid(
+        rows = GridCells.Fixed(2),
+        modifier = Modifier.height(220.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(
+            items = topics,
+            key = { topic -> topic.id }
+        ) { topic ->
+            CourseTileCard(course = topic)
+        }
+    }
+}
+```
+
+Горизонтальная grid должна иметь ограниченную высоту, иначе constraints будут неясными. Здесь `height(220.dp)` задает viewport.
+
+## Spans
+
+Span позволяет элементу занять несколько колонок. Например, заголовок секции должен занять всю ширину grid.
+
+```kotlin
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+
+@Composable
+fun CourseGridWithHeader(
+    courses: List<CourseTile>
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 160.dp),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item(
+            key = "header",
+            span = {
+                GridItemSpan(maxLineSpan)
+            },
+            contentType = "header"
+        ) {
+            Text(
+                text = "Популярные курсы",
+                style = MaterialTheme.typography.titleLarge
+            )
+        }
+
+        items(
+            items = courses,
+            key = { course -> course.id },
+            contentType = { "course-tile" }
+        ) { course ->
+            CourseTileCard(course = course)
+        }
+    }
+}
+```
+
+`maxLineSpan` означает "занять всю текущую линию". В adaptive grid это удобнее, чем угадывать количество колонок.
+
+## Keys и contentType в grid
+
+Как и в lazy lists, grid-элементам нужны keys, если список меняется.
+
+```kotlin
+items(
+    items = courses,
+    key = { course -> course.id },
+    contentType = { "course-tile" }
+) { course ->
+    CourseTileCard(course = course)
+}
+```
+
+`contentType` особенно полезен, если в grid смешаны заголовки, баннеры, обычные карточки и skeleton-карточки загрузки.
+
+## `LazyGridState`
+
+Для grid есть `rememberLazyGridState`.
+
+```kotlin
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+
+@Composable
+fun CourseGridWithTopButton(
+    courses: List<CourseTile>
+) {
+    val gridState = rememberLazyGridState()
+    val showTopButton by remember {
+        derivedStateOf {
+            gridState.firstVisibleItemIndex > 4
+        }
+    }
+
+    Box {
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Adaptive(minSize = 160.dp)
+        ) {
+            items(courses, key = { it.id }) { course ->
+                CourseTileCard(course = course)
+            }
+        }
+
+        if (showTopButton) {
+            Text(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                text = "Наверх"
+            )
+        }
+    }
+}
+```
+
+`LazyGridState` похож на `LazyListState`, но для grid.
+
+## Staggered grids
+
+Staggered grid позволяет элементам иметь разные размеры по основной оси. Для вертикальной staggered grid элементы в колонках могут иметь разную высоту.
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items
+
+data class NoteCard(
+    val id: String,
+    val title: String,
+    val body: String
+)
+
+@Composable
+fun NotesStaggeredGrid(
+    notes: List<NoteCard>
+) {
+    LazyVerticalStaggeredGrid(
+        columns = StaggeredGridCells.Adaptive(180.dp),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalItemSpacing = 12.dp
+    ) {
+        items(
+            items = notes,
+            key = { note -> note.id },
+            contentType = { "note-card" }
+        ) { note ->
+            NoteCardItem(note = note)
+        }
+    }
+}
+
+@Composable
+fun NoteCardItem(note: NoteCard) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = note.title,
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Text(
+                text = note.body,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+```
+
+Staggered grid выглядит живо, но сравнивать элементы в ней сложнее. Для рабочих dashboards, прайсинга и учебных карточек одинаковой структуры regular grid часто лучше.
+
+<MouseTrap title="Мышеловка: staggered grid не должен прятать порядок чтения">
+  Masonry-раскладка красива, но пользователь может потерять естественный порядок. Если порядок элементов важен для обучения,
+  задач или событий, обычный список или регулярная сетка может быть понятнее.
+</MouseTrap>
+
+## `StaggeredGridCells.Fixed` и `Adaptive`
+
+`StaggeredGridCells.Fixed(2)` задает точное количество колонок.
+
+`StaggeredGridCells.Adaptive(180.dp)` вычисляет количество колонок по минимальному размеру.
+
+```kotlin
+LazyVerticalStaggeredGrid(
+    columns = StaggeredGridCells.Fixed(2),
+    verticalItemSpacing = 12.dp,
+    horizontalArrangement = Arrangement.spacedBy(12.dp)
+) {
+    items(notes, key = { it.id }) { note ->
+        NoteCardItem(note = note)
+    }
+}
+```
+
+## Полный пример: адаптивная сетка модулей
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class ModuleTileState(
+    val id: String,
+    val title: String,
+    val description: String,
+    val lessons: Int
+)
+
+@Composable
+fun ModuleGrid(
+    modules: List<ModuleTileState>,
+    modifier: Modifier = Modifier
+) {
+    LazyVerticalGrid(
+        modifier = modifier,
+        columns = GridCells.Adaptive(minSize = 180.dp),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item(
+            key = "module-grid-title",
+            span = {
+                GridItemSpan(maxLineSpan)
+            },
+            contentType = "header"
+        ) {
+            Text(
+                text = "Модули курса",
+                style = MaterialTheme.typography.headlineSmall
+            )
+        }
+
+        items(
+            items = modules,
+            key = { module -> module.id },
+            contentType = { "module-tile" }
+        ) { module ->
+            ModuleTile(module = module)
+        }
+    }
+}
+
+@Composable
+fun ModuleTile(
+    module: ModuleTileState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = module.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = module.description,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = "${module.lessons} уроков",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+```
+
+## Типичные ошибки
+
+### Использовать grid для линейного чтения
+
+Если пользователь должен читать элементы строго по порядку, список может быть лучше сетки.
+
+### Не задавать размер horizontal grid
+
+`LazyHorizontalGrid` должен получить конечную высоту, иначе layout может быть неопределенным.
+
+### Делать карточки слишком узкими
+
+Adaptive grid с маленьким `minSize` может создать колонки, где текст постоянно переносится. Минимальная ширина должна быть проверена на реальном контенте.
+
+### Использовать staggered grid для одинаковых карточек
+
+Если все карточки одинаковой высоты, regular grid проще и предсказуемее.
+
+### Забывать keys
+
+Как и в списках, стабильные keys защищают item state и помогают lazy layout.
+
+## Итоги
+
+Lazy grids расширяют lazy layout за пределы списков:
+
+- `LazyVerticalGrid` — вертикальная сетка;
+- `LazyHorizontalGrid` — горизонтальная сетка;
+- `GridCells.Fixed` задает точное количество линий;
+- `GridCells.Adaptive` подбирает количество линий по минимальному размеру;
+- `GridItemSpan(maxLineSpan)` позволяет элементу занять всю линию;
+- `LazyVerticalStaggeredGrid` подходит для карточек разной высоты;
+- `StaggeredGridCells.Fixed` и `Adaptive` управляют staggered columns/rows;
+- keys и contentType важны так же, как в lazy lists;
+- сетка должна помогать сравнению и сканированию, а не просто украшать экран.

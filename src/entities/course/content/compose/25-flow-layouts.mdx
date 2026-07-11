@@ -1,0 +1,410 @@
+---
+title: "Flow layouts and adaptive rows"
+description: "Разбираем FlowRow, FlowColumn и contextual flow layouts в Compose: перенос элементов, maxItemsInEachRow, spacing, weight, overflow, адаптивные chips, теги и production-паттерны."
+order: 25
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны flow layouts
+
+`Row` размещает элементы в одну строку. Если элементы не помещаются, они не переходят на следующую строку автоматически. `FlowRow` похож на `Row`, но умеет переносить элементы на новую строку, когда в текущей строке заканчивается место. `FlowColumn` делает то же в вертикальном направлении: элементы идут по колонке и переходят в следующую колонку.
+
+Flow layouts особенно полезны для:
+
+- chips и фильтров;
+- тегов;
+- адаптивных рядов кнопок;
+- облаков категорий;
+- коротких списков опций, где не хочется сразу использовать lazy layout;
+- UI, который должен красиво переживать разные ширины экрана и длинные переводы.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun TopicChips(
+    topics: List<String>,
+    selectedTopics: Set<String>,
+    onTopicToggle: (String) -> Unit
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        topics.forEach { topic ->
+            FilterChip(
+                selected = topic in selectedTopics,
+                onClick = {
+                    onTopicToggle(topic)
+                },
+                label = {
+                    Text(text = topic)
+                }
+            )
+        }
+    }
+}
+```
+
+Здесь chips сами переносятся на новую строку, если ширины недостаточно.
+
+## `FlowRow`
+
+Основные параметры `FlowRow`:
+
+- `modifier` — внешний layout и modifiers;
+- `horizontalArrangement` — расстояние и выравнивание элементов внутри строки;
+- `verticalArrangement` — расстояние и выравнивание строк;
+- `itemVerticalAlignment` — вертикальное выравнивание элементов внутри строки;
+- `maxItemsInEachRow` — максимум элементов в одной строке;
+- `maxLines` — максимум строк;
+- `overflow` — поведение при переполнении, если API доступен в выбранной версии foundation;
+- `content` — элементы в `FlowRowScope`.
+
+```kotlin
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SkillCloud(
+    skills: List<String>,
+    modifier: Modifier = Modifier
+) {
+    FlowRow(
+        modifier = modifier.padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        maxItemsInEachRow = 3
+    ) {
+        skills.forEach { skill ->
+            AssistChip(
+                onClick = {
+                    // В реальном экране это событие передается выше.
+                    // Здесь chip только демонстрирует компактное действие.
+                },
+                label = {
+                    Text(text = skill)
+                }
+            )
+        }
+    }
+}
+```
+
+`maxItemsInEachRow = 3` ограничивает строку тремя элементами даже на широком экране. Это полезно, если дизайн должен сохранять ритм.
+
+## `FlowColumn`
+
+`FlowColumn` размещает элементы сверху вниз и переносит их в новую колонку.
+
+```kotlin
+import androidx.compose.foundation.layout.FlowColumn
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CompactSuggestionColumns(
+    suggestions: List<String>,
+    onSuggestionClick: (String) -> Unit
+) {
+    FlowColumn(
+        modifier = Modifier.height(220.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        maxItemsInEachColumn = 4
+    ) {
+        suggestions.forEach { suggestion ->
+            SuggestionChip(
+                onClick = {
+                    onSuggestionClick(suggestion)
+                },
+                label = {
+                    Text(text = suggestion)
+                }
+            )
+        }
+    }
+}
+```
+
+`FlowColumn` требует осмысленной высоты, иначе перенос в новые колонки может быть не тем, что ожидает пользователь. Для большинства tag/chip UI чаще нужен `FlowRow`.
+
+## `maxLines`
+
+`maxLines` ограничивает количество строк. Это удобно, когда блок тегов не должен занимать весь экран.
+
+```kotlin
+@Composable
+fun LimitedTopicChips(
+    topics: List<String>,
+    selectedTopics: Set<String>,
+    onTopicToggle: (String) -> Unit
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        maxLines = 2
+    ) {
+        topics.forEach { topic ->
+            FilterChip(
+                selected = topic in selectedTopics,
+                onClick = {
+                    onTopicToggle(topic)
+                },
+                label = {
+                    Text(text = topic)
+                }
+            )
+        }
+    }
+}
+```
+
+Если элементы не помещаются в `maxLines`, нужно явно решить UX: показать кнопку "Еще", открыть bottom sheet, перейти на отдельный экран фильтров или использовать overflow API, если он доступен в версии foundation.
+
+<MouseTrap title="Мышеловка: maxLines без пути к полному списку прячет контент">
+  Если пользователь видит только две строки тегов и не может раскрыть остальные, это не адаптивность, а потеря данных.
+  Ограничивай строки только вместе с понятным действием раскрытия или отдельным экраном.
+</MouseTrap>
+
+## Weight в `FlowRow`
+
+`Modifier.weight` внутри `FlowRow` работает на уровне текущей строки. Это отличается от `Row`, где все дети находятся в одной строке.
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.weight
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+
+@Composable
+fun ResponsiveActionFlow(
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    onPreview: () -> Unit
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        maxItemsInEachRow = 2
+    ) {
+        OutlinedButton(
+            modifier = Modifier.weight(1f),
+            onClick = onCancel
+        ) {
+            Text(text = "Отмена")
+        }
+
+        Button(
+            modifier = Modifier.weight(1f),
+            onClick = onSave
+        ) {
+            Text(text = "Сохранить")
+        }
+
+        OutlinedButton(
+            modifier = Modifier.weight(1f),
+            onClick = onPreview
+        ) {
+            Text(text = "Предпросмотр")
+        }
+    }
+}
+```
+
+При `maxItemsInEachRow = 2` первые две кнопки делят первую строку, третья попадает во вторую строку и занимает доступное место своей строки.
+
+## Flow layout против Lazy layout
+
+`FlowRow` и `FlowColumn` не являются lazy containers. Они измеряют и размещают все элементы. Для десятков chips это нормально. Для сотен элементов лучше подумать о lazy grid, search/filter UI или отдельном экране.
+
+Выбор:
+
+- до нескольких десятков компактных элементов — `FlowRow`;
+- большой список тегов с прокруткой — `LazyVerticalGrid` или отдельный экран;
+- горизонтальная лента — `LazyRow`;
+- фиксированный набор кнопок с переносом — `FlowRow`;
+- элементы одинаковой сеткой — `LazyVerticalGrid`.
+
+<CatTip title="Котосовет: FlowRow хорошо дружит с формами">
+  Для фильтров, выбранных тегов и небольших наборов опций `FlowRow` часто лучше `LazyRow`: пользователь сразу видит все
+  варианты, а длинные переводы не ломают одну горизонтальную строку.
+</CatTip>
+
+## Contextual flow layouts
+
+В новых версиях foundation есть contextual variants, такие как `ContextualFlowRow`, которые помогают строить flow-контент с контекстом индекса и ограничениями видимости. API может быть experimental или меняться, поэтому перед production-использованием закрепи версию Compose BOM и проверь opt-in.
+
+Идея contextual flow: элемент знает свой индекс и может участвовать в логике показа. Например, можно показать ограниченное число тегов и отдельный chip с количеством скрытых элементов.
+
+```kotlin
+import androidx.compose.foundation.layout.ContextualFlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ContextualTopicPreview(
+    topics: List<String>,
+    maxVisibleTopics: Int,
+    onExpandClick: () -> Unit
+) {
+    val visibleTopics = topics.take(maxVisibleTopics.coerceAtLeast(0))
+    val hiddenCount = (topics.size - visibleTopics.size).coerceAtLeast(0)
+
+    ContextualFlowRow(
+        itemCount = visibleTopics.size + if (hiddenCount > 0) 1 else 0,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) { index ->
+        if (index < visibleTopics.size) {
+            AssistChip(
+                onClick = {
+                    onExpandClick()
+                },
+                label = {
+                    Text(text = visibleTopics[index])
+                }
+            )
+        } else {
+            AssistChip(
+                onClick = onExpandClick,
+                label = {
+                    Text(text = "Еще $hiddenCount")
+                }
+            )
+        }
+    }
+}
+```
+
+Если contextual API недоступен в твоей версии foundation, тот же UX можно собрать обычным `FlowRow` и заранее подготовленным списком элементов.
+
+## Полный пример: адаптивная панель фильтров
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class FilterOption(
+    val id: String,
+    val label: String
+)
+
+@Immutable
+data class FilterPanelState(
+    val title: String,
+    val options: List<FilterOption>,
+    val selectedOptionIds: Set<String>
+)
+
+@Composable
+fun AdaptiveFilterPanel(
+    state: FilterPanelState,
+    onOptionToggle: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = state.title,
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            maxItemsInEachRow = 3
+        ) {
+            state.options.forEach { option ->
+                val selected = option.id in state.selectedOptionIds
+
+                FilterChip(
+                    selected = selected,
+                    onClick = {
+                        onOptionToggle(option.id)
+                    },
+                    label = {
+                        Text(text = option.label)
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- `FlowRow` переносит chips при нехватке ширины;
+- `maxItemsInEachRow` сохраняет ритм на широких экранах;
+- состояние выбора хранится снаружи;
+- `Set<String>` удобно описывает множественный выбор;
+- `FilterOption.id` используется как доменная идентичность, а label остается пользовательским текстом.
+
+## Типичные ошибки
+
+### Использовать FlowRow для огромного набора данных
+
+Flow layout не ленивый. Если элементов много, экран будет измерять их все.
+
+### Прятать элементы через maxLines без раскрытия
+
+Ограничение строк должно сопровождаться понятным действием.
+
+### Ожидать, что weight работает как в единственном Row
+
+В `FlowRow` weight распределяет место внутри текущей строки, а не всего контейнера.
+
+### Использовать FlowColumn без ограничения высоты
+
+Для понятного переноса в новые колонки контейнеру нужна осмысленная высота.
+
+### Делать chips единственным способом сложной фильтрации
+
+Если фильтров много и у них есть группы, поиск, диапазоны и зависимости, лучше сделать отдельную панель или экран фильтров.
+
+## Итоги
+
+Flow layouts помогают адаптивному UI:
+
+- `FlowRow` переносит элементы на новые строки;
+- `FlowColumn` переносит элементы в новые колонки;
+- `horizontalArrangement` и `verticalArrangement` управляют spacing;
+- `maxItemsInEachRow` и `maxItemsInEachColumn` ограничивают число элементов в линии;
+- `maxLines` ограничивает количество строк;
+- `weight` работает внутри текущей линии;
+- flow layouts не lazy;
+- contextual flow APIs полезны для сложной логики видимости, но требуют проверки версии foundation;
+- для chips, тегов и компактных фильтров `FlowRow` часто является самым естественным layout.
+

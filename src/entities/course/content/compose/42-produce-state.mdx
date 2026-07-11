@@ -1,0 +1,814 @@
+---
+title: "produceState"
+description: "Разбираем produceState в Jetpack Compose: преобразование callback, suspend и observable sources в State<T>, ключи, cancellation, awaitDispose, loading/error modeling, conflation и создание собственных effect adapters."
+order: 42
+category: "Compose: Side Effects, coroutines и CompositionLocal"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что делает produceState
+
+`produceState` превращает внешний источник данных в Compose `State<T>`.
+
+Он:
+
+- создает `State<T>` с начальным значением;
+- запускает coroutine, привязанную к composition;
+- позволяет обновлять `value` внутри producer-блока;
+- отменяет producer при выходе из composition;
+- отменяет и перезапускает producer при изменении ключей;
+- может очищать non-suspending подписки через `awaitDispose`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+
+interface GreetingRepository {
+    suspend fun loadGreeting(userId: String): String
+}
+
+@Composable
+fun rememberGreetingState(
+    userId: String,
+    repository: GreetingRepository
+): State<String> {
+    return produceState(
+        initialValue = "Загрузка приветствия",
+        userId,
+        repository
+    ) {
+        value = repository.loadGreeting(userId)
+    }
+}
+```
+
+Использование:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun GreetingLabel(
+    userId: String,
+    repository: GreetingRepository
+) {
+    val greeting by rememberGreetingState(
+        userId = userId,
+        repository = repository
+    )
+
+    Text(text = greeting)
+}
+```
+
+<CatTip>
+`produceState` особенно полезен, когда вы пишете reusable adapter: внешний callback или suspend API внутри, обычный Compose `State<T>` снаружи.
+</CatTip>
+
+## Как устроен produceState
+
+Концептуально `produceState` похож на комбинацию:
+
+- `remember { mutableStateOf(initialValue) }`;
+- `LaunchedEffect(keys)`;
+- запись в `value` внутри coroutine.
+
+Это не значит, что нужно писать эту комбинацию вручную каждый раз. `produceState` дает готовый, читаемый API для адаптации внешнего источника.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun manualProduceStateExample(
+    key: String,
+    load: suspend (String) -> String
+): State<String> {
+    val state = remember {
+        mutableStateOf("Загрузка")
+    }
+
+    LaunchedEffect(key, load) {
+        state.value = load(key)
+    }
+
+    return state
+}
+```
+
+Через `produceState` короче и яснее:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+
+@Composable
+fun producedStateExample(
+    key: String,
+    load: suspend (String) -> String
+): State<String> {
+    return produceState(
+        initialValue = "Загрузка",
+        key,
+        load
+    ) {
+        value = load(key)
+    }
+}
+```
+
+## Синтаксис
+
+Минимальный вариант:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+
+@Composable
+fun fixedProducedValue(): State<Int> {
+    return produceState(initialValue = 0) {
+        value = 42
+    }
+}
+```
+
+С ключами:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+
+@Composable
+fun producedUserName(
+    userId: String,
+    repository: GreetingRepository
+): State<String> {
+    return produceState(
+        initialValue = "Загрузка",
+        userId,
+        repository
+    ) {
+        value = repository.loadGreeting(userId)
+    }
+}
+```
+
+С несколькими состояниями результата:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+
+sealed interface LoadState<out T> {
+    data object Loading : LoadState<Nothing>
+    data class Content<T>(
+        val value: T
+    ) : LoadState<T>
+    data class Error(
+        val message: String
+    ) : LoadState<Nothing>
+}
+
+@Composable
+fun rememberLoadedGreetingState(
+    userId: String,
+    repository: GreetingRepository
+): State<LoadState<String>> {
+    return produceState<LoadState<String>>(
+        initialValue = LoadState.Loading,
+        userId,
+        repository
+    ) {
+        value = try {
+            LoadState.Content(
+                value = repository.loadGreeting(userId)
+            )
+        } catch (exception: Exception) {
+            LoadState.Error(
+                message = exception.message ?: "Не удалось загрузить приветствие"
+            )
+        }
+    }
+}
+```
+
+## Ключи и restart
+
+Ключи `produceState` работают как ключи `LaunchedEffect`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+
+interface AvatarRepository {
+    suspend fun loadAvatarUrl(userId: String): String
+}
+
+@Composable
+fun rememberAvatarUrlState(
+    userId: String,
+    repository: AvatarRepository
+): State<LoadState<String>> {
+    return produceState<LoadState<String>>(
+        initialValue = LoadState.Loading,
+        userId,
+        repository
+    ) {
+        value = LoadState.Loading
+
+        value = try {
+            LoadState.Content(
+                value = repository.loadAvatarUrl(userId)
+            )
+        } catch (exception: Exception) {
+            LoadState.Error(
+                message = exception.message ?: "Аватар не загружен"
+            )
+        }
+    }
+}
+```
+
+Если `userId` изменится:
+
+- текущая загрузка отменится;
+- producer запустится заново;
+- state снова получит `Loading`;
+- затем `Content` или `Error`.
+
+<MouseTrap>
+Не забывайте ключи. Если `userId` используется внутри producer, но не передан ключом, загрузка не перезапустится при смене пользователя.
+</MouseTrap>
+
+## Conflation
+
+`produceState` возвращает `State<T>`, и повторная запись того же значения не вызывает лишнюю recomposition для читателей.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.delay
+
+@Composable
+fun rememberConnectionLabel(): State<String> {
+    return produceState(initialValue = "Отключено") {
+        value = "Подключаемся"
+        delay(300)
+        value = "Подключено"
+        value = "Подключено"
+    }
+}
+```
+
+Вторая запись `"Подключено"` не должна создавать новое осмысленное изменение UI, потому что значение равно предыдущему.
+
+## awaitDispose
+
+`awaitDispose` используется внутри `produceState`, когда внешний источник работает через callback и требует cleanup.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.awaitDispose
+
+interface NetworkStatusSource {
+    fun addListener(listener: NetworkStatusListener)
+    fun removeListener(listener: NetworkStatusListener)
+}
+
+fun interface NetworkStatusListener {
+    fun onNetworkAvailableChanged(available: Boolean)
+}
+
+@Composable
+fun rememberNetworkAvailableState(
+    source: NetworkStatusSource
+): State<Boolean> {
+    return produceState(
+        initialValue = false,
+        source
+    ) {
+        val listener = NetworkStatusListener { available ->
+            value = available
+        }
+
+        source.addListener(listener)
+
+        awaitDispose {
+            source.removeListener(listener)
+        }
+    }
+}
+```
+
+Разбор:
+
+- producer регистрирует listener;
+- listener обновляет `value`;
+- `awaitDispose` приостанавливает producer до dispose;
+- при dispose listener снимается;
+- если `source` изменится, старый listener снимется и новый зарегистрируется.
+
+## produceState или DisposableEffect
+
+`DisposableEffect` подходит, когда вы хотите выполнить setup/cleanup и, возможно, менять local state рядом.
+
+`produceState` подходит, когда результатом adapter должен быть `State<T>`.
+
+С `DisposableEffect`:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun NetworkLabelWithDisposableEffect(
+    source: NetworkStatusSource
+) {
+    var available by remember(source) {
+        mutableStateOf(false)
+    }
+
+    DisposableEffect(source) {
+        val listener = NetworkStatusListener { nextAvailable ->
+            available = nextAvailable
+        }
+
+        source.addListener(listener)
+
+        onDispose {
+            source.removeListener(listener)
+        }
+    }
+
+    Text(
+        text = if (available) {
+            "Сеть доступна"
+        } else {
+            "Сети нет"
+        }
+    )
+}
+```
+
+С `produceState`:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun NetworkLabelWithProduceState(
+    source: NetworkStatusSource
+) {
+    val available by rememberNetworkAvailableState(source)
+
+    Text(
+        text = if (available) {
+            "Сеть доступна"
+        } else {
+            "Сети нет"
+        }
+    )
+}
+```
+
+Второй вариант лучше переиспользуется: adapter можно читать в разных composable.
+
+## produceState или collectAsStateWithLifecycle
+
+Для `Flow` из ViewModel в Android UI чаще используйте `collectAsStateWithLifecycle`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
+
+@Composable
+fun UserNameFromStateFlow(
+    userNameFlow: StateFlow<String>
+) {
+    val userName by userNameFlow.collectAsStateWithLifecycle()
+
+    Text(text = userName)
+}
+```
+
+`produceState` для Flow может быть уместен, если:
+
+- вы пишете platform-agnostic adapter;
+- нужен особый mapping loading/error;
+- source не является ViewModel UI state;
+- готовый extension API не подходит.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.flow.Flow
+
+@Composable
+fun <T> rememberFlowAsLoadState(
+    flow: Flow<T>
+): State<LoadState<T>> {
+    return produceState<LoadState<T>>(
+        initialValue = LoadState.Loading,
+        flow
+    ) {
+        try {
+            flow.collect { item ->
+                value = LoadState.Content(item)
+            }
+        } catch (exception: Exception) {
+            value = LoadState.Error(
+                message = exception.message ?: "Поток завершился с ошибкой"
+            )
+        }
+    }
+}
+```
+
+Но для Android screen state не забывайте lifecycle-aware collection.
+
+## Loading/error modeling
+
+`produceState` часто возвращает sealed state.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+
+data class ProfileSummary(
+    val name: String,
+    val subtitle: String
+)
+
+interface ProfileSummaryRepository {
+    suspend fun loadSummary(userId: String): ProfileSummary
+}
+
+@Composable
+fun rememberProfileSummaryState(
+    userId: String,
+    repository: ProfileSummaryRepository
+): State<LoadState<ProfileSummary>> {
+    return produceState<LoadState<ProfileSummary>>(
+        initialValue = LoadState.Loading,
+        userId,
+        repository
+    ) {
+        value = try {
+            val profile = repository.loadSummary(userId)
+            LoadState.Content(profile)
+        } catch (exception: Exception) {
+            LoadState.Error(
+                message = exception.message ?: "Профиль не загружен"
+            )
+        }
+    }
+}
+
+@Composable
+fun ProfileSummaryCard(
+    userId: String,
+    repository: ProfileSummaryRepository
+) {
+    val state by rememberProfileSummaryState(
+        userId = userId,
+        repository = repository
+    )
+
+    when (state) {
+        LoadState.Loading -> {
+            CircularProgressIndicator()
+        }
+
+        is LoadState.Content -> {
+            val profile = (state as LoadState.Content<ProfileSummary>).value
+
+            Column {
+                Text(text = profile.name)
+                Text(text = profile.subtitle)
+            }
+        }
+
+        is LoadState.Error -> {
+            val error = state as LoadState.Error
+            Text(text = error.message)
+        }
+    }
+}
+```
+
+Для screen-level profile loading лучше ViewModel. Этот pattern полезен для reusable adapter или маленького source, который естественно живет около UI.
+
+## Улучшенный UI без unsafe casts
+
+В Kotlin удобнее раскрыть sealed state через smart cast, если `when` работает с локальной переменной.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ProfileSummaryContent(
+    state: LoadState<ProfileSummary>
+) {
+    when (state) {
+        LoadState.Loading -> {
+            CircularProgressIndicator()
+        }
+
+        is LoadState.Content -> {
+            Column {
+                Text(text = state.value.name)
+                Text(text = state.value.subtitle)
+            }
+        }
+
+        is LoadState.Error -> {
+            Text(text = state.message)
+        }
+    }
+}
+```
+
+Этот вариант лучше для production UI, потому что не требует cast.
+
+## Callback source with immediate value
+
+Некоторые APIs умеют отдать текущее значение сразу и затем отправлять обновления.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.awaitDispose
+import androidx.compose.runtime.produceState
+
+interface ThemeModeSource {
+    fun currentMode(): String
+    fun addListener(listener: ThemeModeListener)
+    fun removeListener(listener: ThemeModeListener)
+}
+
+fun interface ThemeModeListener {
+    fun onThemeModeChanged(mode: String)
+}
+
+@Composable
+fun rememberThemeModeState(
+    source: ThemeModeSource
+): State<String> {
+    return produceState(
+        initialValue = source.currentMode(),
+        source
+    ) {
+        value = source.currentMode()
+
+        val listener = ThemeModeListener { mode ->
+            value = mode
+        }
+
+        source.addListener(listener)
+
+        awaitDispose {
+            source.removeListener(listener)
+        }
+    }
+}
+```
+
+Здесь initial value и первая запись берутся из source. Это полезно, если значение могло измениться между composition и регистрацией listener.
+
+## Ошибки и cancellation
+
+Producer coroutine отменяется при dispose. Не превращайте cancellation в error state.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.CancellationException
+
+interface ReportRepository {
+    suspend fun loadReport(reportId: String): String
+}
+
+@Composable
+fun rememberReportState(
+    reportId: String,
+    repository: ReportRepository
+): State<LoadState<String>> {
+    return produceState<LoadState<String>>(
+        initialValue = LoadState.Loading,
+        reportId,
+        repository
+    ) {
+        value = try {
+            LoadState.Content(
+                value = repository.loadReport(reportId)
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (exception: Exception) {
+            LoadState.Error(
+                message = exception.message ?: "Отчет не загружен"
+            )
+        }
+    }
+}
+```
+
+`CancellationException` нужно пробрасывать, чтобы coroutine cancellation работала корректно.
+
+## Production-пример: permissions adapter
+
+Допустим, у приложения есть абстракция, которая сообщает статус разрешения через callback.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.awaitDispose
+import androidx.compose.runtime.produceState
+
+enum class PermissionStatus {
+    Granted,
+    Denied,
+    Unknown
+}
+
+interface PermissionStatusSource {
+    fun currentStatus(permission: String): PermissionStatus
+
+    fun addListener(
+        permission: String,
+        listener: PermissionStatusListener
+    )
+
+    fun removeListener(
+        permission: String,
+        listener: PermissionStatusListener
+    )
+}
+
+fun interface PermissionStatusListener {
+    fun onPermissionStatusChanged(status: PermissionStatus)
+}
+
+@Composable
+fun rememberPermissionStatusState(
+    permission: String,
+    source: PermissionStatusSource
+): State<PermissionStatus> {
+    return produceState(
+        initialValue = source.currentStatus(permission),
+        permission,
+        source
+    ) {
+        value = source.currentStatus(permission)
+
+        val listener = PermissionStatusListener { status ->
+            value = status
+        }
+
+        source.addListener(
+            permission = permission,
+            listener = listener
+        )
+
+        awaitDispose {
+            source.removeListener(
+                permission = permission,
+                listener = listener
+            )
+        }
+    }
+}
+```
+
+UI:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun PermissionBanner(
+    permission: String,
+    source: PermissionStatusSource,
+    onRequestPermission: () -> Unit
+) {
+    val status by rememberPermissionStatusState(
+        permission = permission,
+        source = source
+    )
+
+    when (status) {
+        PermissionStatus.Granted -> {
+            Text(text = "Разрешение выдано")
+        }
+
+        PermissionStatus.Denied -> {
+            Button(onClick = onRequestPermission) {
+                Text(text = "Выдать разрешение")
+            }
+        }
+
+        PermissionStatus.Unknown -> {
+            Text(text = "Проверяем разрешение")
+        }
+    }
+}
+```
+
+Это хороший пример `produceState`: есть внешний callback source, есть cleanup, наружу возвращается простой `State<PermissionStatus>`.
+
+## Создание собственного effect
+
+Официальная идея Compose: можно строить собственные effects поверх существующих APIs.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+
+@Composable
+fun rememberOnlineState(
+    source: NetworkStatusSource
+): State<Boolean> {
+    return rememberNetworkAvailableState(source)
+}
+```
+
+Такой wrapper дает команде понятное имя и скрывает детали callback API.
+
+## Типичные ошибки
+
+### Использовать для screen data loading вместо ViewModel
+
+Если данные принадлежат экрану, должны переживать configuration changes и требуют бизнес-логики, используйте ViewModel.
+
+### Забыть ключ source или id
+
+Producer не перезапустится при смене источника или сущности.
+
+### Не вызвать awaitDispose для callback API
+
+Listener останется зарегистрированным после ухода composable.
+
+### Ловить CancellationException как обычную ошибку
+
+Cancellation должна пробрасываться дальше.
+
+### Возвращать слишком сложный state
+
+Adapter должен возвращать минимальный UI-friendly state. Большие модели лучше получать из repository/ViewModel.
+
+## Итоги
+
+`produceState` превращает внешние источники в Compose state:
+
+- возвращает `State<T>`;
+- запускает producer coroutine;
+- обновляет `value`;
+- отменяется при выходе из composition;
+- перезапускается при смене ключей;
+- conflates одинаковые значения;
+- использует `awaitDispose` для callback cleanup;
+- полезен для reusable adapters;
+- для Flow из ViewModel в Android UI чаще подходит `collectAsStateWithLifecycle`;
+- для register/unregister без returned State часто достаточно `DisposableEffect`;
+- для screen-level loading чаще используйте ViewModel.

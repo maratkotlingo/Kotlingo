@@ -1,0 +1,581 @@
+---
+title: "Lazy lists"
+description: "Разбираем LazyColumn и LazyRow в Compose: LazyListScope, item/items/itemsIndexed, keys, contentType, sticky headers, LazyListState, scroll position, программная прокрутка и производительность списков."
+order: 22
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны lazy lists
+
+`Column.verticalScroll` создает всех детей сразу. Если элементов много, это дорого. `LazyColumn` и `LazyRow` создают и размещают только элементы, которые нужны около viewport. Это стандартный инструмент для списков.
+
+Используй lazy list, если:
+
+- количество элементов может быть большим;
+- список приходит с сервера;
+- элементы однотипные или повторяющиеся;
+- нужна сохраненная позиция прокрутки;
+- нужна программная прокрутка к элементу;
+- нужны sticky headers;
+- в будущем может появиться pagination.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun SimpleLessonList(lessons: List<String>) {
+    LazyColumn {
+        items(lessons) { lesson ->
+            Text(text = lesson)
+        }
+    }
+}
+```
+
+## `LazyColumn`
+
+`LazyColumn` — вертикальный ленивый список.
+
+Основные параметры:
+
+- `modifier`;
+- `state`;
+- `contentPadding`;
+- `reverseLayout`;
+- `verticalArrangement`;
+- `horizontalAlignment`;
+- `flingBehavior`;
+- `userScrollEnabled`;
+- `content`.
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonLazyColumn(
+    lessons: List<LessonRow>,
+    onLessonClick: (String) -> Unit
+) {
+    LazyColumn(
+        contentPadding = PaddingValues(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(
+            items = lessons,
+            key = { lesson -> lesson.id },
+            contentType = { "lesson-row" }
+        ) { lesson ->
+            LessonListRow(
+                lesson = lesson,
+                onClick = {
+                    onLessonClick(lesson.id)
+                }
+            )
+        }
+    }
+}
+
+data class LessonRow(
+    val id: String,
+    val title: String,
+    val subtitle: String
+)
+
+@Composable
+fun LessonListRow(
+    lesson: LessonRow,
+    onClick: () -> Unit
+) {
+    ListItem(
+        modifier = Modifier.clickable(
+            role = Role.Button,
+            onClick = onClick
+        ),
+        headlineContent = {
+            Text(text = lesson.title)
+        },
+        supportingContent = {
+            Text(text = lesson.subtitle)
+        }
+    )
+}
+```
+
+## `LazyRow`
+
+`LazyRow` — горизонтальный ленивый список.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun RecommendedTopicsRow(
+    topics: List<String>,
+    onTopicClick: (String) -> Unit
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(
+            items = topics,
+            key = { topic -> topic }
+        ) { topic ->
+            AssistChip(
+                onClick = {
+                    onTopicClick(topic)
+                },
+                label = {
+                    Text(text = topic)
+                }
+            )
+        }
+    }
+}
+```
+
+## `LazyListScope`
+
+Внутри `LazyColumn { }` и `LazyRow { }` ты работаешь с `LazyListScope`.
+
+Главные функции:
+
+- `item` — один элемент;
+- `items(count)` — элементы по индексу;
+- `items(items)` — элементы из списка;
+- `itemsIndexed(items)` — элементы из списка с индексом;
+- `stickyHeader` — прилипающий заголовок, если API доступен в версии foundation и включены нужные opt-in.
+
+```kotlin
+@Composable
+fun MixedLazyList(
+    lessons: List<LessonRow>
+) {
+    LazyColumn {
+        item(
+            key = "header",
+            contentType = "header"
+        ) {
+            Text(text = "Новые уроки")
+        }
+
+        itemsIndexed(
+            items = lessons,
+            key = { _, lesson -> lesson.id },
+            contentType = { _, _ -> "lesson-row" }
+        ) { index, lesson ->
+            Text(text = "${index + 1}. ${lesson.title}")
+        }
+    }
+}
+```
+
+## Keys
+
+Key задает стабильную идентичность элемента. Без key Compose использует позицию. Если список сортируется, фильтруется или получает вставки в начало, positional identity может привести к переезду remembered state.
+
+```kotlin
+@Composable
+fun KeyedLessonRows(
+    lessons: List<LessonRow>,
+    onLessonClick: (String) -> Unit
+) {
+    LazyColumn {
+        items(
+            items = lessons,
+            key = { lesson -> lesson.id }
+        ) { lesson ->
+            LessonListRow(
+                lesson = lesson,
+                onClick = {
+                    onLessonClick(lesson.id)
+                }
+            )
+        }
+    }
+}
+```
+
+Хороший key:
+
+- уникален в списке;
+- стабилен между обновлениями;
+- не является индексом, если элементы могут менять порядок;
+- основан на доменном id.
+
+<MouseTrap title="Мышеловка: индекс списка почти никогда не хороший key">
+  Индекс стабилен только пока список не сортируется, не фильтруется и не получает вставки. Для реальных данных используй
+  id урока, id сообщения, id пользователя или другой доменный идентификатор.
+</MouseTrap>
+
+## `contentType`
+
+`contentType` помогает lazy layout переиспользовать composition эффективнее, когда в списке есть разные типы элементов.
+
+```kotlin
+sealed interface FeedItem {
+    data class Lesson(val id: String, val title: String) : FeedItem
+    data class Divider(val id: String) : FeedItem
+    data class Banner(val id: String, val text: String) : FeedItem
+}
+
+@Composable
+fun MixedFeed(items: List<FeedItem>) {
+    LazyColumn {
+        items(
+            items = items,
+            key = { item ->
+                when (item) {
+                    is FeedItem.Lesson -> item.id
+                    is FeedItem.Divider -> item.id
+                    is FeedItem.Banner -> item.id
+                }
+            },
+            contentType = { item ->
+                when (item) {
+                    is FeedItem.Lesson -> "lesson"
+                    is FeedItem.Divider -> "divider"
+                    is FeedItem.Banner -> "banner"
+                }
+            }
+        ) { item ->
+            when (item) {
+                is FeedItem.Lesson -> Text(text = item.title)
+                is FeedItem.Divider -> HorizontalDivider()
+                is FeedItem.Banner -> Text(text = item.text)
+            }
+        }
+    }
+}
+```
+
+`contentType` не обязан быть сложным классом. Часто достаточно строки или enum.
+
+## `LazyListState`
+
+`LazyListState` хранит позицию:
+
+- `firstVisibleItemIndex`;
+- `firstVisibleItemScrollOffset`;
+- `layoutInfo`;
+- `isScrollInProgress`;
+- suspend-функции `scrollToItem` и `animateScrollToItem`.
+
+```kotlin
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+
+@Composable
+fun LessonListWithScrollToTop(
+    lessons: List<LessonRow>
+) {
+    val listState = rememberLazyListState()
+    val showScrollToTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0
+        }
+    }
+
+    Box {
+        LazyColumn(
+            state = listState
+        ) {
+            items(
+                items = lessons,
+                key = { lesson -> lesson.id }
+            ) { lesson ->
+                Text(text = lesson.title)
+            }
+        }
+
+        if (showScrollToTop) {
+            Text(text = "Можно показать кнопку наверх")
+        }
+    }
+}
+```
+
+`derivedStateOf` защищает UI от recomposition на каждый пиксель scroll offset, когда тебе нужен только порог.
+
+## Программная прокрутка
+
+```kotlin
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun LessonListWithFab(
+    lessons: List<LessonRow>
+) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    Box {
+        LazyColumn(
+            state = listState
+        ) {
+            items(
+                items = lessons,
+                key = { lesson -> lesson.id }
+            ) { lesson ->
+                Text(text = lesson.title)
+            }
+        }
+
+        FloatingActionButton(
+            modifier = Modifier.align(Alignment.BottomEnd),
+            onClick = {
+                scope.launch {
+                    listState.animateScrollToItem(index = 0)
+                }
+            }
+        ) {
+            Text(text = "↑")
+        }
+    }
+}
+```
+
+Для перехода к конкретному id сначала найди индекс в текущем списке. Не сохраняй старый индекс, если список может фильтроваться.
+
+## Sticky headers
+
+Sticky headers полезны для группировки. API может быть experimental в зависимости от версии foundation.
+
+```kotlin
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.stickyHeader
+
+data class LessonGroup(
+    val title: String,
+    val lessons: List<LessonRow>
+)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun GroupedLessonList(
+    groups: List<LessonGroup>
+) {
+    LazyColumn {
+        groups.forEach { group ->
+            stickyHeader(
+                key = "header-${group.title}",
+                contentType = "group-header"
+            ) {
+                Text(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(12.dp),
+                    text = group.title,
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+
+            items(
+                items = group.lessons,
+                key = { lesson -> lesson.id },
+                contentType = { "lesson-row" }
+            ) { lesson ->
+                Text(
+                    modifier = Modifier.padding(12.dp),
+                    text = lesson.title
+                )
+            }
+        }
+    }
+}
+```
+
+## `contentPadding`
+
+`contentPadding` добавляет отступы внутри lazy content. Он отличается от `Modifier.padding`: content padding участвует в scrollable content, поэтому первый и последний элементы получают внутренний отступ и могут прокручиваться вместе со списком.
+
+```kotlin
+LazyColumn(
+    contentPadding = PaddingValues(
+        start = 16.dp,
+        top = 12.dp,
+        end = 16.dp,
+        bottom = 96.dp
+    ),
+    verticalArrangement = Arrangement.spacedBy(8.dp)
+) {
+    items(lessons, key = { it.id }) { lesson ->
+        Text(text = lesson.title)
+    }
+}
+```
+
+Bottom padding часто нужен, чтобы последний элемент не прятался за bottom bar или FAB.
+
+## Полный пример: production-ready список уроков
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+@Immutable
+data class LazyLessonRowState(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val minutes: Int
+)
+
+@Composable
+fun ProductionLessonList(
+    lessons: List<LazyLessonRowState>,
+    onLessonClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val showTopButton by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 2
+        }
+    }
+
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                items = lessons,
+                key = { lesson -> lesson.id },
+                contentType = { "lesson-row" }
+            ) { lesson ->
+                ListItem(
+                    modifier = Modifier.clickable(
+                        role = Role.Button,
+                        onClick = {
+                            onLessonClick(lesson.id)
+                        }
+                    ),
+                    headlineContent = {
+                        Text(
+                            text = lesson.title,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    supportingContent = {
+                        Text(
+                            text = lesson.subtitle,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    trailingContent = {
+                        Text(text = "${lesson.minutes} мин.")
+                    }
+                )
+            }
+        }
+
+        if (showTopButton) {
+            FloatingActionButton(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                onClick = {
+                    scope.launch {
+                        listState.animateScrollToItem(0)
+                    }
+                }
+            ) {
+                Text(text = "↑")
+            }
+        }
+    }
+}
+```
+
+## Типичные ошибки
+
+### Оборачивать `LazyColumn` в `Column.verticalScroll`
+
+Так делать нельзя: два вертикальных scrollable контейнера начинают конфликтовать по constraints и жестам. Используй один scroll owner.
+
+### Не задавать keys
+
+Без keys состояние элементов может переехать при изменении порядка.
+
+### Хранить важное состояние внутри item
+
+Lazy item может выходить из Composition. Важное состояние строки должно жить выше.
+
+### Использовать lazy list для пяти статичных блоков
+
+Для небольшой статичной формы `Column.verticalScroll` проще и понятнее.
+
+### Читать `layoutInfo` без контроля recomposition
+
+`layoutInfo` может меняться часто. Используй `derivedStateOf` или `snapshotFlow` для аналитики и порогов.
+
+## Итоги
+
+Lazy lists — основной инструмент больших списков:
+
+- `LazyColumn` — вертикальный список;
+- `LazyRow` — горизонтальный список;
+- `LazyListScope` дает `item`, `items`, `itemsIndexed`, `stickyHeader`;
+- `key` сохраняет идентичность элементов;
+- `contentType` помогает переиспользованию при разных типах строк;
+- `LazyListState` хранит позицию и управляет прокруткой;
+- `contentPadding` является частью scrollable content;
+- sticky headers группируют длинные списки;
+- не смешивай lazy list с обычным scroll на той же оси.

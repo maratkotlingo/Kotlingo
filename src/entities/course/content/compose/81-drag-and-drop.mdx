@@ -1,0 +1,640 @@
+---
+title: "Drag and drop"
+description: "Разбираем drag and drop в Jetpack Compose: dragAndDropSource, DragAndDropTransferData, ClipData, dragAndDropTarget, DragAndDropTarget callbacks, MIME filters, permissions, visual feedback и отличие от обычного draggable."
+order: 81
+category: "Compose: Input, gestures, focus and accessibility"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое drag and drop
+
+Drag and drop в Compose — это перенос данных между источником и целью. Это не то же самое, что `draggable`, где пользователь просто двигает элемент по экрану.
+
+`draggable` отвечает за движение:
+
+- handle двигается по оси;
+- sheet раскрывается;
+- slider меняет значение;
+- card сдвигается для dismiss;
+- объект остается частью текущего UI state.
+
+Drag and drop отвечает за передачу данных:
+
+- текст переносится из одного поля в другое;
+- изображение переносится в drop zone;
+- URI файла передается другому экрану;
+- данные можно переносить между composables;
+- данные можно переносить между приложениями через platform drag-and-drop;
+- payload упакован в `ClipData`.
+
+Compose предоставляет два основных modifier-а:
+
+- `Modifier.dragAndDropSource`: источник drag operation;
+- `Modifier.dragAndDropTarget`: цель, которая принимает drop.
+
+<CatTip>
+Если пользователь "двигает UI", думайте о `draggable`. Если пользователь "переносит данные", думайте о `dragAndDropSource` и `dragAndDropTarget`.
+</CatTip>
+
+## Источник: `dragAndDropSource`
+
+`dragAndDropSource` описывает, какие данные будут переноситься. Он возвращает `DragAndDropTransferData`, внутри которого обычно находится `ClipData`.
+
+```kotlin
+import android.content.ClipData
+import androidx.compose.foundation.background
+import androidx.compose.foundation.draganddrop.dragAndDropSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
+
+@Composable
+fun DraggableTextChip(
+    label: String
+) {
+    Box(
+        modifier = Modifier
+            .dragAndDropSource { _ ->
+                DragAndDropTransferData(
+                    clipData = ClipData.newPlainText(
+                        "text label",
+                        label
+                    )
+                )
+            }
+            .background(Color(0xFFE3F2FD))
+            .padding(
+                horizontal = 12.dp,
+                vertical = 8.dp
+            )
+    ) {
+        Text(text = label)
+    }
+}
+```
+
+`ClipData` — platform-контейнер. Он поддерживает plain text, HTML text, URI, Intent и custom MIME data.
+
+## `DragAndDropTransferData`
+
+`DragAndDropTransferData` может содержать:
+
+- `clipData`: данные для переноса;
+- `flags`: platform flags, например глобальный drag за пределы приложения;
+- `localState`: объект для данных, которые нужны только внутри текущего процесса.
+
+```kotlin
+import android.content.ClipData
+import android.view.View
+import androidx.compose.foundation.draganddrop.dragAndDropSource
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
+
+fun Modifier.globalTextDragSource(
+    text: String
+): Modifier {
+    return dragAndDropSource { _ ->
+        DragAndDropTransferData(
+            clipData = ClipData.newPlainText(
+                "shared text",
+                text
+            ),
+            flags = View.DRAG_FLAG_GLOBAL
+        )
+    }
+}
+```
+
+Global drag требует аккуратной модели безопасности. Не переносите private tokens, session data или internal ids в global `ClipData`.
+
+<MouseTrap>
+Не кладите чувствительные данные в `ClipData`, если drag может выйти за пределы приложения. Считайте global drag публичным каналом передачи.
+</MouseTrap>
+
+## MIME types
+
+Drop target должен фильтровать данные, которые умеет принимать. Для plain text обычно проверяют `ClipDescription.MIMETYPE_TEXT_PLAIN`.
+
+```kotlin
+import android.content.ClipDescription
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+
+fun Modifier.acceptPlainTextDrops(
+    target: DragAndDropTarget
+): Modifier {
+    return dragAndDropTarget(
+        shouldStartDragAndDrop = { event ->
+            event.mimeTypes().contains(ClipDescription.MIMETYPE_TEXT_PLAIN)
+        },
+        target = target
+    )
+}
+```
+
+Фильтр должен быть строгим. Если цель принимает только plain text, не принимайте `text/html` или URI без явной обработки.
+
+## Цель: `dragAndDropTarget`
+
+`dragAndDropTarget` принимает:
+
+- `shouldStartDragAndDrop`: фильтр, который решает, интересен ли target этому drag operation;
+- `target`: remembered `DragAndDropTarget`, который получает callbacks.
+
+```kotlin
+import android.content.ClipDescription
+import androidx.compose.foundation.background
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun TextDropZone(
+    onTextDropped: (String) -> Unit
+) {
+    var active by remember {
+        mutableStateOf(false)
+    }
+
+    val target = remember(onTextDropped) {
+        object : DragAndDropTarget {
+            override fun onEntered(event: DragAndDropEvent) {
+                active = true
+            }
+
+            override fun onExited(event: DragAndDropEvent) {
+                active = false
+            }
+
+            override fun onEnded(event: DragAndDropEvent) {
+                active = false
+            }
+
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                active = false
+
+                val text = event
+                    .toAndroidDragEvent()
+                    .clipData
+                    ?.getItemAt(0)
+                    ?.text
+                    ?.toString()
+
+                if (text.isNullOrBlank()) {
+                    return false
+                }
+
+                onTextDropped(text)
+                return true
+            }
+        }
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+            .background(
+                if (active) {
+                    Color(0xFFC8E6C9)
+                } else {
+                    Color(0xFFECEFF1)
+                }
+            )
+            .dragAndDropTarget(
+                shouldStartDragAndDrop = { event ->
+                    event.mimeTypes().contains(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                },
+                target = target
+            )
+    ) {
+        Text(
+            text = if (active) {
+                "Отпустите текст здесь"
+            } else {
+                "Перетащите сюда текст"
+            }
+        )
+    }
+}
+```
+
+Callback target нужно помнить через `remember`, иначе target instance будет пересоздаваться при recomposition.
+
+## Callbacks `DragAndDropTarget`
+
+`DragAndDropTarget` позволяет реагировать на lifecycle:
+
+- `onStarted(event)`: drag operation начался;
+- `onEntered(event)`: pointer вошел в bounds target;
+- `onMoved(event)`: pointer двигается внутри target;
+- `onExited(event)`: pointer вышел из target;
+- `onChanged(event)`: изменилось состояние drag operation;
+- `onDrop(event)`: пользователь отпустил данные над target;
+- `onEnded(event)`: drag operation закончился.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+
+@Composable
+fun rememberDragDebugTarget(): DragAndDropTarget {
+    val events = remember {
+        mutableStateListOf<String>()
+    }
+
+    return remember {
+        object : DragAndDropTarget {
+            override fun onStarted(event: DragAndDropEvent) {
+                events.add("Начало переноса")
+            }
+
+            override fun onEntered(event: DragAndDropEvent) {
+                events.add("Вход в область")
+            }
+
+            override fun onMoved(event: DragAndDropEvent) {
+                events.add("Движение внутри области")
+            }
+
+            override fun onExited(event: DragAndDropEvent) {
+                events.add("Выход из области")
+            }
+
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                events.add("Данные отпущены")
+                return true
+            }
+
+            override fun onEnded(event: DragAndDropEvent) {
+                events.add("Перенос завершен")
+            }
+        }
+    }
+}
+```
+
+В production вместо списка debug-событий обычно обновляют UI state, analytics или domain action.
+
+## Visual feedback
+
+Drop zone должна явно показывать:
+
+- может ли она принять текущие данные;
+- находится ли pointer над ней;
+- drop успешен или отклонен;
+- что именно произойдет после отпускания.
+
+```kotlin
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun DropZoneSurface(
+    active: Boolean,
+    accepted: Boolean
+) {
+    val background by animateColorAsState(
+        targetValue = when {
+            active && accepted -> Color(0xFFC8E6C9)
+            active && !accepted -> Color(0xFFFFCDD2)
+            else -> Color(0xFFECEFF1)
+        },
+        label = "drop zone color"
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(112.dp)
+            .background(background)
+    ) {
+        Text(
+            text = when {
+                active && accepted -> "Можно отпустить"
+                active && !accepted -> "Этот тип данных не поддерживается"
+                else -> "Перетащите данные сюда"
+            }
+        )
+    }
+}
+```
+
+Цвет не должен быть единственным сигналом. Текст и semantics помогают и sighted users, и accessibility services.
+
+## URI и внешние приложения
+
+Если данные приходят из другого приложения, может понадобиться permission request через Android drag event.
+
+```kotlin
+import android.app.Activity
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+
+@Composable
+fun rememberExternalUriDropTarget(
+    activity: Activity,
+    onUriDropped: (android.net.Uri) -> Unit
+): DragAndDropTarget {
+    return remember(
+        activity,
+        onUriDropped
+    ) {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val androidEvent = event.toAndroidDragEvent()
+                val permission = activity.requestDragAndDropPermissions(androidEvent)
+
+                try {
+                    val uri = androidEvent.clipData
+                        ?.getItemAt(0)
+                        ?.uri
+                        ?: return false
+
+                    onUriDropped(uri)
+                    return true
+                } finally {
+                    permission?.release()
+                }
+            }
+        }
+    }
+}
+```
+
+Permission нужно release-ить после чтения. Если нужен долгий доступ к URI, используйте подходящую storage policy и platform permissions.
+
+## Local state
+
+`localState` полезен, когда источник и target находятся внутри одного приложения и вам не нужно сериализовать весь объект в `ClipData`.
+
+```kotlin
+import android.content.ClipData
+import androidx.compose.foundation.draganddrop.dragAndDropSource
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
+
+data class CourseCardDragState(
+    val courseId: String,
+    val fromColumnId: String
+)
+
+fun Modifier.courseCardDragSource(
+    dragState: CourseCardDragState
+): Modifier {
+    return dragAndDropSource { _ ->
+        DragAndDropTransferData(
+            clipData = ClipData.newPlainText(
+                "course id",
+                dragState.courseId
+            ),
+            localState = dragState
+        )
+    }
+}
+```
+
+Даже если вы используете `localState`, положите в `ClipData` безопасный fallback вроде id. Это улучшает interop и debugging.
+
+## Доска с колонками
+
+Ниже production-структура: source переносит card id, target принимает id и сообщает domain layer, куда переместить item.
+
+```kotlin
+import android.content.ClipData
+import android.content.ClipDescription
+import androidx.compose.foundation.background
+import androidx.compose.foundation.draganddrop.dragAndDropSource
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+data class BoardCardUi(
+    val id: String,
+    val title: String
+)
+
+@Composable
+fun BoardCard(
+    card: BoardCardUi
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .dragAndDropSource { _ ->
+                DragAndDropTransferData(
+                    clipData = ClipData.newPlainText(
+                        "board card id",
+                        card.id
+                    )
+                )
+            }
+    ) {
+        Text(
+            text = card.title,
+            modifier = Modifier.padding(12.dp)
+        )
+    }
+}
+
+@Composable
+fun BoardColumnDropTarget(
+    columnId: String,
+    onMoveCard: (cardId: String, targetColumnId: String) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val target = remember(
+        columnId,
+        onMoveCard
+    ) {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val cardId = event
+                    .toAndroidDragEvent()
+                    .clipData
+                    ?.getItemAt(0)
+                    ?.text
+                    ?.toString()
+
+                if (cardId.isNullOrBlank()) {
+                    return false
+                }
+
+                onMoveCard(
+                    cardId,
+                    columnId
+                )
+                return true
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF5F5F5))
+            .dragAndDropTarget(
+                shouldStartDragAndDrop = { event ->
+                    event.mimeTypes().contains(ClipDescription.MIMETYPE_TEXT_PLAIN)
+                },
+                target = target
+            )
+            .padding(12.dp)
+    ) {
+        content()
+    }
+}
+```
+
+Domain action `onMoveCard` должен валидировать, можно ли переместить card в target column. UI filter не заменяет бизнес-правила.
+
+## Accessibility для drag and drop
+
+Drag and drop часто сложен для пользователей с моторными ограничениями. Нужны альтернативы:
+
+- кнопки "Переместить вверх" и "Переместить вниз";
+- меню "Переместить в колонку";
+- custom accessibility actions;
+- keyboard shortcuts;
+- явный режим выбора и последующего размещения;
+- announcements об успешном перемещении.
+
+```kotlin
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+
+@Composable
+fun AccessibleMovableCard(
+    title: String,
+    onMoveToNextColumn: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(text = title)
+        },
+        modifier = Modifier.semantics {
+            customActions = listOf(
+                CustomAccessibilityAction(
+                    label = "Переместить в следующую колонку",
+                    action = {
+                        onMoveToNextColumn()
+                        true
+                    }
+                )
+            )
+        }
+    )
+}
+```
+
+Если drag and drop является единственным способом выполнить действие, feature недоступна части пользователей.
+
+## Тестирование
+
+Что проверять:
+
+- source отдает правильный `ClipData`;
+- target фильтрует MIME types;
+- drop с неподдерживаемым типом возвращает `false`;
+- drop с пустыми данными возвращает `false`;
+- external URI release-ит permission;
+- UI показывает active и rejected states;
+- domain layer валидирует перемещение;
+- accessibility alternative вызывает тот же domain action.
+
+Compose UI tests обычно удобнее пишутся вокруг семантических альтернатив, а не platform drag gestures. Для integration drag-and-drop лучше использовать instrumented тесты и UIAutomator, если сценарий действительно критичен.
+
+## Типичные ошибки
+
+### Путать drag-and-drop и draggable
+
+Если нет transferable data, вероятно, вам нужен `draggable`, `anchoredDraggable` или reorder library.
+
+### Принимать любой MIME type
+
+Target должен принимать только данные, которые умеет корректно обработать.
+
+### Пересоздавать `DragAndDropTarget`
+
+Callback target нужно помнить. Иначе lifecycle callbacks и state могут вести себя неожиданно.
+
+### Не release-ить permissions
+
+External drag может требовать permission. Его нужно закрывать после работы.
+
+### Класть private данные в global drag
+
+Global drag пересекает границы приложения. Данные должны быть безопасны для передачи.
+
+### Не давать доступной альтернативы
+
+Drag-and-drop жест требует keyboard, menu или custom action path.
+
+## Итоги
+
+Drag and drop в Compose — это data transfer API:
+
+- `dragAndDropSource` задает transferable data;
+- `DragAndDropTransferData` оборачивает `ClipData`, flags и local state;
+- `dragAndDropTarget` фильтрует и принимает drop;
+- `DragAndDropTarget` должен быть remembered;
+- MIME filter защищает target от неподдерживаемых данных;
+- external URI может требовать permission через Android drag event;
+- visual feedback показывает accepted, active и rejected states;
+- business validation остается в domain layer;
+- drag-and-drop всегда нуждается в accessibility alternative.

@@ -1,0 +1,414 @@
+---
+title: "Первая Compose-активити"
+description: "Создаем полноценную MainActivity на Compose: ComponentActivity, setContent, enableEdgeToEdge, MaterialTheme, Surface, Preview, границы Android lifecycle и правильная структура стартового экрана."
+order: 03
+category: "Compose: Вход и рабочая среда"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что делает первая активити
+
+Даже в полностью Compose-приложении Android все равно запускает `Activity`. Compose не заменяет Android lifecycle, manifest, window, permissions и process model. Он заменяет способ описания UI внутри окна.
+
+Минимальная цепочка такая:
+
+- Android создает `MainActivity`;
+- `MainActivity.onCreate` вызывает `super.onCreate`;
+- активити настраивает окно, например edge-to-edge;
+- активити вызывает `setContent`;
+- внутри `setContent` начинается Composition;
+- корневой composable задает тему и рисует экран.
+
+Эта цепочка кажется простой, но в ней есть важные границы. Код до `setContent` — обычный Android lifecycle-код. Код внутри `setContent` — composable-контекст. Их нельзя смешивать без понимания.
+
+## `ComponentActivity`
+
+`ComponentActivity` — базовая активити из AndroidX Activity. Она поддерживает современные lifecycle-интеграции, activity result API, saved state и Compose `setContent`.
+
+```kotlin
+import androidx.activity.ComponentActivity
+
+class MainActivity : ComponentActivity()
+```
+
+Для Compose можно использовать и `AppCompatActivity`, если проект мигрирует старую инфраструктуру, но для нового Compose-first приложения обычно достаточно `ComponentActivity`. Это уменьшает количество зависимостей и делает точку входа яснее.
+
+## `setContent`
+
+`setContent` — extension-функция из `androidx.activity.compose`. Она создает Compose root внутри activity window и запускает Composition.
+
+```kotlin
+import androidx.activity.compose.setContent
+
+setContent {
+    // Здесь уже можно вызывать @Composable-функции.
+}
+```
+
+Внутри блока `setContent` нельзя мыслить как внутри обычного `onCreate`. Этот блок участвует в Composition: он может быть пересчитан, а composable-функции ниже должны соблюдать правила Compose.
+
+<MouseTrap title="Мышеловка: не храни UI-ссылки как поля Activity">
+  В View-системе часто встречались поля `private lateinit var titleView:
+  TextView`. В Compose обычно не нужно хранить ссылки на UI-элементы. UI
+  описывается функциями, состояние хранится в state holders, а события
+  передаются наружу. Попытка "достать composable по ссылке" почти всегда
+  означает, что код написан в старой модели.
+</MouseTrap>
+
+## `enableEdgeToEdge`
+
+Современные Android-приложения часто рисуют под системными панелями и сами управляют insets. Для этого удобно вызвать `enableEdgeToEdge()` до `setContent`.
+
+```kotlin
+import androidx.activity.enableEdgeToEdge
+
+override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+
+    // Настраиваем окно до запуска Compose-контента.
+    enableEdgeToEdge()
+
+    setContent {
+        KotlingoApp()
+    }
+}
+```
+
+Сам вызов edge-to-edge не решает отступы внутри UI. Он разрешает рисование под системными барами, а composable-дерево должно учитывать `WindowInsets`: `safeDrawingPadding`, `systemBarsPadding`, `imePadding`, `Scaffold` content insets и другие инструменты.
+
+## Полная `MainActivity`
+
+Ниже цельная стартовая активити. Она уже использует edge-to-edge, Material 3 тему, surface, preview-friendly root composable и отдельную модель состояния.
+
+```kotlin
+package com.kotlingo.reader
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Разрешаем приложению рисовать под системными панелями.
+        // Отступы для контента ниже задаются уже в Compose через safeDrawingPadding.
+        enableEdgeToEdge()
+
+        setContent {
+            KotlingoTheme {
+                KotlingoHomeRoute()
+            }
+        }
+    }
+}
+
+@Composable
+fun KotlingoTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = lightColorScheme(),
+        typography = androidx.compose.material3.Typography(),
+        content = content
+    )
+}
+
+@Composable
+fun KotlingoHomeRoute() {
+    // В настоящем приложении route-компонент обычно связывает экран с ViewModel.
+    // В первом примере используем стабильные демонстрационные данные.
+    KotlingoHomeScreen(
+        state = HomeScreenState(
+            userName = "Мария",
+            currentModuleTitle = "Compose: Вход и рабочая среда",
+            completedLessons = 2,
+            totalLessons = 6
+        ),
+        onContinueClick = {
+            // В production здесь будет событие навигации или вызов state holder.
+            // Пустая lambda в учебном примере безопасна, потому что действие не требуется.
+        }
+    )
+}
+
+data class HomeScreenState(
+    val userName: String,
+    val currentModuleTitle: String,
+    val completedLessons: Int,
+    val totalLessons: Int
+)
+
+@Composable
+fun KotlingoHomeScreen(
+    state: HomeScreenState,
+    onContinueClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Добро пожаловать, ${state.userName}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = state.currentModuleTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Text(
+                    text = progressLabel(
+                        completedLessons = state.completedLessons,
+                        totalLessons = state.totalLessons
+                    ),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = "Следующий урок готов",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Button(onClick = onContinueClick) {
+                    Text(text = "Продолжить")
+                }
+            }
+        }
+    }
+}
+
+fun progressLabel(completedLessons: Int, totalLessons: Int): String {
+    require(completedLessons >= 0) {
+        "Количество завершенных уроков не может быть отрицательным"
+    }
+    require(totalLessons > 0) {
+        "Общее количество уроков должно быть положительным"
+    }
+    require(completedLessons <= totalLessons) {
+        "Завершенных уроков не может быть больше, чем всего уроков"
+    }
+
+    return "Пройдено $completedLessons из $totalLessons"
+}
+
+@Preview(showBackground = true, widthDp = 390, heightDp = 640)
+@Composable
+fun KotlingoHomeScreenPreview() {
+    KotlingoTheme {
+        KotlingoHomeScreen(
+            state = HomeScreenState(
+                userName = "Мария",
+                currentModuleTitle = "Compose: Вход и рабочая среда",
+                completedLessons = 2,
+                totalLessons = 6
+            ),
+            onContinueClick = {}
+        )
+    }
+}
+```
+
+## Разбор структуры
+
+### `MainActivity`
+
+`MainActivity` отвечает только за Android entry point:
+
+- вызвать `super.onCreate`;
+- настроить window;
+- передать управление Compose через `setContent`.
+
+Она не форматирует строки прогресса, не строит карточки, не содержит layout-логику и не хранит ссылки на UI. Чем меньше Android-активити знает о деталях экрана, тем проще тестировать UI отдельно.
+
+### `KotlingoTheme`
+
+Тема — отдельная composable-функция. Это удобно по трем причинам:
+
+- production-код и preview используют одну и ту же тему;
+- дизайн-система не размазывается по activity;
+- в тестах можно обернуть экран той же темой.
+
+### `KotlingoHomeRoute`
+
+Route-компонент — это слой связывания. В будущем он может получить ViewModel, собрать `StateFlow`, передать события, открыть навигацию. Сам экран ниже при этом останется stateless.
+
+В маленьком примере route использует статические данные. Это не placeholder, а намеренно завершенный учебный вариант: он показывает место, где позже появится state holder.
+
+### `KotlingoHomeScreen`
+
+Screen-компонент получает готовое состояние и callbacks. Он не знает, откуда пришли данные. Это делает его preview-friendly и тестируемым.
+
+### `progressLabel`
+
+Обычная Kotlin-функция вынесена из UI. Ее можно покрыть unit-тестами без Android и Compose. В Compose это важная привычка: не каждая строка должна быть внутри composable.
+
+## API-карта первой активити
+
+### `ComponentActivity`
+
+Используй для Compose-first activity. Она легче, чем `AppCompatActivity`, и отлично подходит, если тебе не нужны AppCompat-specific возможности.
+
+### `setContent`
+
+Создает Compose root для activity. Обычно вызывается один раз в `onCreate`. Повторно вызывать `setContent` для "обновления UI" не нужно: UI обновляется через state и recomposition.
+
+### `enableEdgeToEdge`
+
+Настраивает окно для edge-to-edge. Вызывается до `setContent`. Не заменяет обработку insets внутри Compose.
+
+### `SystemBarStyle`
+
+Позволяет тоньше настроить appearance системных баров при edge-to-edge. Используется, когда нужно вручную задать light/dark style для status bar и navigation bar.
+
+### `BackHandler`
+
+Composable API из activity-compose для обработки системной кнопки Back. Используется внутри Composition, а не в `Activity.onBackPressed`.
+
+### `PredictiveBackHandler`
+
+API для сценариев predictive back. Нужен в более продвинутых экранах, где жест назад должен быть связан с progress.
+
+### `rememberLauncherForActivityResult`
+
+Composable API для запуска activity result contracts: выбор документа, запрос разрешения, съемка фото. Он привязан к Composition и должен использоваться с учетом lifecycle.
+
+### `LocalActivity`
+
+CompositionLocal для доступа к текущей activity, когда он действительно нужен. В большинстве экранов лучше передавать события наружу, а не доставать activity напрямую.
+
+<CatTip title="Котосовет: activity — это рамка, а не экран">
+  Хорошая Compose-активити похожа на аккуратную рамку: она настраивает окно и
+  запускает корневой composable. Большая часть UI-жизни должна происходить ниже:
+  в route, screen, state holder и компонентах дизайн-системы.
+</CatTip>
+
+## Preview не равен запуску приложения
+
+`@Preview` вызывает composable в окружении Android Studio. Это быстро и удобно, но preview не является полной заменой запуска:
+
+- preview не проходит полный lifecycle activity;
+- preview не обязан иметь реальные permissions;
+- preview не должен ходить в сеть;
+- preview может не иметь настоящей навигации;
+- preview должен получать фиктивные, но реалистичные данные;
+- preview не заменяет UI-тесты и проверку на устройстве.
+
+Правильный preview-компонент:
+
+```kotlin
+@Preview(showBackground = true, widthDp = 390, heightDp = 640)
+@Composable
+fun HomeScreenLongNamePreview() {
+    KotlingoTheme {
+        KotlingoHomeScreen(
+            state = HomeScreenState(
+                userName = "Александра",
+                currentModuleTitle = "Очень длинное название модуля, которое проверяет перенос строк",
+                completedLessons = 5,
+                totalLessons = 6
+            ),
+            onContinueClick = {}
+        )
+    }
+}
+```
+
+Этот preview проверяет не только happy path, но и длинные строки. Для production UI это важнее, чем красивый единственный скриншот с короткими словами.
+
+## Где хранить стартовую навигацию
+
+В маленьком приложении можно вызвать один экран прямо из `setContent`. В настоящем приложении обычно появляется root:
+
+```kotlin
+@Composable
+fun KotlingoRoot() {
+    KotlingoTheme {
+        KotlingoNavHost()
+    }
+}
+
+@Composable
+fun KotlingoNavHost() {
+    // Навигация будет подробно разобрана в отдельном модуле.
+    // Здесь функция оставлена минимальной: она показывает границу root-слоя.
+    KotlingoHomeRoute()
+}
+```
+
+Даже если навигации пока нет, отдельный root помогает не превращать `MainActivity` в контейнер всего приложения.
+
+## Частые ошибки
+
+### Вызов `setContent` после долгой синхронной работы
+
+Если перед `setContent` выполняется тяжелая работа, первый кадр приложения задержится. Данные лучше загружать через ViewModel, repository и state, а UI должен уметь показать loading state.
+
+### Сетевой запрос прямо в `setContent`
+
+`setContent` запускает Composition. Сетевой запрос внутри composable без effect API может выполниться повторно. Для загрузки используются ViewModel, `LaunchedEffect`, `produceState` или lifecycle-aware state collection — в зависимости от архитектуры.
+
+### Activity содержит все состояние экрана
+
+Если activity хранит mutable-поля для каждого UI-сценария, Compose-код быстро теряет преимущества. Activity должна быть entry point, а не state holder всего приложения.
+
+### Preview использует реальные зависимости
+
+Preview не должен создавать настоящий repository, database, network client или analytics. Используй простые state data classes и fake callbacks.
+
+## Итоги
+
+Первая Compose-активити должна быть простой:
+
+- `ComponentActivity` является Android entry point;
+- `onCreate` вызывает `super.onCreate`, настраивает окно и запускает `setContent`;
+- `setContent` открывает composable-контекст;
+- корень приложения оборачивается в тему;
+- screen-компонент получает state и callbacks;
+- route-компонент связывает screen с внешним состоянием;
+- preview вызывает тот же screen с реалистичными данными;
+- edge-to-edge требует не только настройки window, но и осознанной обработки insets в UI.

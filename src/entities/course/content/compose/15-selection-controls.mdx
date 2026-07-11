@@ -1,0 +1,522 @@
+---
+title: "Selection controls"
+description: "Разбираем элементы выбора в Compose: Checkbox, TriStateCheckbox, RadioButton, Switch, Slider, RangeSlider, chips, состояния checked/selected/enabled и правила доступного выбора."
+order: 15
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое selection controls
+
+Selection controls — компоненты, с помощью которых пользователь выбирает значение:
+
+- один или несколько вариантов;
+- включено или выключено;
+- одно значение на числовой шкале;
+- диапазон значений;
+- фильтр или тег.
+
+Главное правило: контрол не должен сам владеть важным состоянием, если выбор влияет на экран или данные. Он получает состояние параметром и сообщает событие наружу.
+
+```kotlin
+Checkbox(
+    checked = completed,
+    onCheckedChange = { newValue ->
+        onCompletedChange(newValue)
+    }
+)
+```
+
+## `Checkbox`
+
+`Checkbox` подходит для независимого бинарного выбора: включить пункт, отметить задачу, выбрать несколько фильтров.
+
+Основные параметры:
+
+- `checked` — выбран ли checkbox;
+- `onCheckedChange` — callback нового значения;
+- `modifier`;
+- `enabled`;
+- `colors`;
+- `interactionSource`.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonCompletedCheckbox(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .toggleable(
+                value = checked,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange
+            )
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = null
+        )
+
+        Text(
+            modifier = Modifier.padding(start = 12.dp),
+            text = "Урок пройден"
+        )
+    }
+}
+```
+
+Почему `onCheckedChange = null` у `Checkbox`: кликабельной является вся строка через `toggleable`. Это дает большую область касания и правильную семантику всей строки.
+
+<CatTip title="Котосовет: кликабельной должна быть строка, а не только маленький квадрат">
+  Checkbox сам по себе маленький. Если рядом есть текст, чаще делай интерактивной всю строку через `toggleable`, а
+  внутреннему `Checkbox` передавай `onCheckedChange = null`.
+</CatTip>
+
+## `TriStateCheckbox`
+
+`TriStateCheckbox` нужен для трех состояний:
+
+- `On`;
+- `Off`;
+- `Indeterminate`.
+
+Частый сценарий: "выбрать все", когда часть дочерних пунктов выбрана.
+
+```kotlin
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.state.ToggleableState
+
+@Composable
+fun SelectAllLessonsCheckbox(
+    selectedCount: Int,
+    totalCount: Int,
+    onSelectAllChange: (Boolean) -> Unit
+) {
+    val state = when {
+        totalCount == 0 -> ToggleableState.Off
+        selectedCount == 0 -> ToggleableState.Off
+        selectedCount == totalCount -> ToggleableState.On
+        else -> ToggleableState.Indeterminate
+    }
+
+    TriStateCheckbox(
+        state = state,
+        onClick = {
+            val shouldSelectAll = state != ToggleableState.On
+            onSelectAllChange(shouldSelectAll)
+        },
+        enabled = totalCount > 0
+    )
+}
+```
+
+Indeterminate не означает "третье бизнес-значение". Обычно это агрегированное визуальное состояние родителя.
+
+## `RadioButton`
+
+`RadioButton` подходит для mutually exclusive выбора: из группы можно выбрать только один вариант.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class DifficultyOption(
+    val id: String,
+    val title: String
+)
+
+@Composable
+fun DifficultyRadioGroup(
+    options: List<DifficultyOption>,
+    selectedId: String,
+    onSelectedIdChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.selectableGroup()
+    ) {
+        options.forEach { option ->
+            val selected = option.id == selectedId
+
+            Row(
+                modifier = Modifier
+                    .selectable(
+                        selected = selected,
+                        role = Role.RadioButton,
+                        onClick = {
+                            onSelectedIdChange(option.id)
+                        }
+                    )
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = selected,
+                    onClick = null
+                )
+
+                Text(
+                    modifier = Modifier.padding(start = 12.dp),
+                    text = option.title
+                )
+            }
+        }
+    }
+}
+```
+
+`selectableGroup` помогает accessibility-сервисам понять, что элементы являются одной группой выбора.
+
+<MouseTrap title="Мышеловка: RadioButton не подходит для множественного выбора">
+  Если пользователь может выбрать несколько пунктов, используй `Checkbox` или `FilterChip`. RadioButton обещает один
+  выбранный вариант в группе, и нарушение этого ожидания ломает понятность UI.
+</MouseTrap>
+
+## `Switch`
+
+`Switch` подходит для включения или выключения настройки, которая применяется как состояние. Он крупнее и заметнее checkbox, поэтому хорошо работает в настройках.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun NotificationsSwitchRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            modifier = Modifier.weight(1f),
+            text = "Напоминать о повторении"
+        )
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+```
+
+Если переключение запускает долгую операцию, состояние должно отражать loading или disabled. Не меняй UI оптимистично, если ошибка приведет к обратному прыжку без объяснения.
+
+## `Slider`
+
+`Slider` выбирает одно числовое значение из диапазона. Подходит для громкости, размера шрифта, процента цели, порога.
+
+Основные параметры:
+
+- `value`;
+- `onValueChange`;
+- `modifier`;
+- `enabled`;
+- `valueRange`;
+- `steps`;
+- `onValueChangeFinished`;
+- `colors`;
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ReadingSpeedSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val wordsPerMinute = value.toInt()
+
+    Column(
+        modifier = modifier
+    ) {
+        Text(text = "Скорость чтения: $wordsPerMinute слов в минуту")
+
+        Slider(
+            value = value,
+            onValueChange = { newValue ->
+                onValueChange(newValue.coerceIn(120f, 320f))
+            },
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = 120f..320f,
+            steps = 3
+        )
+    }
+}
+```
+
+`steps = 3` означает три промежуточных деления между началом и концом диапазона. Значений будет пять: начало, три точки внутри, конец.
+
+## `RangeSlider`
+
+`RangeSlider` выбирает диапазон.
+
+```kotlin
+import androidx.compose.material3.RangeSlider
+
+@Composable
+fun LessonDurationRangeSlider(
+    selectedRange: ClosedFloatingPointRange<Float>,
+    onSelectedRangeChange: (ClosedFloatingPointRange<Float>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+    ) {
+        Text(
+            text = "Длительность: ${selectedRange.start.toInt()}-${selectedRange.endInclusive.toInt()} мин."
+        )
+
+        RangeSlider(
+            value = selectedRange,
+            onValueChange = { newRange ->
+                onSelectedRangeChange(
+                    newRange.start.coerceIn(0f, 120f)..newRange.endInclusive.coerceIn(0f, 120f)
+                )
+            },
+            valueRange = 0f..120f,
+            steps = 11
+        )
+    }
+}
+```
+
+Range slider не должен заменять точный numeric input, если пользователю нужно ввести конкретные значения.
+
+## Chips
+
+Chip — компактный интерактивный элемент. В Material 3 есть несколько типов:
+
+- `AssistChip` — вспомогательное действие;
+- `SuggestionChip` — подсказка или предлагаемое действие;
+- `FilterChip` — фильтр, который может быть выбран;
+- `InputChip` — введенная пользователем сущность, например тег или адресат;
+- `ElevatedAssistChip`, `ElevatedSuggestionChip`, `ElevatedFilterChip` — elevated-варианты.
+
+### `FilterChip`
+
+```kotlin
+import androidx.compose.material3.FilterChip
+
+@Composable
+fun DifficultyFilterChip(
+    label: String,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit
+) {
+    FilterChip(
+        selected = selected,
+        onClick = {
+            onSelectedChange(!selected)
+        },
+        label = {
+            Text(text = label)
+        }
+    )
+}
+```
+
+### `AssistChip`
+
+```kotlin
+import androidx.compose.material3.AssistChip
+
+@Composable
+fun HelpAssistChip(
+    onClick: () -> Unit
+) {
+    AssistChip(
+        onClick = onClick,
+        label = {
+            Text(text = "Получить подсказку")
+        }
+    )
+}
+```
+
+### `InputChip`
+
+```kotlin
+import androidx.compose.material3.InputChip
+
+@Composable
+fun TagInputChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    InputChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Text(text = label)
+        }
+    )
+}
+```
+
+## Полный пример: панель фильтров курса
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class CourseFiltersState(
+    val selectedDifficulties: Set<String>,
+    val durationRange: ClosedFloatingPointRange<Float>,
+    val onlyUnfinished: Boolean
+)
+
+@Composable
+fun CourseFiltersPanel(
+    state: CourseFiltersState,
+    onDifficultyToggle: (String) -> Unit,
+    onDurationRangeChange: (ClosedFloatingPointRange<Float>) -> Unit,
+    onOnlyUnfinishedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text(
+            text = "Сложность",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf("Начальный", "Средний", "Продвинутый").forEach { difficulty ->
+                val selected = difficulty in state.selectedDifficulties
+
+                FilterChip(
+                    selected = selected,
+                    onClick = {
+                        onDifficultyToggle(difficulty)
+                    },
+                    label = {
+                        Text(text = difficulty)
+                    }
+                )
+            }
+        }
+
+        Text(
+            text = "Длительность: ${state.durationRange.start.toInt()}-${state.durationRange.endInclusive.toInt()} мин.",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        RangeSlider(
+            value = state.durationRange,
+            onValueChange = onDurationRangeChange,
+            valueRange = 0f..120f,
+            steps = 11
+        )
+
+        NotificationsSwitchRow(
+            checked = state.onlyUnfinished,
+            onCheckedChange = onOnlyUnfinishedChange
+        )
+    }
+}
+```
+
+Разбор:
+
+- множественный выбор сложности сделан через `FilterChip`;
+- диапазон длительности сделан через `RangeSlider`;
+- binary setting сделан через `Switch`;
+- state хранится снаружи;
+- `Set<String>` удобно представляет множественный выбор;
+- callbacks описывают намерения, а не внутренние детали UI.
+
+## Как выбирать control
+
+- Независимый yes/no пункт — `Checkbox`.
+- Родительский выбор с частично выбранными детьми — `TriStateCheckbox`.
+- Один вариант из группы — `RadioButton`.
+- Настройка включено/выключено — `Switch`.
+- Одно числовое значение в диапазоне — `Slider`.
+- Диапазон — `RangeSlider`.
+- Компактный фильтр — `FilterChip`.
+- Компактное вспомогательное действие — `AssistChip`.
+- Введенная пользователем сущность — `InputChip`.
+- Предлагаемое действие — `SuggestionChip`.
+
+## Итоги
+
+Selection controls должны быть честными и доступными:
+
+- состояние передается сверху вниз;
+- событие идет снизу вверх;
+- маленькие controls лучше расширять кликабельной строкой;
+- `selectableGroup` помогает radio group;
+- `toggleable` подходит для checkbox-row;
+- `Switch` лучше для настроек;
+- sliders подходят для приблизительного выбора, а не точного ввода;
+- chips экономят место, но не должны превращаться в хаотичную россыпь фильтров;
+- выбранное состояние должно быть видно не только цветом.
+

@@ -1,0 +1,568 @@
+---
+title: "Sheets"
+description: "Разбираем Material 3 sheets в Jetpack Compose: ModalBottomSheet, SheetState, rememberModalBottomSheetState, partial sheets, scrim, dragHandle, confirmValueChange, show/hide и production-паттерны."
+order: 49
+category: "Compose: Material 3 components and app structure"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое sheet
+
+Sheet — это временная поверхность, которая появляется поверх основного контента или рядом с ним и показывает дополнительный контекст, действие или форму.
+
+В Material 3 Compose чаще всего используют `ModalBottomSheet`. Он появляется снизу экрана, затемняет фон через scrim и перехватывает фокус пользователя до закрытия.
+
+Типичные сценарии:
+
+- выбор фильтров;
+- действия с элементом;
+- форма быстрого создания;
+- выбор аккаунта;
+- подтверждение операции с дополнительными деталями;
+- предпросмотр корзины;
+- настройка сортировки.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BasicModalBottomSheetDemo() {
+    var showSheet by remember {
+        mutableStateOf(false)
+    }
+
+    Button(
+        onClick = {
+            showSheet = true
+        }
+    ) {
+        Text(text = "Открыть sheet")
+    }
+
+    if (showSheet) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                showSheet = false
+            }
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp)
+            ) {
+                Text(text = "Настройки фильтра")
+                Text(text = "Здесь пользователь выбирает параметры.")
+            }
+        }
+    }
+}
+```
+
+Главная идея: `ModalBottomSheet` обычно добавляют в composition только тогда, когда sheet должен быть видимым.
+
+<CatTip>
+Sheet хорош для коротких задач. Если пользователь должен долго редактировать сложную форму, сравнивать много данных или пройти несколько шагов, отдельный экран часто будет честнее и удобнее.
+</CatTip>
+
+## Основные параметры ModalBottomSheet
+
+Часто используемые параметры:
+
+- `onDismissRequest`: вызывается, когда пользователь просит закрыть sheet;
+- `modifier`: modifier самой sheet-поверхности;
+- `sheetState`: объект `SheetState`, управляющий состоянием sheet;
+- `shape`: форма верхней поверхности;
+- `containerColor`: цвет контейнера;
+- `contentColor`: цвет контента;
+- `tonalElevation`: tonal elevation поверхности;
+- `scrimColor`: цвет затемнения фона;
+- `dragHandle`: slot для drag handle;
+- `contentWindowInsets`: insets контента sheet;
+- `content`: содержимое sheet, выполняется в `ColumnScope`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StyledBottomSheet(
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 4.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(text = "Параметры")
+            Text(text = "Настройте отображение списка.")
+        }
+    }
+}
+```
+
+## SheetState
+
+`SheetState` управляет поведением sheet:
+
+- текущим состоянием;
+- целевым состоянием;
+- частичным раскрытием;
+- скрытием;
+- показом;
+- запретом отдельных переходов через `confirmValueChange`.
+
+Создается обычно через `rememberModalBottomSheetState`.
+
+```kotlin
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RememberSheetStateDemo() {
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
+}
+```
+
+Параметры:
+
+- `skipPartiallyExpanded`: пропускать ли частично раскрытое состояние;
+- `confirmValueChange`: callback, который может разрешить или запретить переход в новое состояние.
+
+## show и hide
+
+`show()` и `hide()` являются suspend-функциями. Их нужно вызывать из coroutine.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ControlledSheetDemo() {
+    val sheetState = rememberModalBottomSheetState()
+    val scope = rememberCoroutineScope()
+    var showSheet by remember {
+        mutableStateOf(false)
+    }
+
+    Button(
+        onClick = {
+            showSheet = true
+        }
+    ) {
+        Text(text = "Открыть")
+    }
+
+    if (showSheet) {
+        ModalBottomSheet(
+            sheetState = sheetState,
+            onDismissRequest = {
+                showSheet = false
+            }
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp)
+            ) {
+                Text(text = "Действия")
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            sheetState.hide()
+                            showSheet = false
+                        }
+                    }
+                ) {
+                    Text(text = "Закрыть")
+                }
+            }
+        }
+    }
+}
+```
+
+Важная деталь: после `hide()` обычно нужно убрать `ModalBottomSheet` из composition, изменив `showSheet = false`.
+
+<MouseTrap>
+Не вызывайте `sheetState.hide()` прямо в `onClick` без coroutine. Это suspend-функция. Для пользовательского действия нужен `rememberCoroutineScope`.
+</MouseTrap>
+
+## Partial bottom sheet
+
+Partial sheet открывается сначала частично, а пользователь может раскрыть его полностью.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PartialBottomSheet(
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = false
+    )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        modifier = Modifier.fillMaxHeight()
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(text = "Краткая сводка заказа")
+            Text(text = "Потяните выше, чтобы увидеть все детали.")
+        }
+    }
+}
+```
+
+`skipPartiallyExpanded = false` разрешает частичное состояние. Если контент слишком маленький или constraints не дают места, фактическое поведение может отличаться.
+
+## confirmValueChange
+
+`confirmValueChange` позволяет запретить определенные переходы. Например, нельзя закрыть sheet, пока форма содержит несохраненные изменения.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProtectedDraftSheet(
+    onDismissConfirmed: () -> Unit
+) {
+    var hasUnsavedChanges by remember {
+        mutableStateOf(true)
+    }
+
+    val sheetState = rememberModalBottomSheetState(
+        confirmValueChange = { nextValue ->
+            if (nextValue == SheetValue.Hidden) {
+                !hasUnsavedChanges
+            } else {
+                true
+            }
+        }
+    )
+
+    ModalBottomSheet(
+        sheetState = sheetState,
+        onDismissRequest = {
+            if (!hasUnsavedChanges) {
+                onDismissConfirmed()
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(text = "Черновик")
+            Text(text = "Есть несохраненные изменения.")
+
+            Button(
+                onClick = {
+                    hasUnsavedChanges = false
+                    onDismissConfirmed()
+                }
+            ) {
+                Text(text = "Сохранить и закрыть")
+            }
+        }
+    }
+}
+```
+
+Это не заменяет полноценный dialog подтверждения, но помогает запретить случайное скрытие gesture-действием.
+
+## dragHandle
+
+`dragHandle` — визуальный элемент, который показывает, что sheet можно тянуть.
+
+```kotlin
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SheetWithDefaultDragHandle(
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        dragHandle = {
+            BottomSheetDefaults.DragHandle()
+        }
+    ) {
+        Text(text = "Содержимое sheet")
+    }
+}
+```
+
+Если вы убираете drag handle, убедитесь, что пользователь все равно понимает, как закрыть sheet: есть кнопка закрытия, явное действие или системный back.
+
+## Scrim
+
+Scrim затемняет контент за modal sheet и показывает, что текущий фокус находится в sheet.
+
+```kotlin
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SheetWithCustomScrim(
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        scrimColor = Color.Black.copy(alpha = 0.42f)
+    ) {
+        Text(text = "Контент с пользовательским scrim")
+    }
+}
+```
+
+Не делайте scrim полностью прозрачным без сильной причины. Modal sheet должен визуально отделяться от основного контента.
+
+## Production-пример: фильтры каталога
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+@Immutable
+data class CatalogFilter(
+    val id: String,
+    val title: String
+)
+
+@Immutable
+data class CatalogFilterState(
+    val onlyAvailable: Boolean,
+    val selectedCategoryIds: Set<String>
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CatalogFilterSheet(
+    filters: List<CatalogFilter>,
+    initialState: CatalogFilterState,
+    onApply: (CatalogFilterState) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = false
+    )
+    val scope = rememberCoroutineScope()
+
+    var draft by remember(initialState) {
+        mutableStateOf(initialState)
+    }
+
+    ModalBottomSheet(
+        sheetState = sheetState,
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(text = "Фильтры")
+
+            Switch(
+                checked = draft.onlyAvailable,
+                onCheckedChange = { checked ->
+                    draft = draft.copy(
+                        onlyAvailable = checked
+                    )
+                }
+            )
+
+            FlowRow {
+                filters.forEach { filter ->
+                    val selected = filter.id in draft.selectedCategoryIds
+
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            draft = draft.copy(
+                                selectedCategoryIds = if (selected) {
+                                    draft.selectedCategoryIds - filter.id
+                                } else {
+                                    draft.selectedCategoryIds + filter.id
+                                }
+                            )
+                        },
+                        label = {
+                            Text(text = filter.title)
+                        }
+                    )
+                }
+            }
+
+            Button(
+                onClick = {
+                    scope.launch {
+                        onApply(draft)
+                        sheetState.hide()
+                        onDismiss()
+                    }
+                }
+            ) {
+                Text(text = "Применить")
+            }
+        }
+    }
+}
+```
+
+Почему это хороший паттерн:
+
+- sheet получает initial state;
+- draft живет локально в sheet;
+- внешнее состояние меняется только после "Применить";
+- `Set<String>` не допускает дубликаты;
+- после применения sheet закрывается через suspend `hide()`.
+
+## Когда sheet не подходит
+
+Не используйте sheet, если:
+
+- форма длинная и многошаговая;
+- есть сложная навигация внутри;
+- нужно показать большой список с поиском;
+- пользователь должен сравнивать данные с основным экраном;
+- действие критично и требует отдельного confirmation flow;
+- content плохо помещается в доступную высоту.
+
+## Типичные ошибки
+
+### Оставлять sheet в composition после hide
+
+Если sheet спрятали через `hide()`, обычно нужно обновить state видимости и убрать composable.
+
+### Делать сетевые запросы прямо внутри sheet
+
+Для screen-level данных используйте ViewModel. Sheet должен получать state и callbacks.
+
+### Использовать sheet вместо экрана
+
+Если задача сложная, отдельный экран часто лучше.
+
+### Игнорировать back и dismiss
+
+`onDismissRequest` должен синхронизировать UI state. Пользователь может закрыть sheet не только кнопкой.
+
+### Запрещать закрытие без объяснения
+
+Если `confirmValueChange` не дает закрыть sheet, UI должен объяснять причину и давать понятное действие.
+
+## Итоги
+
+Sheets дают временную Material-поверхность:
+
+- `ModalBottomSheet` показывает modal bottom sheet;
+- `SheetState` управляет состояниями и анимациями;
+- `rememberModalBottomSheetState` создает state;
+- `show()` и `hide()` являются suspend-функциями;
+- partial sheet требует `skipPartiallyExpanded = false`;
+- `confirmValueChange` может запретить переходы;
+- `dragHandle` помогает пользователю понять жест;
+- `scrimColor` отделяет sheet от фона;
+- sheet лучше подходит для коротких контекстных задач;
+- для сложных flow используйте отдельный экран.

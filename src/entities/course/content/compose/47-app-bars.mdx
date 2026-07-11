@@ -1,0 +1,613 @@
+---
+title: "App bars"
+description: "Разбираем Material 3 app bars в Compose: TopAppBar, CenterAlignedTopAppBar, MediumTopAppBar, LargeTopAppBar, BottomAppBar, navigationIcon, actions, TopAppBarDefaults, scrollBehavior и динамические панели."
+order: 47
+category: "Compose: Material 3 components and app structure"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны app bars
+
+App bar — это панель навигации, заголовка и ключевых действий экрана.
+
+В Material 3 есть:
+
+- top app bars — верхние панели;
+- bottom app bar — нижняя панель действий.
+
+Top app bar обычно содержит:
+
+- title;
+- navigation icon;
+- actions;
+- scroll behavior;
+- colors;
+- window insets.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BasicTopAppBar(
+    title: String,
+    onBackClick: () -> Unit,
+    onSearchClick: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            Text(text = title)
+        },
+        navigationIcon = {
+            IconButton(onClick = onBackClick) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад"
+                )
+            }
+        },
+        actions = {
+            IconButton(onClick = onSearchClick) {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = "Поиск"
+                )
+            }
+        }
+    )
+}
+```
+
+<CatTip>
+App bar — часть структуры экрана. Она должна показывать действия текущего контекста, а не становиться свалкой всех возможностей приложения.
+</CatTip>
+
+## Виды top app bars
+
+Material 3 предоставляет несколько верхних панелей.
+
+### TopAppBar
+
+Компактная верхняя панель для обычных экранов.
+
+```kotlin
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SmallAppBar(
+    title: String
+) {
+    TopAppBar(
+        title = {
+            Text(text = title)
+        }
+    )
+}
+```
+
+Используйте для:
+
+- большинства экранов;
+- списков;
+- деталей;
+- экранов с обычным заголовком и несколькими действиями.
+
+### CenterAlignedTopAppBar
+
+Центрированная версия, часто подходит для экранов с одним главным заголовком.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CenteredAppBar(
+    title: String,
+    onBackClick: () -> Unit
+) {
+    CenterAlignedTopAppBar(
+        title = {
+            Text(text = title)
+        },
+        navigationIcon = {
+            IconButton(onClick = onBackClick) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад"
+                )
+            }
+        }
+    )
+}
+```
+
+Используйте осторожно, если много actions: центрированный title может конфликтовать с плотной панелью.
+
+### MediumTopAppBar
+
+Средняя панель с более выразительным заголовком.
+
+```kotlin
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MediumTopAppBar
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MediumAppBar(
+    title: String
+) {
+    MediumTopAppBar(
+        title = {
+            Text(text = title)
+        }
+    )
+}
+```
+
+Подходит для:
+
+- экранов раздела;
+- списков верхнего уровня;
+- страниц, где заголовок важнее плотности.
+
+### LargeTopAppBar
+
+Большая панель для экранов с сильным заголовком.
+
+```kotlin
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LargeAppBar(
+    title: String
+) {
+    LargeTopAppBar(
+        title = {
+            Text(text = title)
+        }
+    )
+}
+```
+
+Используйте, если:
+
+- экран является top-level destination;
+- нужно визуально подчеркнуть раздел;
+- content начинается ниже с достаточным пространством;
+- scroll behavior помогает панели схлопываться.
+
+<MouseTrap>
+Не ставьте `LargeTopAppBar` на каждый экран. На маленьких устройствах он быстро съедает пространство, особенно рядом с search, tabs и banners.
+</MouseTrap>
+
+## Основные параметры top app bar
+
+Общие параметры:
+
+- `title`: slot заголовка;
+- `modifier`: modifier панели;
+- `navigationIcon`: slot слева;
+- `actions`: slot справа;
+- `colors`: цвета контейнера и content;
+- `scrollBehavior`: реакция на scroll;
+- `windowInsets`: insets верхней панели.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ColoredAppBar(
+    title: String,
+    onMoreClick: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            Text(text = title)
+        },
+        actions = {
+            IconButton(onClick = onMoreClick) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "Дополнительные действия"
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    )
+}
+```
+
+## Navigation icon
+
+Navigation icon должен соответствовать навигационному смыслу:
+
+- back arrow — назад по back stack;
+- menu — открыть drawer;
+- close — закрыть modal flow;
+- home — перейти на главную, если это явно задумано.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DrawerTopAppBar(
+    title: String,
+    onMenuClick: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            Text(text = title)
+        },
+        navigationIcon = {
+            IconButton(onClick = onMenuClick) {
+                Icon(
+                    imageVector = Icons.Filled.Menu,
+                    contentDescription = "Открыть меню"
+                )
+            }
+        }
+    )
+}
+```
+
+Content description должен описывать действие, а не внешний вид иконки.
+
+## Actions
+
+Actions должны быть ограничены самыми важными действиями.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DetailsActionsAppBar(
+    title: String,
+    onShareClick: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            Text(text = title)
+        },
+        actions = {
+            IconButton(onClick = onShareClick) {
+                Icon(
+                    imageVector = Icons.Filled.Share,
+                    contentDescription = "Поделиться"
+                )
+            }
+
+            IconButton(onClick = onDeleteClick) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "Удалить"
+                )
+            }
+        }
+    )
+}
+```
+
+Если actions больше двух-трех, часть стоит перенести в overflow menu или контекстную поверхность.
+
+## Scroll behavior
+
+Top app bar может реагировать на scroll через `TopAppBarScrollBehavior`.
+
+Основные варианты:
+
+- `TopAppBarDefaults.pinnedScrollBehavior()`: панель остается закрепленной;
+- `TopAppBarDefaults.enterAlwaysScrollBehavior()`: панель скрывается при scroll up и быстро возвращается при scroll down;
+- `TopAppBarDefaults.exitUntilCollapsedScrollBehavior()`: большая или средняя панель схлопывается до collapsed height.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CollapsingLargeAppBarScreen(
+    title: String,
+    items: List<String>
+) {
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            LargeTopAppBar(
+                title = {
+                    Text(text = title)
+                },
+                scrollBehavior = scrollBehavior
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            items(
+                items = items,
+                key = { item ->
+                    item
+                }
+            ) { item ->
+                Text(text = item)
+            }
+        }
+    }
+}
+```
+
+Без `Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)` app bar не получит scroll-события от content.
+
+## Dynamic top app bar
+
+App bar может меняться в зависимости от selection state.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SelectionTopAppBar(
+    selectedCount: Int,
+    onClearSelection: () -> Unit,
+    onDeleteSelected: () -> Unit
+) {
+    val hasSelection = selectedCount > 0
+
+    TopAppBar(
+        title = {
+            Text(
+                text = if (hasSelection) {
+                    "Выбрано: $selectedCount"
+                } else {
+                    "Документы"
+                }
+            )
+        },
+        navigationIcon = {
+            if (hasSelection) {
+                IconButton(onClick = onClearSelection) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Снять выделение"
+                    )
+                }
+            }
+        },
+        actions = {
+            if (hasSelection) {
+                IconButton(onClick = onDeleteSelected) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Удалить выбранные"
+                    )
+                }
+            }
+        }
+    )
+}
+```
+
+Важно:
+
+- selection state приходит сверху;
+- app bar не хранит выбор сама;
+- actions отправляют события владельцу state.
+
+## BottomAppBar
+
+`BottomAppBar` — нижняя панель действий. Она отличается от `NavigationBar`: bottom app bar чаще содержит действия текущего экрана, а navigation bar переключает top-level destinations.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun EditorBottomAppBar(
+    onEditClick: () -> Unit,
+    onApplyClick: () -> Unit
+) {
+    BottomAppBar(
+        actions = {
+            IconButton(onClick = onEditClick) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = "Редактировать"
+                )
+            }
+
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onApplyClick) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = "Применить изменения"
+                )
+            }
+        }
+    )
+}
+```
+
+Если нижняя панель нужна для навигации между разделами, используйте `NavigationBar`.
+
+## App bar внутри Scaffold
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MessagesScreen(
+    messages: List<String>,
+    onSearchClick: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(text = "Сообщения")
+                },
+                actions = {
+                    IconButton(onClick = onSearchClick) {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = "Поиск"
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            items(
+                items = messages,
+                key = { message ->
+                    message
+                }
+            ) { message ->
+                Text(text = message)
+            }
+        }
+    }
+}
+```
+
+`Scaffold` передает content padding, а app bar остается отдельным slot.
+
+## Типичные ошибки
+
+### Действие без contentDescription
+
+Иконка без понятного описания плохо работает для accessibility.
+
+### Использовать физическую стрелку вместо AutoMirrored
+
+Для back navigation в RTL лучше `Icons.AutoMirrored.Filled.ArrowBack`.
+
+### Перегружать actions
+
+Слишком много icon buttons ухудшает сканирование и touch targets.
+
+### Забывать nestedScroll для scrollBehavior
+
+Scroll behavior не заработает без подключения nested scroll connection к контейнеру.
+
+### Использовать BottomAppBar как NavigationBar
+
+Для top-level navigation используйте navigation surfaces.
+
+## Итоги
+
+App bars помогают организовать экран:
+
+- `TopAppBar` подходит большинству экранов;
+- `CenterAlignedTopAppBar` центрирует заголовок;
+- `MediumTopAppBar` и `LargeTopAppBar` дают более выразительный layout;
+- `BottomAppBar` содержит действия нижней панели;
+- `navigationIcon` должен отражать навигационный смысл;
+- `actions` должны быть важными и компактными;
+- `TopAppBarDefaults` задает colors и scroll behavior;
+- scroll behavior требует `Modifier.nestedScroll`;
+- динамическая app bar должна получать selection state сверху;
+- app bars обычно размещаются в `Scaffold`.

@@ -1,0 +1,750 @@
+---
+title: "Flow, LiveData and Rx interop"
+description: "Разбираем интеграцию Compose с Flow, StateFlow, LiveData и RxJava: collectAsStateWithLifecycle, collectAsState, observeAsState, subscribeAsState, initial value, lifecycle, cancellation и production-паттерны."
+order: 34
+category: "Compose: State, snapshots и управление данными UI"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему observable-типы нужно превращать в State
+
+Compose автоматически запускает recomposition, когда composable читает `State<T>` и значение этого state меняется. Но в Android-приложениях состояние часто приходит не как `MutableState<T>`, а как:
+
+- `StateFlow<T>`;
+- `Flow<T>`;
+- `LiveData<T>`;
+- RxJava `Observable<T>`;
+- RxJava `Flowable<T>`;
+- RxJava `Single<T>`.
+
+Перед чтением в composable эти источники нужно преобразовать в Compose `State<T>`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
+
+@Composable
+fun UserNameText(
+    userNameFlow: StateFlow<String>
+) {
+    val userName by userNameFlow.collectAsStateWithLifecycle()
+
+    Text(text = userName)
+}
+```
+
+`collectAsStateWithLifecycle` собирает `Flow` lifecycle-aware образом и возвращает Compose `State`. Когда `State` меняется, `Text` получает новую recomposition.
+
+<CatTip>
+Правило простое: composable читает `State<T>`, а не напрямую `Flow`, `LiveData` или Rx-stream. Конвертация должна происходить на границе UI.
+</CatTip>
+
+## Зависимости
+
+Для lifecycle-aware Flow collection нужен `lifecycle-runtime-compose`.
+
+```kotlin
+dependencies {
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+}
+```
+
+Для LiveData:
+
+```kotlin
+dependencies {
+    implementation("androidx.compose.runtime:runtime-livedata")
+}
+```
+
+Если проект использует Compose BOM, версию `runtime-livedata` обычно задает BOM.
+
+Для RxJava 2:
+
+```kotlin
+dependencies {
+    implementation("androidx.compose.runtime:runtime-rxjava2")
+}
+```
+
+Для RxJava 3:
+
+```kotlin
+dependencies {
+    implementation("androidx.compose.runtime:runtime-rxjava3")
+}
+```
+
+Версии лучше держать в Version Catalog, чтобы обновления были централизованными.
+
+## collectAsStateWithLifecycle
+
+`collectAsStateWithLifecycle` — рекомендуемый способ собирать `Flow` в Android Compose UI.
+
+Он:
+
+- собирает Flow с учетом `Lifecycle`;
+- останавливает сбор, когда UI не находится в активном lifecycle-состоянии;
+- возвращает `State<T>`;
+- отменяет collection, когда composable выходит из composition;
+- экономит ресурсы, потому что невидимый UI не продолжает активно собирать поток.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
+
+sealed interface ProfileUiState {
+    data object Loading : ProfileUiState
+    data class Content(
+        val name: String,
+        val email: String
+    ) : ProfileUiState
+    data class Error(
+        val message: String
+    ) : ProfileUiState
+}
+
+@Composable
+fun ProfileRoute(
+    uiStateFlow: StateFlow<ProfileUiState>
+) {
+    val uiState by uiStateFlow.collectAsStateWithLifecycle()
+
+    ProfileScreen(uiState = uiState)
+}
+
+@Composable
+fun ProfileScreen(
+    uiState: ProfileUiState
+) {
+    when (uiState) {
+        ProfileUiState.Loading -> {
+            CircularProgressIndicator()
+        }
+
+        is ProfileUiState.Content -> {
+            Column {
+                Text(text = uiState.name)
+                Text(text = uiState.email)
+            }
+        }
+
+        is ProfileUiState.Error -> {
+            Text(text = uiState.message)
+        }
+    }
+}
+```
+
+Это классическая граница:
+
+- route знает про Flow;
+- screen знает только про immutable UI state;
+- reusable UI-компоненты не зависят от lifecycle и ViewModel.
+
+## collectAsStateWithLifecycle: initialValue
+
+Если источник — обычный `Flow<T>`, а не `StateFlow<T>`, ему нужен начальный UI value.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.Flow
+
+@Composable
+fun NetworkStatusBanner(
+    networkStatusFlow: Flow<String>
+) {
+    val status by networkStatusFlow.collectAsStateWithLifecycle(
+        initialValue = "Проверяем соединение"
+    )
+
+    Text(text = status)
+}
+```
+
+`StateFlow` уже имеет текущее значение, поэтому initial value обычно не нужен.
+
+## collectAsState
+
+`collectAsState` доступен в Compose runtime и подходит для platform-agnostic Compose-кода, где нет Android `Lifecycle`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.flow.StateFlow
+
+@Composable
+fun SharedCounterText(
+    counterFlow: StateFlow<Int>
+) {
+    val counter by counterFlow.collectAsState()
+
+    Text(text = "Счетчик: $counter")
+}
+```
+
+Когда использовать:
+
+- общий UI-код Compose Multiplatform;
+- preview/test окружение без Android lifecycle;
+- источник уже управляется внешним lifecycle;
+- вы точно понимаете lifetime collection.
+
+Когда в Android UI лучше выбрать `collectAsStateWithLifecycle`:
+
+- экран может уходить в background;
+- Flow дорогой;
+- источник слушает датчики, сеть, базу данных;
+- collection не должен продолжаться, когда UI не видим.
+
+<MouseTrap>
+Не собирайте Flow в Android UI через ручной `LaunchedEffect` с прямым `collect`, если вам нужен lifecycle-aware сбор для отображения состояния. Такой код легко продолжит работу, когда экран уже не видим.
+</MouseTrap>
+
+## StateFlow в ViewModel
+
+`StateFlow` хорошо подходит для screen UI state. Он всегда имеет текущее значение и отдает его новому collector.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+class InboxViewModel(
+    private val repository: InboxRepository
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow<InboxUiState>(
+        InboxUiState.Loading
+    )
+
+    val uiState: StateFlow<InboxUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            repository.observeMessages().collect { messages ->
+                _uiState.value = InboxUiState.Content(
+                    messages = messages
+                )
+            }
+        }
+    }
+}
+
+interface InboxRepository {
+    fun observeMessages(): kotlinx.coroutines.flow.Flow<List<InboxMessage>>
+}
+
+data class InboxMessage(
+    val id: String,
+    val title: String,
+    val preview: String
+)
+
+sealed interface InboxUiState {
+    data object Loading : InboxUiState
+    data class Content(
+        val messages: List<InboxMessage>
+    ) : InboxUiState
+}
+```
+
+Compose-route:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun InboxRoute(
+    viewModel: InboxViewModel
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    InboxScreen(uiState = uiState)
+}
+```
+
+## stateIn для screen state
+
+Часто UI state собирается из repository Flow через `stateIn`.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+
+class ProductListViewModel(
+    repository: ProductRepository
+) : ViewModel() {
+
+    val uiState: StateFlow<ProductListUiState> = repository
+        .observeProducts()
+        .map { products ->
+            ProductListUiState.Content(
+                products = products
+            )
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(
+                stopTimeoutMillis = 5_000
+            ),
+            initialValue = ProductListUiState.Loading
+        )
+}
+
+interface ProductRepository {
+    fun observeProducts(): kotlinx.coroutines.flow.Flow<List<ProductRow>>
+}
+
+data class ProductRow(
+    val id: String,
+    val title: String
+)
+
+sealed interface ProductListUiState {
+    data object Loading : ProductListUiState
+    data class Content(
+        val products: List<ProductRow>
+    ) : ProductListUiState
+}
+```
+
+`SharingStarted.WhileSubscribed` помогает не держать upstream активным бесконечно, когда нет подписчиков. Таймаут уменьшает лишние перезапуски при быстрых configuration changes.
+
+## LiveData: observeAsState
+
+Если проект еще использует LiveData, Compose предоставляет `observeAsState`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.lifecycle.LiveData
+
+@Composable
+fun LegacyUserName(
+    userNameLiveData: LiveData<String>
+) {
+    val userName by userNameLiveData.observeAsState(
+        initial = "Загрузка"
+    )
+
+    Text(text = userName)
+}
+```
+
+Особенности:
+
+- `observeAsState` подписывается на `LiveData`;
+- при новом значении обновляет Compose `State`;
+- observer снимается, когда composable выходит из composition;
+- initial value нужен, если LiveData еще не отдала значение.
+
+## RxJava: subscribeAsState
+
+Для RxJava есть отдельные artifacts и extension-функции `subscribeAsState`.
+
+RxJava 3 пример:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rxjava3.subscribeAsState
+import io.reactivex.rxjava3.core.Observable
+
+@Composable
+fun RxPriceTicker(
+    priceObservable: Observable<String>
+) {
+    val price by priceObservable.subscribeAsState(
+        initial = "Ожидаем цену"
+    )
+
+    Text(text = price)
+}
+```
+
+RxJava 2 импорт отличается:
+
+```kotlin
+import androidx.compose.runtime.rxjava2.subscribeAsState
+```
+
+Используйте Rx interop, если проект действительно построен на Rx. Для новых Kotlin-first Android проектов чаще выбирают Flow.
+
+## Initial value и nullable state
+
+UI должен иметь состояние до первого emission.
+
+Вариант с loading sealed interface:
+
+```kotlin
+sealed interface OrdersUiState {
+    data object Loading : OrdersUiState
+    data class Content(
+        val orders: List<String>
+    ) : OrdersUiState
+    data class Error(
+        val message: String
+    ) : OrdersUiState
+}
+```
+
+Вариант с nullable:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.Flow
+
+@Composable
+fun NullableUserName(
+    userNameFlow: Flow<String?>
+) {
+    val userName by userNameFlow.collectAsStateWithLifecycle(
+        initialValue = null
+    )
+
+    Text(
+        text = userName ?: "Пользователь не выбран"
+    )
+}
+```
+
+Для экранов чаще лучше sealed UI state, потому что он явно описывает loading, content и error. Nullable подходит для локальных простых значений.
+
+## Ошибки Flow и UI state
+
+Flow exception не должен молча ломать экран. Ошибку лучше превратить в UI state во ViewModel.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+
+class OrdersViewModel(
+    repository: OrdersRepository
+) : ViewModel() {
+
+    val uiState = repository
+        .observeOrders()
+        .map<List<String>, OrdersUiState> { orders ->
+            OrdersUiState.Content(orders = orders)
+        }
+        .catch { error ->
+            emit(
+                OrdersUiState.Error(
+                    message = error.message ?: "Не удалось загрузить заказы"
+                )
+            )
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = OrdersUiState.Loading
+        )
+}
+
+interface OrdersRepository {
+    fun observeOrders(): kotlinx.coroutines.flow.Flow<List<String>>
+}
+```
+
+UI:
+
+```kotlin
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun OrdersScreen(
+    uiState: OrdersUiState
+) {
+    when (uiState) {
+        OrdersUiState.Loading -> {
+            CircularProgressIndicator()
+        }
+
+        is OrdersUiState.Content -> {
+            Text(text = "Заказов: ${uiState.orders.size}")
+        }
+
+        is OrdersUiState.Error -> {
+            Text(text = uiState.message)
+        }
+    }
+}
+```
+
+## Не передавайте Flow в маленькие компоненты
+
+Плохо:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
+
+@Composable
+fun ProductTitleWrong(
+    titleFlow: StateFlow<String>
+) {
+    val title by titleFlow.collectAsStateWithLifecycle()
+
+    Text(text = title)
+}
+```
+
+Почему плохо:
+
+- маленький UI-компонент знает про Flow;
+- Preview становится сложнее;
+- тесту нужен Flow;
+- collection размазывается по дереву;
+- компонент труднее переиспользовать.
+
+Лучше:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ProductTitle(
+    title: String
+) {
+    Text(text = title)
+}
+```
+
+Flow собирается выше, на route/screen boundary.
+
+## collectAsStateWithLifecycle и minActiveState
+
+В некоторых случаях можно указать минимальное lifecycle-состояние, при котором collection активна.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
+
+@Composable
+fun StartedCollection(
+    stateFlow: StateFlow<String>
+): String {
+    val value by stateFlow.collectAsStateWithLifecycle(
+        minActiveState = Lifecycle.State.STARTED
+    )
+
+    return value
+}
+```
+
+`STARTED` — обычный безопасный выбор для UI. Более ранние состояния требуют осторожности, потому что UI может еще не быть готов к активной работе.
+
+## Production-пример: каталог с поиском
+
+ViewModel:
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+
+data class CatalogItem(
+    val id: String,
+    val title: String
+)
+
+data class CatalogUiState(
+    val query: String,
+    val loading: Boolean,
+    val items: List<CatalogItem>
+)
+
+class CatalogViewModel(
+    repository: CatalogRepository
+) : ViewModel() {
+
+    private val query = MutableStateFlow("")
+
+    val uiState: StateFlow<CatalogUiState> = combine(
+        query,
+        repository.observeItems()
+    ) { currentQuery, items ->
+        val visibleItems = items.filter { item ->
+            item.title.contains(currentQuery, ignoreCase = true)
+        }
+
+        CatalogUiState(
+            query = currentQuery,
+            loading = false,
+            items = visibleItems
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = CatalogUiState(
+            query = "",
+            loading = true,
+            items = emptyList()
+        )
+    )
+
+    fun updateQuery(nextQuery: String) {
+        query.value = nextQuery
+    }
+}
+
+interface CatalogRepository {
+    fun observeItems(): kotlinx.coroutines.flow.Flow<List<CatalogItem>>
+}
+```
+
+Route:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun CatalogRoute(
+    viewModel: CatalogViewModel
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    CatalogScreen(
+        state = uiState,
+        onQueryChange = viewModel::updateQuery
+    )
+}
+```
+
+Screen:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun CatalogScreen(
+    state: CatalogUiState,
+    onQueryChange: (String) -> Unit
+) {
+    Column {
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = { nextQuery ->
+                onQueryChange(nextQuery)
+            },
+            label = {
+                Text(text = "Поиск")
+            }
+        )
+
+        if (state.loading) {
+            CircularProgressIndicator()
+        } else {
+            LazyColumn {
+                items(
+                    items = state.items,
+                    key = { item ->
+                        item.id
+                    }
+                ) { item ->
+                    ListItem(
+                        headlineContent = {
+                            Text(text = item.title)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+```
+
+## Типичные ошибки
+
+### Собирать один и тот же Flow во многих маленьких composable
+
+Так сложнее контролировать lifecycle, тесты и recomposition. Собирайте выше и передавайте values вниз.
+
+### Использовать collectAsState вместо collectAsStateWithLifecycle в Android UI без причины
+
+`collectAsState` не учитывает Android lifecycle. Для screen UI на Android предпочтителен lifecycle-aware вариант.
+
+### Не моделировать initial state
+
+У UI всегда должно быть состояние до первой emission: loading, empty, cached value или nullable value.
+
+### Отправлять ошибки наружу как исключения Flow до UI
+
+Экран должен получить `Error` UI state, а не рухнувший collector.
+
+### Делать LiveData и Flow одновременно источниками истины
+
+Выберите один основной observable holder для screen state. Мосты нужны для миграции, а не для постоянного раздвоения модели.
+
+## Итоги
+
+Interop с observable data holders строится вокруг `State<T>`:
+
+- Compose читает `State<T>`;
+- `collectAsStateWithLifecycle` рекомендуется для Flow в Android UI;
+- `collectAsState` подходит для platform-agnostic Compose;
+- `StateFlow` удобен для screen UI state;
+- `stateIn` превращает Flow в горячий StateFlow с initial value;
+- `observeAsState` подключает LiveData;
+- `subscribeAsState` подключает RxJava;
+- initial value обязателен для источников без текущего значения;
+- collection лучше делать на route/screen boundary;
+- UI-компоненты должны получать plain values и callbacks.

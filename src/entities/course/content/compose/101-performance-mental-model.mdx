@@ -1,0 +1,607 @@
+---
+title: "Performance mental model"
+description: "Разбираем performance mental model Jetpack Compose: Composition, Layout и Draw phases, recomposition, skipping, restart scopes, measuring before optimizing, state reads by phase, jank, tracing и production-подход к оптимизации."
+order: 101
+category: "Compose: Performance, stability and tooling"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему performance в Compose нельзя свести к recomposition
+
+Когда Compose UI тормозит, первая мысль часто такая: "слишком много recomposition". Иногда это правда. Но Compose frame проходит несколько фаз, и проблема может быть в любой из них:
+
+- Composition: выполнение composable-функций и построение/обновление UI tree;
+- Layout: measurement и placement;
+- Draw: отрисовка pixels;
+- input/event handling;
+- animations;
+- image loading;
+- main-thread work вне Compose;
+- allocation/GC;
+- синхронизация с Android Views/RenderThread.
+
+Если оптимизировать только recomposition, можно пропустить настоящую причину jank: тяжелый layout, expensive drawing, bitmap decode, слишком сложный shadow/blur, плохой lazy list, network work на main thread.
+
+```kotlin
+data class ComposeFrameCost(
+    val compositionMs: Float,
+    val layoutMs: Float,
+    val drawMs: Float,
+    val otherMainThreadMs: Float
+) {
+    val totalMs: Float
+        get() = compositionMs + layoutMs + drawMs + otherMainThreadMs
+}
+```
+
+Это не реальный API, а полезная mental model: performance budget кадра расходуется несколькими фазами.
+
+<CatTip>
+Не спрашивайте "как уменьшить recomposition?" слишком рано. Сначала спросите: в какой фазе мы тратим время и почему пользователь видит jank?
+</CatTip>
+
+## Frame budget
+
+При 60 Hz у кадра примерно 16.6 ms. При 120 Hz — примерно 8.3 ms. Android UI не обязан делать всю работу за это время только в Compose, но если main thread занят, input и animation начинают дергаться.
+
+```kotlin
+fun frameBudgetMillis(
+    refreshRateHz: Int
+): Float {
+    return 1000f / refreshRateHz
+}
+```
+
+Compose performance — это не "один composable быстрый или медленный". Это сумма работы на конкретном frame.
+
+## Composition phase
+
+Composition выполняет composable-код, когда:
+
+- UI впервые появляется;
+- state, прочитанный в composition, изменился;
+- parent recomposition не была skipped;
+- key/slot structure изменилась;
+- navigation/conditional branch поменялась.
+
+Пример state read в composition:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun CounterLabel(
+    count: Int
+) {
+    Text(
+        text = "Значение: $count"
+    )
+}
+```
+
+Если `count` изменился, `CounterLabel` может быть recomposed. Это нормально. Recomposition сама по себе не ошибка.
+
+## Recomposition boundaries
+
+Compose tracks state reads and can recompose only affected scopes. Чем ниже вы читаете часто меняющийся state, тем меньше дерева нужно пересчитать.
+
+Плохо:
+
+```kotlin
+@Composable
+fun LargeScreen(
+    scrollOffset: Int,
+    items: List<String>
+) {
+    Header(
+        collapsed = scrollOffset > 100
+    )
+    HugeContent(items = items)
+}
+```
+
+Если `LargeScreen` читает `scrollOffset`, parent scope может дергаться слишком часто.
+
+Лучше:
+
+```kotlin
+@Composable
+fun LargeScreen(
+    items: List<String>,
+    headerState: HeaderState
+) {
+    Header(
+        state = headerState
+    )
+    HugeContent(items = items)
+}
+```
+
+И внутри header:
+
+```kotlin
+@Composable
+fun Header(
+    state: HeaderState
+) {
+    val collapsed = state.scrollOffset > 100
+
+    HeaderContent(
+        collapsed = collapsed
+    )
+}
+```
+
+Еще лучше для scroll-derived values часто использовать `derivedStateOf`, если значение меняется реже, чем raw state.
+
+## Layout phase
+
+Layout состоит из measurement и placement. State read в layout-фазе может пропустить composition и invalid-ить только layout.
+
+Пример placement lambda:
+
+```kotlin
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+
+@Composable
+fun MovingPanel(
+    offsetProvider: () -> Int
+) {
+    Panel(
+        modifier = Modifier.offset {
+            IntOffset(
+                x = offsetProvider(),
+                y = 0
+            )
+        }
+    )
+}
+```
+
+Если `offsetProvider` читает state внутри lambda, Compose может invalid-ить placement, не пересобирая весь composable. Это полезно для scroll/gesture-driven movement.
+
+## Draw phase
+
+State read в draw phase может invalid-ить только drawing.
+
+```kotlin
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+
+@Composable
+fun ProgressArc(
+    progressProvider: () -> Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        drawArc(
+            color = Color(0xFF006C4F),
+            startAngle = -90f,
+            sweepAngle = 360f * progressProvider(),
+            useCenter = false
+        )
+    }
+}
+```
+
+Если progress часто меняется, draw-phase read может быть дешевле, чем recomposition целого component.
+
+<MouseTrap>
+Перенос state read в layout/draw — это не магическая оптимизация для всего. Делайте это для реально hot values: scroll offset, animation progress, gesture position.
+</MouseTrap>
+
+## Skipping phases
+
+Compose может пропускать работу:
+
+- skip recomposition, если inputs стабильны и не изменились;
+- skip layout, если size/constraints не изменились;
+- skip draw, если drawing invalidation не нужна.
+
+Но skipping зависит от:
+
+- стабильности параметров;
+- корректной state model;
+- отсутствия скрытой mutable state;
+- compiler inference;
+- modifier structure;
+- phase-specific reads.
+
+Пример хорошего UI state:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ProfileUiState(
+    val name: String,
+    val email: String,
+    val avatarUrl: String?
+)
+```
+
+Если `ProfileUiState` immutable и equal по значению, Compose получает больше возможностей для skipping.
+
+## Measuring before optimizing
+
+Оптимизация без измерения часто ухудшает код и не улучшает UX.
+
+Сначала измеряйте:
+
+- Layout Inspector recomposition counters;
+- Compose compiler reports;
+- System Trace;
+- Macrobenchmark;
+- JankStats;
+- Baseline Profiles;
+- Android Studio profiler;
+- release build, а не debug build;
+- реальные devices, а не только emulator.
+
+```kotlin
+data class PerformanceHypothesis(
+    val screen: String,
+    val suspectedCause: String,
+    val measurementTool: String,
+    val expectedSignal: String
+)
+```
+
+Пример:
+
+```kotlin
+val hypothesis = PerformanceHypothesis(
+    screen = "Catalog",
+    suspectedCause = "Карточки списка recomposition-ятся при scroll",
+    measurementTool = "Layout Inspector recomposition counters",
+    expectedSignal = "Счетчик растет у всех visible item при изменении scroll offset"
+)
+```
+
+Хорошая оптимизация начинается с проверяемой гипотезы.
+
+## Debug vs release
+
+Compose performance нужно оценивать в release-like сборке:
+
+- debug build медленнее;
+- tooling hooks добавляют overhead;
+- R8/optimization не включены;
+- Baseline Profiles не применены;
+- debug checks и logging искажают картину.
+
+Используйте debug tooling для диагностики, но не делайте вывод "приложение медленное" только по debug scroll.
+
+## Expensive composition
+
+Composition становится дорогой, если вы:
+
+- делаете тяжелые вычисления в composable;
+- сортируете/фильтруете большие коллекции при каждом recomposition;
+- создаете expensive objects без `remember`;
+- читаете слишком много state высоко в дереве;
+- строите большие conditional branches;
+- используете unstable mutable parameters;
+- создаете lambdas/objects в hot paths без необходимости.
+
+Плохо:
+
+```kotlin
+@Composable
+fun CatalogScreen(
+    products: List<Product>,
+    query: String
+) {
+    val filtered = products
+        .filter { product ->
+            product.title.contains(query, ignoreCase = true)
+        }
+        .sortedBy { product ->
+            product.title
+        }
+
+    ProductList(products = filtered)
+}
+```
+
+Лучше:
+
+```kotlin
+@Composable
+fun CatalogScreen(
+    products: List<Product>,
+    query: String
+) {
+    val filtered = remember(products, query) {
+        products
+            .filter { product ->
+                product.title.contains(query, ignoreCase = true)
+            }
+            .sortedBy { product ->
+                product.title
+            }
+    }
+
+    ProductList(products = filtered)
+}
+```
+
+Еще лучше — выполнять тяжелую фильтрацию в ViewModel/repository, если это business query, а не UI-only decoration.
+
+## Expensive layout
+
+Layout может быть дорогим, если:
+
+- custom layout measure-ит children многократно;
+- text measurement происходит слишком часто;
+- nested scroll/layouts слишком глубокие;
+- `IntrinsicSize` используется в больших списках;
+- lazy item имеет complex measurement;
+- все items имеют wrap content с дорогим content;
+- image aspect ratios пересчитываются нестабильно.
+
+Пример осторожного custom layout:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
+
+@Composable
+fun SimpleTwoColumnLayout(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Layout(
+        content = content,
+        modifier = modifier
+    ) { measurables, constraints ->
+        val columnWidth = constraints.maxWidth / 2
+        val childConstraints = constraints.copy(
+            maxWidth = columnWidth
+        )
+
+        val placeables = measurables.map { measurable ->
+            measurable.measure(childConstraints)
+        }
+
+        val height = placeables
+            .chunked(2)
+            .sumOf { row ->
+                row.maxOfOrNull { it.height } ?: 0
+            }
+
+        layout(
+            width = constraints.maxWidth,
+            height = height
+        ) {
+            var y = 0
+            placeables.chunked(2).forEach { row ->
+                var x = 0
+                val rowHeight = row.maxOf { it.height }
+
+                row.forEach { placeable ->
+                    placeable.placeRelative(x, y)
+                    x += columnWidth
+                }
+
+                y += rowHeight
+            }
+        }
+    }
+}
+```
+
+Custom layout должен измерять child только тогда, когда нужно, и как можно меньше раз.
+
+## Expensive draw
+
+Draw становится дорогим из-за:
+
+- больших shadows;
+- blur/render effects;
+- complex clipping;
+- heavy Canvas loops;
+- large bitmap scaling;
+- alpha layers/offscreen compositing;
+- frequent path allocation;
+- gradients/shaders в hot path;
+- overdraw.
+
+Плохо:
+
+```kotlin
+Canvas(modifier = Modifier.fillMaxSize()) {
+    repeat(10_000) { index ->
+        drawCircle(
+            color = Color.Red,
+            radius = index % 20 + 1f
+        )
+    }
+}
+```
+
+Если это декоративный фон, подготовьте bitmap/vector, уменьшите количество primitives или кэшируйте geometry.
+
+## Hot state и recomposition
+
+Scroll offset, animation progress, drag position и clock ticks могут меняться каждый frame. Не поднимайте их выше, чем нужно.
+
+Плохо:
+
+```kotlin
+@Composable
+fun ScrollAwareScreen(
+    scrollOffset: Int
+) {
+    TopLevelAppShell(
+        collapsed = scrollOffset > 100
+    )
+}
+```
+
+Лучше:
+
+```kotlin
+@Composable
+fun ScrollAwareHeader(
+    listState: LazyListState
+) {
+    val collapsed by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 ||
+                listState.firstVisibleItemScrollOffset > 100
+        }
+    }
+
+    HeaderContent(collapsed = collapsed)
+}
+```
+
+`derivedStateOf` полезен, когда raw state меняется часто, а derived result — редко.
+
+## Lazy performance basics
+
+Lazy lists часто становятся performance hotspot.
+
+Минимальные правила:
+
+- stable keys;
+- contentType для разных item types;
+- не делать тяжелую работу в item;
+- не читать global hot state в каждом item;
+- не загружать images original size;
+- не создавать nested lazy без необходимости;
+- state hoisting для expanded/collapsed item;
+- placeholder size stable.
+
+```kotlin
+LazyColumn {
+    items(
+        items = products,
+        key = { product ->
+            product.id
+        },
+        contentType = { product ->
+            product.type
+        }
+    ) { product ->
+        ProductRow(
+            product = product,
+            onClick = {
+                onProductClick(product.id)
+            }
+        )
+    }
+}
+```
+
+`key` сохраняет identity. `contentType` помогает reuse composition для похожих items.
+
+## Allocation pressure
+
+Даже если CPU work маленькая, постоянные allocations могут вызвать GC и jank.
+
+Частые источники:
+
+- создание lists/maps в composition;
+- создание Path/Brush/Painter в draw;
+- formatting strings в hot frame loop;
+- capturing lambdas в больших списках;
+- temporary objects in custom layout.
+
+```kotlin
+@Composable
+fun RememberedGradientBackground() {
+    val brush = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF0B1D2A),
+                Color(0xFF173B57)
+            )
+        )
+    }
+
+    Box(
+        modifier = Modifier.background(brush)
+    )
+}
+```
+
+Не `remember`-ьте всё подряд. Remember нужен для expensive/stable objects или для objects, identity которых важна.
+
+## Performance workflow
+
+Практический workflow:
+
+- определить user-visible проблему;
+- воспроизвести на release-like build;
+- записать trace/metrics;
+- определить фазу или subsystem;
+- сформулировать гипотезу;
+- внести минимальное изменение;
+- повторить измерение;
+- оставить комментарий только если optimization неочевидна;
+- добавить regression test/benchmark, если риск высокий.
+
+```kotlin
+data class OptimizationResult(
+    val beforeP95FrameMs: Float,
+    val afterP95FrameMs: Float,
+    val changedFiles: List<String>,
+    val remainingRisk: String?
+)
+```
+
+Без "before/after" performance PR часто превращается в стилистический спор.
+
+## Типичные ошибки
+
+### Оптимизировать без измерения
+
+Можно усложнить код и не исправить jank.
+
+### Считать recomposition всегда плохой
+
+Recomposition — нормальный механизм. Плохой может быть объем, частота или работа внутри.
+
+### Делать heavy work в composable
+
+Фильтрация, сортировка, IO и parsing не должны случайно выполняться при recomposition.
+
+### Игнорировать layout и draw
+
+Иногда проблема не в Composition вообще.
+
+### Измерять только debug build
+
+Debug performance может сильно отличаться от release.
+
+### Читать hot state слишком высоко
+
+Scroll/gesture/animation state должен жить близко к месту использования.
+
+## Итоги
+
+Performance mental model Compose строится на фазах:
+
+- Composition выполняет composable-код и обновляет tree;
+- Layout измеряет и размещает;
+- Draw рисует pixels;
+- state reads в разных фазах invalid-ят разную работу;
+- recomposition сама по себе не является ошибкой;
+- skipping зависит от стабильности inputs и структуры state;
+- measuring before optimizing обязателен;
+- release-like builds нужны для честной оценки;
+- hot state нужно читать как можно ниже;
+- expensive computation, layout, draw и allocations требуют разных решений;
+- Lazy performance начинается с keys, contentType и легких items.

@@ -1,0 +1,556 @@
+---
+title: "Простые контейнеры контента"
+description: "Разбираем Surface, Card, ElevatedCard, OutlinedCard, ListItem, HorizontalDivider, VerticalDivider и Spacer: семантика контейнеров, параметры, правильное размещение и production-примеры."
+order: 12
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Контейнер — это часть смысла UI
+
+Контейнеры в Compose не просто "обертки". Они отвечают за группировку, поверхность, форму, цвет, elevation, границы, разделение и spacing. Если контейнеры выбраны случайно, UI становится шумным: карточка внутри карточки, тени спорят друг с другом, разделители заменяют отступы, а `Spacer` используется вместо нормального `Arrangement`.
+
+В этом уроке разберем базовые контейнеры:
+
+- `Surface`;
+- `Card`;
+- `ElevatedCard`;
+- `OutlinedCard`;
+- `ListItem`;
+- `HorizontalDivider`;
+- `VerticalDivider`;
+- `Spacer`.
+
+## `Surface`
+
+`Surface` — базовая Material-поверхность. Она задает контейнерный цвет, content color, shape, elevation и border. Используй `Surface`, когда нужна семантическая поверхность, но не нужна card-specific роль.
+
+Основные параметры:
+
+- `modifier` — внешнее размещение;
+- `shape` — форма поверхности;
+- `color` — цвет контейнера;
+- `contentColor` — цвет потомков;
+- `tonalElevation` — Material 3 tonal elevation;
+- `shadowElevation` — тень;
+- `border` — граница;
+- `content` — содержимое.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun InfoSurface() {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        tonalElevation = 1.dp
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = "Новый модуль доступен"
+        )
+    }
+}
+```
+
+`Surface` не обязан быть кликабельным. Если поверхность должна реагировать на клик, можно использовать overload с `onClick` или добавить соответствующий clickable-паттерн осознанно.
+
+## `Card`
+
+`Card` — контейнер для связанного фрагмента контента и действий. Карточка обычно представляет один объект или один компактный блок: урок, статью, настройку, рекомендацию.
+
+Основные параметры:
+
+- `modifier`;
+- `shape`;
+- `colors`;
+- `elevation`;
+- `border`;
+- `content`.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonCard(
+    title: String,
+    description: String,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+```
+
+## `ElevatedCard`
+
+`ElevatedCard` визуально поднимается над фоном. Используй, когда карточке действительно нужно отделение от поверхности. Не превращай elevation в способ сделать каждый блок "важным".
+
+```kotlin
+import androidx.compose.material3.ElevatedCard
+
+@Composable
+fun FeaturedLessonCard(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    ElevatedCard(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = title,
+            style = MaterialTheme.typography.titleLarge
+        )
+    }
+}
+```
+
+## `OutlinedCard`
+
+`OutlinedCard` отделяет контент границей, а не elevation. Хорошо подходит для спокойного UI, настроек, списков вариантов и secondary-контента.
+
+```kotlin
+import androidx.compose.material3.OutlinedCard
+
+@Composable
+fun QuizOptionCard(
+    title: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+        )
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = title,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+        )
+    }
+}
+```
+
+## Clickable cards
+
+Material 3 cards имеют overload с `onClick`. Это лучше, чем вручную вешать `Modifier.clickable` на произвольный внутренний элемент, потому что весь контейнер получает корректное interaction-поведение.
+
+```kotlin
+@Composable
+fun ClickableLessonCard(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = title,
+            style = MaterialTheme.typography.titleMedium
+        )
+    }
+}
+```
+
+<MouseTrap title="Мышеловка: карточка внутри карточки создает визуальный шум">
+  Если каждый раздел завернут в `Card`, а внутри него еще карточки, пользователь
+  теряет иерархию. Карточка должна группировать самостоятельный объект или
+  действие. Для обычного фона и content color чаще достаточно `Surface` или
+  простого layout.
+</MouseTrap>
+
+## `CardDefaults`
+
+Для настройки карточек используй defaults:
+
+- `CardDefaults.cardColors`;
+- `CardDefaults.elevatedCardColors`;
+- `CardDefaults.outlinedCardColors`;
+- `CardDefaults.cardElevation`;
+- `CardDefaults.elevatedCardElevation`;
+- `CardDefaults.outlinedCardElevation`;
+- `CardDefaults.outlinedCardBorder`.
+
+```kotlin
+Card(
+    colors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    ),
+    elevation = CardDefaults.cardElevation(
+        defaultElevation = 0.dp,
+        pressedElevation = 1.dp
+    )
+) {
+    Text(
+        modifier = Modifier.padding(16.dp),
+        text = "Карточка с настройками через defaults"
+    )
+}
+```
+
+## `ListItem`
+
+`ListItem` — Material 3 компонент для строк списка. Он дает типовые слоты:
+
+- `headlineContent`;
+- `overlineContent`;
+- `supportingContent`;
+- `leadingContent`;
+- `trailingContent`;
+- `colors`;
+- `tonalElevation`;
+- `shadowElevation`.
+
+`res/drawable/ic_lesson_24.xml`:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M4,4h12c1.1,0 2,0.9 2,2v14c0,0.55 -0.45,1 -1,1H6c-1.1,0 -2,-0.9 -2,-2V4zM6,6v13h10V6H6zM8,8h6v2H8V8zM8,12h6v2H8v-2z" />
+</vector>
+```
+
+Kotlin:
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import com.kotlingo.reader.R
+
+@Composable
+fun LessonListItem(
+    title: String,
+    subtitle: String,
+    minutes: Int
+) {
+    ListItem(
+        leadingContent = {
+            Icon(
+                painter = painterResource(R.drawable.ic_lesson_24),
+                contentDescription = null
+            )
+        },
+        headlineContent = {
+            Text(text = title)
+        },
+        supportingContent = {
+            Text(text = subtitle)
+        },
+        trailingContent = {
+            Text(text = "$minutes мин.")
+        }
+    )
+}
+```
+
+Иконка здесь декоративна относительно строки: title и subtitle уже объясняют содержимое. Если leading icon передает уникальный статус, его нужно описать или добавить статус в текст.
+
+## `HorizontalDivider`
+
+`HorizontalDivider` разделяет элементы по вертикали: например, строки в колонке.
+
+Параметры:
+
+- `modifier`;
+- `thickness`;
+- `color`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.HorizontalDivider
+
+@Composable
+fun LessonListPreview() {
+    Column {
+        LessonListItem(
+            title = "Text",
+            subtitle = "Вывод текста в Compose",
+            minutes = 18
+        )
+
+        HorizontalDivider()
+
+        LessonListItem(
+            title = "Button",
+            subtitle = "Действия и состояния",
+            minutes = 22
+        )
+    }
+}
+```
+
+## `VerticalDivider`
+
+`VerticalDivider` разделяет элементы в строке. Чтобы divider занял высоту строки, часто нужен `Modifier.height(IntrinsicSize.Min)` на родителе.
+
+```kotlin
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.VerticalDivider
+
+@Composable
+fun LessonMetadataRow(
+    minutes: Int,
+    difficulty: String
+) {
+    Row(
+        modifier = Modifier.height(IntrinsicSize.Min)
+    ) {
+        Text(text = "$minutes мин.")
+
+        VerticalDivider(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        Text(text = difficulty)
+    }
+}
+```
+
+## `Spacer`
+
+`Spacer` занимает пустое место. Он полезен, когда пустое пространство является явным элементом layout: фиксированный gap, flexible push, резерв под элемент.
+
+Фиксированный gap:
+
+```kotlin
+Row {
+    Text(text = "Урок")
+
+    Spacer(modifier = Modifier.width(8.dp))
+
+    Text(text = "18 мин.")
+}
+```
+
+Гибкий push:
+
+```kotlin
+Row(
+    modifier = Modifier.fillMaxWidth()
+) {
+    Text(text = "Прогресс")
+
+    Spacer(modifier = Modifier.weight(1f))
+
+    Text(text = "72%")
+}
+```
+
+Но если между всеми элементами одинаковый промежуток, чаще лучше `Arrangement.spacedBy`:
+
+```kotlin
+Column(
+    verticalArrangement = Arrangement.spacedBy(12.dp)
+) {
+    Text(text = "Заголовок")
+    Text(text = "Описание")
+    Text(text = "Подпись")
+}
+```
+
+<CatTip title="Котосовет: Spacer не должен заменять систему отступов">
+  Если в компоненте много случайных `Spacer(height = 7.dp)`, `Spacer(height =
+  13.dp)` и `Spacer(height = 19.dp)`, layout обычно нуждается в нормальной
+  spacing-шкале и `Arrangement.spacedBy`.
+</CatTip>
+
+## Полный пример: список уроков с контейнерами
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class LessonListState(
+    val moduleTitle: String,
+    val lessons: List<LessonListRowState>
+)
+
+@Immutable
+data class LessonListRowState(
+    val title: String,
+    val subtitle: String,
+    val minutes: Int
+)
+
+@Composable
+fun LessonListSection(
+    state: LessonListState,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = state.moduleTitle,
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column {
+                    state.lessons.forEachIndexed { index, lesson ->
+                        LessonListItem(
+                            title = lesson.title,
+                            subtitle = lesson.subtitle,
+                            minutes = lesson.minutes
+                        )
+
+                        if (index < state.lessons.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- внешний `Surface` задает фон секции;
+- `Column` управляет spacing между заголовком и карточкой;
+- `Card` группирует список как один блок;
+- `ListItem` отвечает за структуру строки;
+- `HorizontalDivider` разделяет строки, но не рисуется после последнего элемента;
+- `modifier` передан корневому контейнеру;
+- state immutable и не содержит mutable collections.
+
+## Как выбирать контейнер
+
+Выбирай по смыслу:
+
+- нужен фон, форма и content color без card-семантики — `Surface`;
+- нужен самостоятельный блок объекта — `Card`;
+- нужна визуальная приподнятость — `ElevatedCard`;
+- нужна спокойная рамка вместо elevation — `OutlinedCard`;
+- нужна строка списка с leading/trailing/supporting slots — `ListItem`;
+- нужна линия между элементами в колонке — `HorizontalDivider`;
+- нужна линия между элементами в строке — `VerticalDivider`;
+- нужно пустое место как layout-элемент — `Spacer`;
+- нужны одинаковые промежутки между детьми — `Arrangement.spacedBy`.
+
+## Типичные ошибки
+
+### Использовать `Card` для каждого section background
+
+Если блок не является самостоятельной карточкой, `Surface` или обычный layout может быть лучше.
+
+### Разделитель вместо отступа
+
+Divider показывает разделение сущностей. Если нужно просто больше воздуха, используй padding или spacing.
+
+### `Spacer` для каждого промежутка
+
+Для регулярных промежутков проще и чище `Arrangement.spacedBy`.
+
+### Не убирать divider после последнего элемента
+
+Линия после последней строки выглядит как оборванный список. Проверяй индекс или рисуй dividers между элементами.
+
+### Делать всю карточку кликабельной и кнопку внутри нее
+
+Вложенные click targets могут конфликтовать. Если карточка открывает детали, а кнопка внутри выполняет отдельное действие, проверь semantics, touch targets и ожидаемое поведение.
+
+## Итоги
+
+Контейнеры помогают UI быть понятным:
+
+- `Surface` задает Material-поверхность;
+- `Card` группирует самостоятельный контент;
+- `ElevatedCard` добавляет отделение через elevation;
+- `OutlinedCard` отделяет через рамку;
+- `ListItem` стандартизирует строки списков;
+- `HorizontalDivider` и `VerticalDivider` разделяют элементы;
+- `Spacer` создает явное пустое место;
+- `Arrangement.spacedBy` лучше для регулярного spacing;
+- контейнер выбирается по семантике, а не по привычке "надо чем-то обернуть".

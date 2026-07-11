@@ -1,0 +1,503 @@
+---
+title: "Material 3 foundation"
+description: "Разбираем фундамент Material 3 в Compose: MaterialTheme, ColorScheme, Typography, Shapes, Surface, dynamic color, роли цветов, контраст и правила построения дизайн-системы."
+order: 11
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое Material 3 в Compose
+
+Material 3 — это реализация Material Design 3 для Compose. Она дает готовые компоненты, тему, цветовые роли, типографику, формы, elevation, interaction states и accessibility defaults. В Compose Material 3 не является обязательным слоем: можно строить UI на foundation и собственной дизайн-системе. Но для Android-приложения Material 3 — самый практичный старт.
+
+Фундамент Material 3 держится на нескольких сущностях:
+
+- `MaterialTheme`;
+- `ColorScheme`;
+- `Typography`;
+- `Shapes`;
+- `Surface`;
+- defaults-объекты компонентов: `ButtonDefaults`, `CardDefaults`, `TextFieldDefaults` и другие;
+- CompositionLocal-значения вроде `LocalContentColor`.
+
+```kotlin
+MaterialTheme {
+    Surface {
+        Text(text = "Material 3 готов к работе")
+    }
+}
+```
+
+В этом маленьком коде уже есть тема, поверхность, цвет контента и типографика по умолчанию.
+
+## `MaterialTheme`
+
+`MaterialTheme` — корневой provider дизайн-системы. Он передает вниз по Composition:
+
+- `colorScheme`;
+- `typography`;
+- `shapes`;
+- content.
+
+```kotlin
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+
+@Composable
+fun KotlingoTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        content = content
+    )
+}
+```
+
+Если параметры не заданы, Material 3 использует значения по умолчанию. Для учебного старта это нормально, но production-приложение обычно задает хотя бы цветовую схему и типографику.
+
+## `ColorScheme`
+
+`ColorScheme` — набор смысловых цветовых ролей. Material 3 не просит тебя выбирать просто "синий" или "серый". Вместо этого ты выбираешь роль:
+
+- `primary` — главный акцент;
+- `onPrimary` — контент поверх `primary`;
+- `primaryContainer` — контейнер главного акцента;
+- `onPrimaryContainer` — контент поверх `primaryContainer`;
+- `secondary` — вторичный акцент;
+- `onSecondary` — контент поверх `secondary`;
+- `secondaryContainer` — контейнер вторичного акцента;
+- `onSecondaryContainer` — контент поверх `secondaryContainer`;
+- `tertiary` — третий акцент;
+- `onTertiary` — контент поверх `tertiary`;
+- `tertiaryContainer` — контейнер третьего акцента;
+- `onTertiaryContainer` — контент поверх `tertiaryContainer`;
+- `error` — ошибки;
+- `onError` — контент поверх `error`;
+- `errorContainer` — контейнер ошибки;
+- `onErrorContainer` — контент поверх `errorContainer`;
+- `background` — фон приложения;
+- `onBackground` — контент поверх фона;
+- `surface` — поверхность компонентов;
+- `onSurface` — контент поверх surface;
+- `surfaceVariant` — альтернативная поверхность;
+- `onSurfaceVariant` — вторичный контент поверх surface variant;
+- `outline` — границы и разделители;
+- `outlineVariant` — менее заметные границы;
+- `scrim` — затемняющий overlay;
+- `inverseSurface` — поверхность для обратной темы;
+- `inverseOnSurface` — контент поверх inverse surface;
+- `inversePrimary` — primary в обратной теме;
+- `surfaceTint` — tint для elevated surfaces.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ColorRoleExample() {
+    Text(
+        text = "Главный акцент",
+        color = MaterialTheme.colorScheme.primary
+    )
+}
+```
+
+<CatTip title="Котосовет: используй пары color/onColor">
+  Если контейнер окрашен в `primaryContainer`, текст поверх него почти всегда
+  должен быть `onPrimaryContainer`. Если контейнер `errorContainer`, контент
+  должен быть `onErrorContainer`. Так ты сохраняешь контраст и смысл роли.
+</CatTip>
+
+## Светлая и темная цветовые схемы
+
+```kotlin
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+
+private val KotlingoLightColorScheme = lightColorScheme(
+    primary = Color(0xFF2457D6),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFDCE5FF),
+    onPrimaryContainer = Color(0xFF001A44),
+    secondary = Color(0xFF58606F),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFDDE2F0),
+    onSecondaryContainer = Color(0xFF151B28),
+    tertiary = Color(0xFF006B5F),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFF8DF2E2),
+    onTertiaryContainer = Color(0xFF00201C),
+    error = Color(0xFFBA1A1A),
+    onError = Color.White,
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+    background = Color(0xFFFBFCFF),
+    onBackground = Color(0xFF191C20),
+    surface = Color(0xFFFBFCFF),
+    onSurface = Color(0xFF191C20),
+    surfaceVariant = Color(0xFFE1E2EC),
+    onSurfaceVariant = Color(0xFF44474F),
+    outline = Color(0xFF74777F)
+)
+
+private val KotlingoDarkColorScheme = darkColorScheme(
+    primary = Color(0xFFB5C7FF),
+    onPrimary = Color(0xFF002E6D),
+    primaryContainer = Color(0xFF00439B),
+    onPrimaryContainer = Color(0xFFDCE5FF),
+    secondary = Color(0xFFC1C6D5),
+    onSecondary = Color(0xFF2A303B),
+    secondaryContainer = Color(0xFF404653),
+    onSecondaryContainer = Color(0xFFDDE2F0),
+    tertiary = Color(0xFF70D5C7),
+    onTertiary = Color(0xFF003731),
+    tertiaryContainer = Color(0xFF005048),
+    onTertiaryContainer = Color(0xFF8DF2E2),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF111318),
+    onBackground = Color(0xFFE2E2E9),
+    surface = Color(0xFF111318),
+    onSurface = Color(0xFFE2E2E9),
+    surfaceVariant = Color(0xFF44474F),
+    onSurfaceVariant = Color(0xFFC4C6D0),
+    outline = Color(0xFF8E9099)
+)
+```
+
+Цвета здесь заданы явно, чтобы пример был завершенным. В реальном проекте палитра обычно приходит из дизайна, Material Theme Builder или tokens-файлов.
+
+## Dynamic color
+
+На Android 12+ можно использовать dynamic color, основанный на системной палитре пользователя. Это полезно для приложений, которые хотят органично вписываться в систему. Но dynamic color — продуктовая настройка, а не обязательное правило. Брендовые приложения часто оставляют собственную палитру.
+
+```kotlin
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+@Composable
+fun KotlingoTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val context = LocalContext.current
+
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> {
+            dynamicDarkColorScheme(context)
+        }
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !darkTheme -> {
+            dynamicLightColorScheme(context)
+        }
+        darkTheme -> {
+            KotlingoDarkColorScheme
+        }
+        else -> {
+            KotlingoLightColorScheme
+        }
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = KotlingoTypography,
+        shapes = KotlingoShapes,
+        content = content
+    )
+}
+```
+
+## `Typography`
+
+`Typography` хранит набор текстовых ролей. Material 3 использует 15 ролей: display, headline, title, body, label в размерах large, medium, small.
+
+```kotlin
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+private val KotlingoTypography = Typography(
+    headlineMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 28.sp,
+        lineHeight = 36.sp,
+        letterSpacing = 0.sp
+    ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 0.sp
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp
+    ),
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.1.sp
+    )
+)
+```
+
+Использование:
+
+```kotlin
+Text(
+    text = "Material 3",
+    style = MaterialTheme.typography.titleLarge
+)
+```
+
+## `Shapes`
+
+`Shapes` задает форму компонентов. В Material 3 есть шкала:
+
+- `extraSmall`;
+- `small`;
+- `medium`;
+- `large`;
+- `extraLarge`.
+
+```kotlin
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
+import androidx.compose.ui.unit.dp
+
+private val KotlingoShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(28.dp)
+)
+```
+
+Использование:
+
+```kotlin
+Card(
+    shape = MaterialTheme.shapes.medium
+) {
+    Text(text = "Карточка с формой из темы")
+}
+```
+
+## `Surface`
+
+`Surface` — фундаментальный Material-компонент. Он создает поверхность с цветом, формой, tonal elevation, shadow elevation, border и content color.
+
+Основные параметры:
+
+- `modifier` — внешнее размещение;
+- `shape` — форма поверхности;
+- `color` — цвет контейнера;
+- `contentColor` — цвет контента внутри;
+- `tonalElevation` — тональное изменение цвета поверхности в Material 3;
+- `shadowElevation` — физическая тень;
+- `border` — рамка;
+- `content` — содержимое.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun StatusSurface() {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        tonalElevation = 2.dp
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = "Урок доступен"
+        )
+    }
+}
+```
+
+`Text` внутри получает `contentColor` через `LocalContentColor`, если ему не задан другой цвет.
+
+<MouseTrap title="Мышеловка: случайные пары цветов ломают контраст">
+  Не ставь `contentColor = primaryContainer` поверх `tertiaryContainer` просто
+  потому, что цвета красиво выглядят рядом. В Material 3 роли `onPrimary`,
+  `onPrimaryContainer`, `onSurface` и похожие существуют именно для контраста.
+</MouseTrap>
+
+## `LocalContentColor`
+
+Material-компоненты часто задают content color для потомков. Например, `Surface(contentColor = MaterialTheme.colorScheme.onErrorContainer)` делает этот цвет доступным внутри. `Text` и `Icon` могут использовать его автоматически.
+
+`res/drawable/ic_warning_24.xml`:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M1,21h22L12,2 1,21zM13,18h-2v-2h2v2zM13,14h-2v-4h2v4z" />
+</vector>
+```
+
+Kotlin:
+
+```kotlin
+Surface(
+    color = MaterialTheme.colorScheme.errorContainer,
+    contentColor = MaterialTheme.colorScheme.onErrorContainer
+) {
+    Row(
+        modifier = Modifier.padding(16.dp)
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_warning_24),
+            contentDescription = null
+        )
+
+        Text(text = "Не удалось сохранить прогресс")
+    }
+}
+```
+
+Если `Icon` и `Text` не получают явный цвет, они используют content color поверхности.
+
+## Полный пример: дизайн-системный блок темы
+
+```kotlin
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun KotlingoThemePreviewBlock() {
+    KotlingoTheme(
+        dynamicColor = false
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Jetpack Compose",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    tonalElevation = 2.dp
+                ) {
+                    Text(
+                        modifier = Modifier.padding(16.dp),
+                        text = "Material 3 дает теме смысловые роли: цвет, текст и форма работают вместе."
+                    )
+                }
+            }
+        }
+    }
+}
+```
+
+Этот пример показывает главное: компоненты не выбирают случайные цвета. Они берут роли из `MaterialTheme`.
+
+## Defaults-объекты компонентов
+
+Многие Material 3 компоненты имеют companion defaults:
+
+- `ButtonDefaults`;
+- `CardDefaults`;
+- `TextFieldDefaults`;
+- `NavigationBarItemDefaults`;
+- `TopAppBarDefaults`;
+- `FloatingActionButtonDefaults`;
+- `FilterChipDefaults`;
+- `CheckboxDefaults`;
+- `SwitchDefaults`;
+- `SliderDefaults`.
+
+Они нужны, чтобы настраивать компонент в рамках его API, а не переписывать его с нуля.
+
+```kotlin
+Button(
+    onClick = onClick,
+    colors = ButtonDefaults.buttonColors(
+        containerColor = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary
+    )
+) {
+    Text(text = "Начать")
+}
+```
+
+## Когда не нужно переопределять тему
+
+Не каждая команда должна сразу создавать собственную палитру, 15 текстовых стилей и shape scale. Если проект маленький, можно начать с Material defaults и переопределять только то, что действительно нужно продукту:
+
+- primary color;
+- typography для headline/title/body;
+- shape scale для карточек и кнопок;
+- dynamic color policy.
+
+Переопределение ради переопределения создает больше поддержки, чем пользы.
+
+## Итоги
+
+Material 3 foundation дает Compose-приложению дизайн-системную основу:
+
+- `MaterialTheme` распространяет `colorScheme`, `typography` и `shapes`;
+- `ColorScheme` работает через смысловые роли, а не случайные цвета;
+- пары `container/onContainer` защищают контраст;
+- dynamic color можно включить на Android 12+, если это подходит продукту;
+- `Typography` задает type scale;
+- `Shapes` задает форму компонентов;
+- `Surface` связывает цвет, форму, elevation и content color;
+- defaults-объекты помогают кастомизировать компоненты без потери Material-поведения.

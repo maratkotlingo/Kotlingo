@@ -1,0 +1,577 @@
+---
+title: "Stability"
+description: "Разбираем stability в Jetpack Compose: stable, immutable и unstable types, compiler inference, strong skipping, @Stable, @Immutable, data classes, mutable collections, immutable collections, lambdas, state holders и чтение compiler reports."
+order: 102
+category: "Compose: Performance, stability and tooling"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое stability в Compose
+
+Stability — это модель, по которой Compose compiler и runtime решают, можно ли безопасно пропустить recomposition, когда параметры composable-функции "не изменились".
+
+Compose интересует:
+
+- может ли значение измениться незаметно;
+- можно ли сравнить старое и новое значение;
+- уведомит ли state system о важных изменениях;
+- можно ли доверять `equals`;
+- являются ли public properties стабильными;
+- есть ли mutable collections;
+- есть ли hidden mutable state.
+
+```kotlin
+data class LessonUi(
+    val id: String,
+    val title: String,
+    val completed: Boolean
+)
+```
+
+Такой тип обычно хорошо подходит для Compose: immutable properties, value equality, понятный snapshot.
+
+<CatTip>
+Stability — это не "быстрый код" сама по себе. Это контракт: Compose может доверять вашим значениям и пропускать работу, когда UI не должен измениться.
+</CatTip>
+
+## Stable, immutable, unstable
+
+Упрощенная модель:
+
+- immutable: значение не меняется после создания;
+- stable: значение может иметь state, но Compose узнает об изменениях;
+- unstable: Compose не может безопасно предположить, что значение не изменилось.
+
+Примеры immutable:
+
+```kotlin
+data class UserName(
+    val first: String,
+    val last: String
+)
+```
+
+Пример stable state holder:
+
+```kotlin
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+class CounterState(
+    initialValue: Int
+) {
+    var value by mutableStateOf(initialValue)
+        private set
+
+    fun increment() {
+        value += 1
+    }
+}
+```
+
+`CounterState` не immutable, но может быть stable, если все изменения observable через Compose state.
+
+Пример unstable:
+
+```kotlin
+data class BadCartUi(
+    val items: MutableList<CartItemUi>
+)
+```
+
+`MutableList` можно изменить без смены reference и без уведомления Compose.
+
+## Почему mutable collections опасны
+
+Плохо:
+
+```kotlin
+data class MessagesUiState(
+    val messages: MutableList<MessageUi>
+)
+```
+
+Где-то:
+
+```kotlin
+state.messages.add(newMessage)
+```
+
+Compose может не узнать, что list content изменился, если сама state reference не поменялась. Даже если recomposition случится по другой причине, skipping/stability будут хуже.
+
+Лучше:
+
+```kotlin
+data class MessagesUiState(
+    val messages: List<MessageUi>
+)
+```
+
+Update:
+
+```kotlin
+fun addMessage(
+    state: MessagesUiState,
+    newMessage: MessageUi
+): MessagesUiState {
+    return state.copy(
+        messages = state.messages + newMessage
+    )
+}
+```
+
+Для больших коллекций смотрите immutable persistent collections.
+
+## Immutable collections
+
+Обычный `List<T>` в Kotlin является read-only интерфейсом, но не гарантирует immutable implementation. Compose compiler может считать такие types unstable, потому что под интерфейсом может быть mutable list.
+
+Для stronger contract используйте Kotlinx immutable collections:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+
+@Immutable
+data class CatalogUiState(
+    val products: ImmutableList<ProductUi>
+)
+
+val emptyCatalog = CatalogUiState(
+    products = persistentListOf()
+)
+```
+
+Update:
+
+```kotlin
+fun CatalogUiState.addProduct(
+    product: ProductUi
+): CatalogUiState {
+    return copy(
+        products = products.add(product)
+    )
+}
+```
+
+Persistent collections дают value-like updates без копирования всей структуры как обычный `list + item` для больших data sets.
+
+## `@Immutable`
+
+`@Immutable` говорит Compose compiler: public properties этого типа immutable, и instance можно считать immutable value.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ProductUi(
+    val id: String,
+    val title: String,
+    val priceText: String,
+    val imageUrl: String?
+)
+```
+
+Не ставьте `@Immutable` как "ускоритель" на любой класс. Это обещание. Если внутри mutable state, вы обманываете compiler.
+
+Плохо:
+
+```kotlin
+@Immutable
+data class FakeImmutableUi(
+    val items: MutableList<String>
+)
+```
+
+Этот тип не immutable. Аннотация делает проблему тише, а не решает ее.
+
+<MouseTrap>
+`@Immutable` и `@Stable` — это не performance stickers. Это контракты с compiler. Нарушили контракт — получили странные stale UI bugs.
+</MouseTrap>
+
+## `@Stable`
+
+`@Stable` подходит для типов, которые могут изменяться, но Compose будет уведомлен о значимых изменениях.
+
+```kotlin
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+@Stable
+class SearchFieldState(
+    initialQuery: String = ""
+) {
+    var query by mutableStateOf(initialQuery)
+        private set
+
+    fun updateQuery(value: String) {
+        query = value
+    }
+
+    fun clear() {
+        query = ""
+    }
+}
+```
+
+Правило: если public property меняется, изменение должно быть observable для Compose, или property должна быть functionally stable.
+
+## Compiler inference
+
+Compose compiler сам выводит stability для многих типов:
+
+- primitives;
+- String;
+- enums;
+- stable/immutable data classes;
+- stable function types в определенных условиях;
+- Compose state types;
+- types с корректными annotations.
+
+Но compiler не всегда может доказать stability:
+
+- generic types;
+- external library types;
+- read-only collection interfaces;
+- mutable public properties;
+- interfaces с unknown implementations;
+- Java types.
+
+```kotlin
+data class ExternalProfileUi(
+    val profile: JavaProfile
+)
+```
+
+Если `JavaProfile` mutable или compiler ничего не знает о нем, весь `ExternalProfileUi` может стать unstable. В таких случаях делайте UI DTO:
+
+```kotlin
+@Immutable
+data class ProfileUi(
+    val id: String,
+    val displayName: String,
+    val avatarUrl: String?
+)
+```
+
+## Strong skipping
+
+Strong skipping — режим Compose compiler, который расширяет возможности skipping даже для некоторых unstable parameters, если runtime может сравнить references/values безопасным образом.
+
+Практический смысл:
+
+- меньше recomposition в типичных cases;
+- lambdas чаще remembered compiler-ом;
+- unstable parameter не всегда автоматически означает "все плохо";
+- но stability contract все равно важен.
+
+Не используйте strong skipping как повод передавать mutable models в UI.
+
+```kotlin
+data class MutableProfile(
+    var name: String,
+    var email: String
+)
+```
+
+Даже если skipping стал лучше, этот тип все равно опасен: изменение `name` может произойти без state notification.
+
+## Lambdas и stability
+
+Callbacks часто передаются вниз:
+
+```kotlin
+@Composable
+fun ProductRow(
+    product: ProductUi,
+    onClick: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier.clickable {
+            onClick(product.id)
+        }
+    ) {
+        Text(text = product.title)
+    }
+}
+```
+
+Это нормальный Compose code. Не надо преждевременно превращать каждую lambda в remembered object.
+
+Если lambda создается в hot list и захватывает unstable object, смотрите compiler metrics и фактические recompositions.
+
+Хороший pattern:
+
+```kotlin
+items(
+    items = products,
+    key = { product ->
+        product.id
+    }
+) { product ->
+    ProductRow(
+        product = product,
+        onClick = {
+            onProductClick(product.id)
+        }
+    )
+}
+```
+
+Если появились проблемы, измеряйте. Не переписывайте все callbacks на event objects без сигнала.
+
+## Stable state holders
+
+State holder может быть stable:
+
+```kotlin
+@Stable
+class PagerUiState(
+    initialPage: Int = 0
+) {
+    var currentPage by mutableStateOf(initialPage)
+        private set
+
+    val canGoBack: Boolean
+        get() = currentPage > 0
+
+    fun goToPage(page: Int) {
+        currentPage = page.coerceAtLeast(0)
+    }
+}
+```
+
+Composable:
+
+```kotlin
+@Composable
+fun PagerControls(
+    state: PagerUiState
+) {
+    Button(
+        enabled = state.canGoBack,
+        onClick = {
+            state.goToPage(state.currentPage - 1)
+        }
+    ) {
+        Text(text = "Назад")
+    }
+}
+```
+
+Если `canGoBack` зависит от `currentPage`, Compose будет пересчитывать места, где state read произошел.
+
+## Interfaces
+
+Interface parameters часто unstable, потому что compiler не знает реализацию.
+
+```kotlin
+interface PriceFormatter {
+    fun format(cents: Long): String
+}
+```
+
+Передавать formatter в UI можно, но если он идет в hot path, подумайте:
+
+- можно ли format сделать выше;
+- можно ли передать готовый `priceText`;
+- можно ли сделать implementation stable singleton;
+- есть ли реальная performance проблема.
+
+```kotlin
+@Immutable
+data class ProductUi(
+    val id: String,
+    val title: String,
+    val priceText: String
+)
+```
+
+UI DTO часто лучше, чем передача domain/service objects в composables.
+
+## Java и platform types
+
+Java types часто mutable и неизвестны compiler:
+
+```kotlin
+@Composable
+fun ContactCard(
+    contact: android.provider.ContactsContract.CommonDataKinds.Email
+) {
+    // Такой API не должен попадать прямо в слой интерфейса.
+}
+```
+
+Мапьте platform/domain model в UI model:
+
+```kotlin
+@Immutable
+data class ContactEmailUi(
+    val label: String,
+    val address: String
+)
+```
+
+UI models должны быть маленькими, immutable и oriented на rendering.
+
+## Stability reports
+
+Compose compiler reports помогают увидеть:
+
+- какие composables restartable/skippable;
+- какие parameters stable/unstable;
+- какие types считаются unstable;
+- почему skipping невозможен.
+
+Пример Gradle configuration:
+
+```kotlin
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose_compiler/reports")
+    metricsDestination = layout.buildDirectory.dir("compose_compiler/metrics")
+}
+```
+
+Файлы reports нужно читать как diagnostic tool, а не как список "все исправить немедленно". Не каждый unstable parameter важен для performance.
+
+## Как исправлять unstable type
+
+Порядок действий:
+
+- измерить, что есть проблема;
+- открыть compiler report;
+- найти hot composable;
+- понять, какой parameter unstable;
+- заменить mutable model на UI DTO;
+- убрать mutable collections;
+- добавить immutable collections;
+- добавить `@Immutable`/`@Stable` только если контракт честный;
+- повторить измерение.
+
+```kotlin
+data class BadUiState(
+    val filters: MutableMap<String, String>,
+    val items: List<Product>
+)
+```
+
+Исправление:
+
+```kotlin
+@Immutable
+data class ProductListUiState(
+    val filters: ImmutableMap<String, String>,
+    val items: ImmutableList<ProductUi>
+)
+```
+
+Такой state честнее для Compose и проще для tests.
+
+## Когда не надо бороться
+
+Не каждый unstable type требует исправления:
+
+- composable редко вызывается;
+- screen маленький;
+- parameter почти никогда не меняется;
+- bottleneck в draw/layout/network, а не composition;
+- strong skipping уже решает practical issue;
+- исправление ухудшит architecture.
+
+Performance engineering — это trade-off, а не охота на слово `unstable`.
+
+## Testing stability assumptions
+
+Stability bugs часто проявляются как stale UI. Тестируйте state updates:
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import org.junit.Rule
+import org.junit.Test
+
+class StabilityUpdateTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun immutableStateUpdate_updatesUi() {
+        val state = mutableStateOf(
+            ProductUi(
+                id = "1",
+                title = "Старое название",
+                priceText = "100 ₽",
+                imageUrl = null
+            )
+        )
+
+        composeRule.setContent {
+            ProductTitle(product = state.value)
+        }
+
+        composeRule
+            .onNodeWithText("Старое название")
+            .assertExists()
+
+        state.value = state.value.copy(
+            title = "Новое название"
+        )
+
+        composeRule
+            .onNodeWithText("Новое название")
+            .assertExists()
+    }
+}
+```
+
+Если вы используете mutable objects, такой тест может помочь поймать отсутствие notification.
+
+## Типичные ошибки
+
+### Передавать mutable collections
+
+Compose не может доверять таким параметрам.
+
+### Ставить `@Immutable` на mutable тип
+
+Это ломает контракт и может дать stale UI.
+
+### Борьба со всеми unstable reports
+
+Исправляйте hot paths, а не все красное подряд.
+
+### Передавать domain/service objects в UI
+
+UI model должна быть rendering-friendly и stable.
+
+### Мутировать object in place
+
+Лучше создавать новое immutable value и обновлять state reference.
+
+### Думать, что strong skipping отменяет архитектуру
+
+Он улучшает runtime behavior, но не делает mutable model безопасной.
+
+## Итоги
+
+Stability помогает Compose безопасно пропускать работу:
+
+- immutable values легче всего для compiler и runtime;
+- stable state holders могут меняться, если изменения observable;
+- mutable collections и Java/platform types часто делают параметры unstable;
+- `@Immutable` и `@Stable` являются контрактами, а не ускорителями;
+- immutable persistent collections помогают с большими списками;
+- compiler inference хорош, но не всесилен;
+- strong skipping улучшает skipping, но не заменяет честную state model;
+- UI DTO обычно лучше domain/service objects в composables;
+- compiler reports нужно читать вместе с measurements;
+- оптимизируйте stability там, где есть user-visible performance signal.

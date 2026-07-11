@@ -1,0 +1,520 @@
+---
+title: "Recomposition diagnostics"
+description: "Разбираем диагностику recomposition в Jetpack Compose: Layout Inspector recomposition counters, skipped counts, Composition tracing, Compose compiler reports, stability metrics, чтение CSV/TXT отчетов, trace-гипотезы и production workflow."
+order: 103
+category: "Compose: Performance, stability and tooling"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем диагностировать recomposition
+
+Recomposition — нормальная часть Compose. UI пересчитывается, когда state изменился. Проблемой recomposition становится, когда она:
+
+- происходит слишком часто;
+- захватывает слишком большую часть дерева;
+- выполняет дорогую работу;
+- мешает scrolling/animations/input;
+- не происходит там, где UI должен обновиться;
+- скрывает настоящую проблему в layout/draw/main-thread work.
+
+Диагностика нужна не для того, чтобы "сделать recomposition count равным нулю". Цель — понять, где Compose тратит время и почему пользователь видит jank или stale UI.
+
+```kotlin
+data class RecompositionObservation(
+    val screen: String,
+    val interaction: String,
+    val composable: String,
+    val recompositions: Int,
+    val skips: Int,
+    val userVisibleProblem: String?
+)
+```
+
+Такой формат полезен даже в заметках к performance PR: вы фиксируете наблюдение, а не только ощущение.
+
+<CatTip>
+Высокий счетчик recomposition — это сигнал для расследования, не приговор. Иногда composable пересчитывается часто, но стоит дешево и не влияет на кадр.
+</CatTip>
+
+## Layout Inspector counters
+
+Android Studio Layout Inspector умеет показывать:
+
+- composition/recomposition counts;
+- skipped counts;
+- component tree;
+- selected composable parameters;
+- dimensions;
+- semantics tree.
+
+Workflow:
+
+- запустите приложение на emulator или physical device;
+- откройте Layout Inspector;
+- подключитесь к process;
+- включите recomposition counts, если колонки скрыты;
+- выполните конкретное interaction: scroll, typing, opening sheet;
+- смотрите, какие nodes recomposed/skipped;
+- reset counters перед повторным interaction.
+
+Что искать:
+
+- item списка recomposes при каждом pixel scroll;
+- весь screen recomposes из-за одного timer;
+- header recomposes вместе с body без причины;
+- button recomposes из-за unstable callback;
+- composable не skipped, хотя inputs не меняются;
+- composable не recomposes, хотя UI должен измениться.
+
+```kotlin
+data class InspectorCheck(
+    val interactionName: String,
+    val resetCountersBeforeInteraction: Boolean = true,
+    val expectedHotNodes: Set<String>,
+    val unexpectedHotNodes: Set<String>
+)
+```
+
+Если вы не сбрасываете counters перед interaction, старые numbers смешиваются с новыми и теряют смысл.
+
+## Как читать recomposition и skip counts
+
+Высокий recomposition count может быть нормальным:
+
+- animation-driven UI;
+- progress indicator;
+- dragging;
+- clock/timer;
+- text input field;
+- focused item на TV.
+
+Низкий skip count не всегда плох:
+
+- composable почти всегда имеет изменяющиеся parameters;
+- composable не является skippable из-за структуры;
+- composable дешевый;
+- screen редко обновляется.
+
+Плохой сигнал:
+
+- при scroll всего списка recomposes screen root;
+- каждый item recomposes от изменения одного selected item;
+- expensive image card recomposes при hover соседней карточки;
+- timer в toolbar пересчитывает весь dashboard;
+- параметры unstable без причины.
+
+```kotlin
+fun isSuspiciousRecomposition(
+    recompositions: Int,
+    skips: Int,
+    expectedToChange: Boolean
+): Boolean {
+    if (expectedToChange) {
+        return false
+    }
+
+    return recompositions > 10 && skips == 0
+}
+```
+
+Это не универсальная формула, а напоминание: интерпретация зависит от interaction.
+
+## Debug build caveat
+
+Layout Inspector работает с debuggable build и добавляет tooling overhead. Он отлично подходит, чтобы понять, где происходит recomposition, но не является финальным performance measurement.
+
+Для финальной оценки нужны:
+
+- release-like build;
+- Macrobenchmark;
+- System Trace;
+- baseline profile state;
+- реальные devices.
+
+<MouseTrap>
+Layout Inspector говорит "что recomposes", но не доказывает "из-за этого кадры падают". Для кадра нужен trace или benchmark.
+</MouseTrap>
+
+## Composition tracing
+
+Composition tracing добавляет composable function names в system trace. Это помогает связать frame cost с конкретными composables.
+
+Обычный system trace показывает:
+
+- main thread;
+- RenderThread;
+- Choreographer;
+- measure/layout/draw;
+- binder calls;
+- GC;
+- scheduling.
+
+Composition tracing добавляет Compose-specific детали:
+
+- composable functions в trace;
+- source location;
+- flame chart;
+- composition work inside frame.
+
+Пример зависимости для tracing в debug/perf build:
+
+```kotlin
+dependencies {
+    debugImplementation("androidx.compose.runtime:runtime-tracing")
+}
+```
+
+В Gradle setup конкретная конфигурация зависит от проекта. Главное: tracing включают в диагностических сборках, а не как permanent production overhead.
+
+## Trace-гипотеза
+
+Перед trace сформулируйте гипотезу:
+
+```kotlin
+data class TraceHypothesis(
+    val scenario: String,
+    val expectedIssue: String,
+    val expectedTraceSignal: String
+)
+```
+
+Пример:
+
+```kotlin
+val hypothesis = TraceHypothesis(
+    scenario = "Быстрый scroll каталога",
+    expectedIssue = "Карточки товара выполняют дорогую composition",
+    expectedTraceSignal = "ProductCard появляется в main thread slice внутри janky frames"
+)
+```
+
+После trace проверяйте:
+
+- есть ли long frames;
+- какие slices внутри long frame;
+- composition/layout/draw/other main thread;
+- есть ли GC;
+- есть ли image decode;
+- какие composables в flame chart;
+- повторяется ли сигнал на нескольких runs.
+
+## Compose compiler reports
+
+Compose compiler reports показывают, как compiler видит ваши composables и types:
+
+- restartable;
+- skippable;
+- stable/unstable parameters;
+- inferred stability types;
+- lambdas;
+- metrics summary.
+
+Пример настройки:
+
+```kotlin
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose_compiler/reports")
+    metricsDestination = layout.buildDirectory.dir("compose_compiler/metrics")
+}
+```
+
+После сборки смотрите файлы в `build/compose_compiler`.
+
+Типичные reports:
+
+- `*-composables.txt`;
+- `*-classes.txt`;
+- `*-module.json`;
+- metrics CSV/TXT, если включены.
+
+Формат зависит от версии Compose compiler plugin, поэтому не пишите fragile scripts, которые ломаются при каждом update.
+
+## Reading composables report
+
+В report вы можете увидеть строки наподобие:
+
+```text
+restartable skippable scheme("[androidx.compose.ui.UiComposable]") fun ProductCard(
+  stable product: ProductUi
+  stable onClick: Function1<Long, Unit>
+)
+```
+
+Хороший знак:
+
+- `restartable`;
+- `skippable`;
+- stable parameters;
+- UI DTO вместо mutable domain object.
+
+Подозрительный знак:
+
+```text
+restartable scheme("[androidx.compose.ui.UiComposable]") fun ProductCard(
+  unstable product: Product
+)
+```
+
+Это не значит "срочно чинить". Это значит: если `ProductCard` hot и recomposes часто, проверьте `Product`.
+
+## Reading classes report
+
+Classes report помогает понять, почему type unstable.
+
+Пример плохой модели:
+
+```kotlin
+data class Product(
+    val id: Long,
+    val title: String,
+    val tags: MutableList<String>
+)
+```
+
+В report вы ожидаемо увидите instability из-за `MutableList`.
+
+Исправление:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import kotlinx.collections.immutable.ImmutableList
+
+@Immutable
+data class ProductUi(
+    val id: Long,
+    val title: String,
+    val tags: ImmutableList<String>
+)
+```
+
+Отчет должен стать чище, но главное — проверить, улучшилось ли user-visible behavior.
+
+## Metrics как trend, не абсолют
+
+Compiler metrics полезны для tracking:
+
+- количество restartable composables;
+- количество skippable composables;
+- количество readonly/composable lambdas;
+- стабильность argument types;
+- изменение после refactor.
+
+Не делайте CI gate вида "unstable == 0". В реальном приложении будут platform types, external objects, callback interfaces и cases, где instability не важна.
+
+Лучше следить за regression в critical modules:
+
+```kotlin
+data class ComposeMetricsSnapshot(
+    val moduleName: String,
+    val skippableComposables: Int,
+    val restartableComposables: Int,
+    val knownUnstableHotTypes: List<String>
+)
+```
+
+## Diagnosing stale UI
+
+Диагностика нужна не только при лишней recomposition, но и когда UI не обновляется.
+
+Частые причины stale UI:
+
+- mutable object изменили in place;
+- mutable collection внутри state;
+- `@Stable`/`@Immutable` поставлены неправильно;
+- `remember` key неполный;
+- `derivedStateOf` remembered с неправильными keys;
+- state read спрятан вне observable state;
+- list item key совпадает у разных items.
+
+Плохо:
+
+```kotlin
+data class CartUiState(
+    val items: MutableList<CartItemUi>
+)
+
+fun addItem(
+    state: CartUiState,
+    item: CartItemUi
+) {
+    state.items.add(item)
+}
+```
+
+Лучше:
+
+```kotlin
+data class CartUiState(
+    val items: List<CartItemUi>
+)
+
+fun CartUiState.withAddedItem(
+    item: CartItemUi
+): CartUiState {
+    return copy(
+        items = items + item
+    )
+}
+```
+
+## Local recomposition probes
+
+Иногда полезно временно добавить debug probe.
+
+```kotlin
+import android.util.Log
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
+
+@Composable
+fun RecompositionLog(
+    tag: String
+) {
+    val counter = remember {
+        Counter()
+    }
+
+    SideEffect {
+        counter.value += 1
+        Log.d(
+            "Recomposition",
+            "$tag recomposed ${counter.value} раз"
+        )
+    }
+}
+
+private class Counter {
+    var value: Int = 0
+}
+```
+
+Используйте такой код только временно. Он сам добавляет работу и может исказить поведение.
+
+## `Modifier.recomposeHighlighter`
+
+В debug builds можно использовать visual highlighter, который мигает при recomposition. Такой modifier обычно пишут в debug source set.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun Modifier.debugRecomposeHighlighter(
+    enabled: Boolean
+): Modifier {
+    return if (enabled) {
+        this.then(recomposeHighlighter())
+    } else {
+        this
+    }
+}
+```
+
+Реализация highlighter может использовать `drawWithCache`/state и debug colors. Не оставляйте ее в production UI без флага.
+
+## Common investigation recipes
+
+### Scroll jank
+
+Проверьте:
+
+- Layout Inspector counters у root и item;
+- keys/contentType;
+- image decode;
+- nested lazy layouts;
+- trace на long frames;
+- lazy item allocations;
+- expensive formatting in item.
+
+### Typing lag
+
+Проверьте:
+
+- recomposition всей form на каждый символ;
+- validation/sorting в composition;
+- state hoisting слишком высоко;
+- `derivedStateOf` там, где нужна debounce;
+- text field state model.
+
+### Animation jank
+
+Проверьте:
+
+- state read в composition вместо draw/layout;
+- heavy draw;
+- offscreen layers;
+- shadows/blur;
+- allocation in animation frame;
+- trace with composition tracing.
+
+### Stale item after update
+
+Проверьте:
+
+- mutable collections;
+- wrong lazy keys;
+- incorrect `remember(key)`;
+- misused `@Stable`;
+- object mutated in place.
+
+## Performance note template
+
+Удобно фиксировать результаты так:
+
+```text
+Сценарий: scroll каталога вниз на 5 экранов
+Build: release, Pixel 8, Android 15
+Симптом: p95 frame time 28 ms
+Наблюдение Layout Inspector: ProductCard recomposes при каждом scroll offset
+Trace: long frames содержат ProductCard composition и image placeholder allocation
+Гипотеза: item читает scroll state через parent lambda
+Изменение: перенесен state read в header, добавлены item contentType
+Результат: p95 frame time 17 ms
+Остаточный риск: image loading еще требует отдельного benchmark
+```
+
+Такой note делает performance fix проверяемым.
+
+## Типичные ошибки
+
+### Читать counters без сценария
+
+Счетчики без конкретного interaction мало что говорят.
+
+### Пугаться любого recomposition
+
+Recomposition может быть дешевой и ожидаемой.
+
+### Игнорировать skipped count
+
+Skips показывают, что compiler/runtime могут пропускать работу.
+
+### Делать вывод по debug performance
+
+Debug полезен для диагностики, но не для финального timing.
+
+### Верить compiler reports без trace
+
+Unstable parameter не всегда является bottleneck.
+
+### Оставлять debug probes в production
+
+Логирование recomposition само может стать performance problem.
+
+## Итоги
+
+Recomposition diagnostics — это набор инструментов и дисциплина:
+
+- Layout Inspector показывает recomposition/skipped counts и помогает найти hot nodes;
+- counters нужно читать в контексте конкретного interaction;
+- composition tracing связывает composables с system trace;
+- compiler reports показывают skippable/restartable и stable/unstable параметры;
+- metrics полезны как trend, но не как абсолютная цель;
+- stale UI часто связан с mutable state или неверным stability contract;
+- debug probes полезны временно;
+- финальные выводы делайте по release-like trace/benchmark;
+- performance fix должен иметь гипотезу, измерение до и после.

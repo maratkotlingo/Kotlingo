@@ -1,0 +1,1059 @@
+---
+title: "Animatable"
+description: "Разбираем Animatable в Jetpack Compose: coroutine-driven animation, animateTo, snapTo, stop, animateDecay, updateBounds, velocity, cancellation, gestures, sequences, Color и custom type converters."
+order: 66
+category: "Compose: Animation and motion"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `Animatable`
+
+`Animatable` — низкоуровневый value holder для coroutine-driven анимации одного значения. В отличие от `animate*AsState`, он не запускается сам от `targetValue` в параметрах composable. Вы создаете `Animatable`, запоминаете его через `remember`, а затем вручную вызываете suspend-функции: `animateTo`, `snapTo`, `animateDecay`, `stop`, `updateBounds`.
+
+`Animatable` нужен, когда анимация является действием во времени:
+
+- sequence из нескольких шагов;
+- реакция на gesture;
+- fling или decay;
+- drag with snap back;
+- animation, стартующая из event handler;
+- ручная отмена;
+- мгновенный `snapTo`;
+- bounds;
+- синхронизация с pointer input;
+- custom animation type.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ColorStatusBox(
+    success: Boolean
+) {
+    val color = remember {
+        Animatable(Color.Gray)
+    }
+
+    LaunchedEffect(success) {
+        color.animateTo(
+            targetValue = if (success) {
+                Color.Green
+            } else {
+                Color.Red
+            },
+            animationSpec = tween(durationMillis = 300)
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .size(80.dp)
+            .background(color.value)
+    )
+}
+```
+
+Здесь animation запускается внутри `LaunchedEffect`. Если `success` изменится, предыдущая coroutine будет отменена, и новый `animateTo` начнет движение к новому цвету.
+
+<CatTip>
+`Animatable` — это не "более правильный animate*AsState". Это инструмент для случаев, где вам нужен ручной coroutine-контроль: последовательность, жест, decay, stop или snap.
+</CatTip>
+
+## `Animatable` против `animate*AsState`
+
+Используйте `animate*AsState`, если:
+
+- есть один target value;
+- target полностью определяется state;
+- не нужна ручная последовательность;
+- не нужна работа с gesture velocity;
+- не нужно мгновенно snap-нуть значение;
+- не нужно вручную остановить animation.
+
+Используйте `Animatable`, если:
+
+- animation запускается из coroutine;
+- нужно несколько `animateTo` подряд;
+- нужно `snapTo` во время drag;
+- нужен `animateDecay` после fling;
+- нужно ограничить значение bounds;
+- нужно отменить animation;
+- начальное значение отличается от первого target;
+- animation state нужен вне composable animation helper.
+
+<MouseTrap>
+Не заменяйте все `animate*AsState` на `Animatable`. Ручное управление делает код длиннее и требует думать о scope, cancellation и lifecycle.
+</MouseTrap>
+
+## Создание и чтение значения
+
+`Animatable` создают через `remember`, чтобы объект не пересоздавался на каждую recomposition.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun rememberPanelOffset(): Animatable<Float, androidx.compose.animation.core.AnimationVector1D> {
+    return remember {
+        Animatable(0f)
+    }
+}
+```
+
+У `Animatable` есть важные свойства:
+
+- `value`: текущее значение;
+- `targetValue`: текущий target;
+- `velocity`: текущая velocity;
+- `isRunning`: выполняется ли animation;
+- bounds, если они заданы через `updateBounds`.
+
+В UI обычно читают `animatable.value`.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
+
+@Composable
+fun OffsetBox() {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(64.dp)
+    )
+}
+```
+
+Чтение `value` является snapshot read. Когда значение меняется во время animation, Compose обновляет UI.
+
+## `animateTo`
+
+`animateTo` — suspend-функция, которая анимирует текущее значение к target.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@Composable
+fun SlideOnClickBox() {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+    val scope = rememberCoroutineScope()
+
+    Button(
+        onClick = {
+            scope.launch {
+                offsetX.animateTo(
+                    targetValue = 180f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
+            }
+        }
+    ) {
+        Text(text = "Сдвинуть")
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(56.dp)
+    )
+}
+```
+
+`rememberCoroutineScope` подходит для user event handlers. `LaunchedEffect` подходит для реакции на state changes.
+
+## Cancellation и interruption
+
+Если новый `animateTo` стартует на том же `Animatable`, текущая animation отменяется. Новая animation начинает движение от текущего value и текущей velocity. Это дает плавный interruption.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
+
+@Composable
+fun TargetDrivenAnimatableBox(
+    expanded: Boolean
+) {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+
+    LaunchedEffect(expanded) {
+        offsetX.animateTo(
+            targetValue = if (expanded) {
+                220f
+            } else {
+                0f
+            },
+            animationSpec = spring()
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(64.dp)
+    )
+}
+```
+
+Если вам нужен только такой target-driven сценарий, чаще выбирайте `animateFloatAsState`. Этот пример показывает interruption mechanics, но не является рекомендацией для простого case.
+
+## `snapTo`
+
+`snapTo` мгновенно устанавливает значение без плавной animation. Это особенно полезно во время drag: палец движется, значение должно следовать сразу.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@Composable
+fun DraggableSnapBox() {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+    val scope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(72.dp)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+
+                        scope.launch {
+                            // Во время drag значение должно следовать пальцу без tween.
+                            offsetX.snapTo(
+                                offsetX.value + dragAmount.x
+                            )
+                        }
+                    },
+                    onDragEnd = {
+                        scope.launch {
+                            // После отпускания возвращаем элемент плавно.
+                            offsetX.animateTo(0f)
+                        }
+                    }
+                )
+            }
+    )
+}
+```
+
+Для production gesture code часто используют `coroutineScope` прямо внутри `pointerInput`, чтобы не создавать много независимых jobs. Ниже будет более аккуратный вариант.
+
+## Pointer input и coroutine scope
+
+Внутри `pointerInput` можно использовать suspend APIs и локальный coroutine scope. Это помогает последовательно остановить animation, принимать drag и вернуть элемент.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@Composable
+fun PressDragReturnBox() {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(72.dp)
+            .pointerInput(Unit) {
+                coroutineScope {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+
+                        // Если элемент возвращался назад, drag должен остановить эту анимацию.
+                        offsetX.stop()
+
+                        drag(down.id) { change ->
+                            launch {
+                                offsetX.snapTo(
+                                    offsetX.value + change.positionChange().x
+                                )
+                            }
+                            change.consume()
+                        }
+
+                        launch {
+                            offsetX.animateTo(
+                                targetValue = 0f,
+                                animationSpec = spring()
+                            )
+                        }
+                    }
+                }
+            }
+    )
+}
+```
+
+Жесты требуют особой аккуратности: pointer input уже является suspend-миром, и запуск jobs должен быть осознанным.
+
+## `stop`
+
+`stop` останавливает текущую animation, оставляя значение там, где оно находится.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun StopAnimationButton() {
+    val progress = remember {
+        Animatable(0f)
+    }
+    val scope = rememberCoroutineScope()
+
+    Button(
+        onClick = {
+            scope.launch {
+                progress.stop()
+            }
+        }
+    ) {
+        Text(text = "Остановить на ${progress.value}")
+    }
+}
+```
+
+`stop` отличается от `snapTo`: он не меняет значение на новое, а только отменяет движение.
+
+## `updateBounds`
+
+`updateBounds` задает нижнюю и верхнюю границы значения. Если animation пытается выйти за пределы, `Animatable` ограничит value.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
+
+@Composable
+fun BoundedPanel(
+    targetOffset: Float
+) {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+
+    LaunchedEffect(Unit) {
+        offsetX.updateBounds(
+            lowerBound = 0f,
+            upperBound = 320f
+        )
+    }
+
+    LaunchedEffect(targetOffset) {
+        offsetX.animateTo(targetOffset)
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(64.dp)
+    )
+}
+```
+
+Bounds особенно полезны для gestures, где пользователь может тащить элемент за допустимый диапазон.
+
+## `animateDecay`
+
+`animateDecay` запускает decay animation от начальной velocity. Это полезно для fling-like поведения. Обычно velocity приходит из gesture tracking.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.exponentialDecay
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@Composable
+fun DecayDemoBox() {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+    val scope = rememberCoroutineScope()
+    val decay = remember {
+        exponentialDecay<Float>()
+    }
+
+    androidx.compose.material3.Button(
+        onClick = {
+            scope.launch {
+                offsetX.animateDecay(
+                    initialVelocity = 2_400f,
+                    animationSpec = decay
+                )
+            }
+        }
+    ) {
+        androidx.compose.material3.Text(text = "Fling")
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(56.dp)
+    )
+}
+```
+
+В реальном drag/fling лучше использовать velocity tracker или gesture APIs, которые дают velocity. Постоянная velocity в примере нужна только для демонстрации.
+
+## Sequence animation
+
+`Animatable` отлично подходит для последовательностей.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@Composable
+fun ShakeOnErrorBox() {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+    val scope = rememberCoroutineScope()
+
+    androidx.compose.material3.Button(
+        onClick = {
+            scope.launch {
+                offsetX.snapTo(0f)
+                offsetX.animateTo(
+                    targetValue = -18f,
+                    animationSpec = tween(durationMillis = 45)
+                )
+                offsetX.animateTo(
+                    targetValue = 18f,
+                    animationSpec = tween(durationMillis = 90)
+                )
+                offsetX.animateTo(
+                    targetValue = -10f,
+                    animationSpec = tween(durationMillis = 70)
+                )
+                offsetX.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 70)
+                )
+            }
+        }
+    ) {
+        androidx.compose.material3.Text(text = "Показать ошибку")
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .size(120.dp)
+    )
+}
+```
+
+Такую sequence трудно выразить через `animate*AsState`, потому что здесь нет одного target state. Есть сценарий из нескольких шагов.
+
+## Press animation
+
+Нажатие часто требует быстрого `animateTo` вниз и возврата после release.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+@Composable
+fun PressScaleCard() {
+    val scale = remember {
+        Animatable(1f)
+    }
+    val scope = rememberCoroutineScope()
+
+    Surface(
+        modifier = Modifier
+            .size(120.dp)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        val pressJob = scope.launch {
+                            scale.animateTo(
+                                targetValue = 0.96f,
+                                animationSpec = spring()
+                            )
+                        }
+
+                        tryAwaitRelease()
+
+                        pressJob.cancel()
+
+                        scope.launch {
+                            scale.animateTo(
+                                targetValue = 1f,
+                                animationSpec = spring()
+                            )
+                        }
+                    }
+                )
+            }
+    ) {
+        Box(modifier = Modifier.size(1.dp))
+    }
+}
+```
+
+Для обычных кнопок Material ripple и interaction states уже решают большую часть задач. Такой custom press scale нужен для специальных компонентов.
+
+## Color и custom converters
+
+`Animatable` поддерживает `Float` и `Color` через готовые converters. Для custom type нужен `TwoWayConverter`.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.TwoWayConverter
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+data class Point2D(
+    val x: Float,
+    val y: Float
+)
+
+val Point2DConverter = TwoWayConverter<Point2D, AnimationVector2D>(
+    convertToVector = { point ->
+        AnimationVector2D(
+            v1 = point.x,
+            v2 = point.y
+        )
+    },
+    convertFromVector = { vector ->
+        Point2D(
+            x = vector.v1,
+            y = vector.v2
+        )
+    }
+)
+
+@Composable
+fun AnimatedPointCanvas(
+    target: Point2D
+) {
+    val point = remember {
+        Animatable(
+            initialValue = Point2D(
+                x = 40f,
+                y = 40f
+            ),
+            typeConverter = Point2DConverter
+        )
+    }
+
+    LaunchedEffect(target) {
+        point.animateTo(target)
+    }
+
+    Canvas(
+        modifier = Modifier.size(200.dp)
+    ) {
+        drawCircle(
+            color = Color.Magenta,
+            radius = 12.dp.toPx(),
+            center = Offset(
+                x = point.value.x,
+                y = point.value.y
+            )
+        )
+    }
+}
+```
+
+Custom type должен быть численно интерполируемым. Если тип содержит business fields, строки или nested collections, он обычно не подходит для `Animatable`.
+
+## Production-пример: swipe to dismiss
+
+Соберем упрощенный swipe-to-dismiss. В реальном продукте лучше рассмотреть готовые Material/Foundation APIs, если они подходят, но этот пример показывает механику `Animatable`.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+@Composable
+fun SwipeDismissCard(
+    title: String,
+    dismissThresholdPx: Float,
+    onDismissed: () -> Unit
+) {
+    val offsetX = remember {
+        Animatable(0f)
+    }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        offsetX.updateBounds(
+            lowerBound = -dismissThresholdPx * 1.5f,
+            upperBound = dismissThresholdPx * 1.5f
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = offsetX.value.roundToInt(),
+                    y = 0
+                )
+            }
+            .pointerInput(dismissThresholdPx) {
+                detectDragGestures(
+                    onDragStart = {
+                        scope.launch {
+                            offsetX.stop()
+                        }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        scope.launch {
+                            offsetX.snapTo(offsetX.value + dragAmount.x)
+                        }
+                    },
+                    onDragEnd = {
+                        scope.launch {
+                            if (abs(offsetX.value) >= dismissThresholdPx) {
+                                val target = if (offsetX.value > 0f) {
+                                    dismissThresholdPx * 1.5f
+                                } else {
+                                    -dismissThresholdPx * 1.5f
+                                }
+
+                                offsetX.animateTo(
+                                    targetValue = target,
+                                    animationSpec = spring()
+                                )
+                                onDismissed()
+                            } else {
+                                offsetX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring()
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Text(
+                text = title,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+    }
+}
+```
+
+Threshold приходит в пикселях, потому что pointer input работает в pixel coordinates. Если threshold задан в `Dp`, преобразуйте его через `LocalDensity`.
+
+## Production-пример: snackbar-like entrance sequence
+
+Последовательность может сочетать `snapTo`, `animateTo`, delay и возврат.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
+
+@Composable
+fun FloatingMessage(
+    message: String,
+    visibleMessageId: Long,
+    onHidden: () -> Unit
+) {
+    val offsetY = remember {
+        Animatable(120f)
+    }
+    val alpha = remember {
+        Animatable(0f)
+    }
+
+    LaunchedEffect(visibleMessageId) {
+        offsetY.snapTo(120f)
+        alpha.snapTo(0f)
+
+        alpha.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 120)
+        )
+        offsetY.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(durationMillis = 220)
+        )
+
+        delay(2_000)
+
+        alpha.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(durationMillis = 160)
+        )
+        offsetY.animateTo(
+            targetValue = 120f,
+            animationSpec = tween(durationMillis = 180)
+        )
+
+        onHidden()
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = 0,
+                    y = offsetY.value.roundToInt()
+                )
+            }
+            .padding(16.dp)
+    ) {
+        Surface(
+            shadowElevation = 6.dp,
+            tonalElevation = 3.dp
+        ) {
+            Text(
+                text = message,
+                modifier = Modifier
+                    .padding(16.dp)
+                    .graphicsLayer {
+                        this.alpha = alpha.value
+                    }
+            )
+        }
+    }
+}
+```
+
+Для обычных snackbar используйте Material `SnackbarHost`. Этот пример нужен для понимания sequence.
+
+## Lifecycle и scope
+
+Где запускать animation:
+
+- `LaunchedEffect(key)`: animation реагирует на изменение state;
+- `rememberCoroutineScope`: animation стартует из click handler;
+- `pointerInput`: animation связана с gesture;
+- ViewModel scope: обычно не нужен для UI animation, потому что animation value принадлежит UI layer.
+
+`Animatable` почти всегда должен жить в UI state holder уровня composable, а не в ViewModel. ViewModel сообщает target или business event, UI решает, как это анимировать.
+
+<MouseTrap>
+Не храните `Animatable` во ViewModel без очень веской причины. Он зависит от UI motion и frame clock, а ViewModel должна описывать состояние и бизнес-события, а не пиксельное движение.
+</MouseTrap>
+
+## Performance
+
+`Animatable` может обновлять значение каждый frame. Стоимость зависит от того, как вы используете value.
+
+Практические правила:
+
+- для movement используйте `offset` или `graphicsLayer`;
+- не пересчитывайте тяжелые списки на основе `value`;
+- не запускайте много независимых coroutines на каждый pointer move без необходимости;
+- ограничивайте bounds для gestures;
+- отменяйте или останавливайте animation перед drag;
+- не держите бесконечные ручные loops без lifecycle control;
+- используйте готовые gesture/animation components, если они покрывают сценарий.
+
+## Тестирование
+
+Для тестов удобно делать animation duration короткой через параметр или продвигать test clock.
+
+```kotlin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+
+@Composable
+fun TestableAnimatableProgress(
+    started: Boolean,
+    animationSpec: AnimationSpec<Float> = tween(durationMillis = 300)
+): Float {
+    val progress = remember {
+        Animatable(0f)
+    }
+
+    LaunchedEffect(started) {
+        if (started) {
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = animationSpec
+            )
+        } else {
+            progress.snapTo(0f)
+        }
+    }
+
+    return progress.value
+}
+```
+
+В production composable можно передавать spec как parameter с default value. В тесте — использовать `snap` или короткий `tween`.
+
+## Типичные ошибки
+
+### Использовать `Animatable` для простого target state
+
+Если нужно "selected -> alpha", используйте `animateFloatAsState`.
+
+### Создавать `Animatable` без `remember`
+
+Если объект создается на каждой recomposition, animation state будет сбрасываться.
+
+### Запускать animation прямо в body composable
+
+`animateTo` является suspend-функцией и должен запускаться из coroutine: `LaunchedEffect`, event handler scope или pointer input.
+
+### Не останавливать animation перед drag
+
+Если элемент возвращается назад, а пользователь снова начал drag, сначала вызовите `stop`, иначе движение будет спорить с пальцем.
+
+### Запускать слишком много jobs во время drag
+
+Pointer input может приходить часто. Следите, чтобы coroutine usage не создавал лишнюю гонку.
+
+### Хранить business state в animated value
+
+`offsetX.value` не должен быть источником истины о том, удален item или нет. Это визуальное состояние.
+
+### Игнорировать bounds
+
+Без bounds drag и decay могут увести элемент слишком далеко. Для жестов bounds часто являются частью UX.
+
+## Итоги
+
+`Animatable` — coroutine-driven animation holder:
+
+- создается через `remember`;
+- хранит `value`, `targetValue`, `velocity`, `isRunning`;
+- `animateTo` плавно ведет значение к target;
+- `snapTo` мгновенно меняет value;
+- `stop` останавливает текущую animation;
+- `updateBounds` ограничивает диапазон;
+- `animateDecay` подходит для fling-like движения;
+- хорошо работает для gestures, sequences, press effects и custom type converters;
+- требует coroutine scope и аккуратного lifecycle;
+- не должен заменять `animate*AsState` для простых target-based animations;
+- чаще принадлежит UI layer, а не ViewModel.

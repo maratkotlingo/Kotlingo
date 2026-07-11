@@ -1,0 +1,447 @@
+---
+title: "Finding nodes"
+description: "Разбираем поиск nodes в Compose UI tests: onNodeWithText, onNodeWithContentDescription, testTag, SemanticsMatcher, merged и unmerged tree, ancestor/child matchers, custom semantics keys, debugging tree и устойчивые selectors."
+order: 110
+category: "Compose: Testing and quality"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему поиск nodes в Compose отличается от View
+
+В View-системе тесты часто ищут `View` по id. В Compose composable-функция не обязательно создает отдельный node. Тесты работают с semantics tree, который описывает смысл UI:
+
+- text;
+- content description;
+- role;
+- state;
+- actions;
+- test tag;
+- custom semantics properties.
+
+Поиск node должен отражать пользовательский смысл, а не внутреннюю структуру composable.
+
+```kotlin
+composeRule
+    .onNodeWithText("Сохранить")
+    .assertExists()
+```
+
+Это хороший selector для кнопки, если пользователь действительно видит "Сохранить".
+
+<CatTip>
+Лучший selector в UI test обычно похож на то, как пользователь или accessibility service понимает экран.
+</CatTip>
+
+## `onNodeWithText`
+
+Самый частый поиск:
+
+```kotlin
+composeRule
+    .onNodeWithText("Профиль")
+    .assertIsDisplayed()
+```
+
+Можно искать substring:
+
+```kotlin
+composeRule
+    .onNodeWithText(
+        text = "ошибка",
+        substring = true,
+        ignoreCase = true
+    )
+    .assertExists()
+```
+
+Не злоупотребляйте substring: слишком широкий поиск может найти не тот node.
+
+## Text collisions
+
+Если на экране несколько одинаковых текстов, используйте matcher combination.
+
+```kotlin
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNode
+
+composeRule
+    .onNode(
+        hasText("Удалить") and hasClickAction()
+    )
+    .assertExists()
+```
+
+Или ищите все:
+
+```kotlin
+composeRule
+    .onAllNodesWithText("Удалить")
+    .assertCountEquals(2)
+```
+
+Если одинаковых buttons много, подумайте о better accessibility labels.
+
+## `onNodeWithContentDescription`
+
+Иконки и non-text UI ищутся по content description.
+
+```kotlin
+composeRule
+    .onNodeWithContentDescription("Закрыть")
+    .performClick()
+```
+
+UI:
+
+```kotlin
+IconButton(onClick = onClose) {
+    Icon(
+        imageVector = Icons.Default.Close,
+        contentDescription = "Закрыть"
+    )
+}
+```
+
+Если icon декоративная, `contentDescription = null`, и тест не должен искать ее как action.
+
+## Test tags
+
+`testTag` полезен, когда:
+
+- текст локализуется;
+- нет стабильного visible label;
+- нужно найти container;
+- semantics label не должен включать technical info;
+- нужно различить одинаковые items в screenshot/testing.
+
+```kotlin
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+
+@Composable
+fun LessonList(
+    lessons: List<LessonUi>
+) {
+    LazyColumn(
+        modifier = Modifier.testTag("lesson-list")
+    ) {
+        items(
+            items = lessons,
+            key = { lesson ->
+                lesson.id
+            }
+        ) { lesson ->
+            LessonRow(
+                lesson = lesson,
+                modifier = Modifier.testTag("lesson-${lesson.id}")
+            )
+        }
+    }
+}
+```
+
+Тест:
+
+```kotlin
+composeRule
+    .onNodeWithTag("lesson-list")
+    .assertExists()
+```
+
+<MouseTrap>
+`testTag` не должен становиться заменой accessibility. Если элемент является кнопкой, у него все равно должны быть label/role/action.
+</MouseTrap>
+
+## Merged semantics tree
+
+По умолчанию Compose tests часто работают с merged semantics tree. Child semantics могут объединяться в parent.
+
+Пример:
+
+```kotlin
+Row(
+    modifier = Modifier.clickable(onClick = onOpen)
+) {
+    Text(text = "Compose")
+    Text(text = "Продвинутый")
+}
+```
+
+Clickable parent может merge descendants, и test увидит один смысловой node.
+
+```kotlin
+composeRule
+    .onNodeWithText("Compose")
+    .assertExists()
+```
+
+Если node не находится, проверьте tree.
+
+## Unmerged tree
+
+Иногда нужно искать в unmerged tree:
+
+```kotlin
+composeRule
+    .onNodeWithText(
+        text = "Продвинутый",
+        useUnmergedTree = true
+    )
+    .assertExists()
+```
+
+Используйте unmerged tree для debugging и редких precise checks. В обычном тесте лучше проверять merged user-facing semantics.
+
+## Печать дерева
+
+```kotlin
+composeRule
+    .onRoot()
+    .printToLog("Semantics")
+```
+
+Для unmerged:
+
+```kotlin
+composeRule
+    .onRoot(useUnmergedTree = true)
+    .printToLog("SemanticsUnmerged")
+```
+
+Печать дерева помогает понять:
+
+- какие texts доступны;
+- какие nodes merged;
+- где есть click action;
+- какие roles/state descriptions установлены;
+- есть ли test tags;
+- почему matcher не находит node.
+
+## `SemanticsMatcher`
+
+Для сложного поиска используйте `SemanticsMatcher`.
+
+```kotlin
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.onNode
+
+val hasButtonRole = SemanticsMatcher.expectValue(
+    SemanticsProperties.Role,
+    Role.Button
+)
+
+composeRule
+    .onNode(
+        hasText("Войти") and hasButtonRole
+    )
+    .assertExists()
+```
+
+Custom matcher:
+
+```kotlin
+fun hasErrorMessage(
+    message: String
+): SemanticsMatcher {
+    return SemanticsMatcher("имеет ошибку $message") { node ->
+        node.config
+            .getOrNull(SemanticsProperties.Error)
+            ?.contains(message) == true
+    }
+}
+```
+
+Описание matcher должно быть понятным: оно появится в error output.
+
+## Ancestor and child matchers
+
+Можно искать node в контексте.
+
+```kotlin
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasText
+
+composeRule
+    .onNode(
+        hasText("Удалить") and
+            hasAnyAncestor(hasText("Проект Compose"))
+    )
+    .performClick()
+```
+
+Это полезно, если на экране несколько одинаковых actions в разных cards/rows.
+
+Но если ancestor text стал частью merged node, matcher может вести себя иначе. Смотрите semantics tree.
+
+## Custom semantics keys
+
+Для domain-specific тестов можно добавить custom semantics property.
+
+```kotlin
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+
+val LessonIdKey = SemanticsPropertyKey<String>("LessonId")
+
+var SemanticsPropertyReceiver.lessonId by LessonIdKey
+```
+
+UI:
+
+```kotlin
+@Composable
+fun LessonRow(
+    lesson: LessonUi,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.semantics {
+            lessonId = lesson.id
+        }
+    ) {
+        Text(text = lesson.title)
+    }
+}
+```
+
+Matcher:
+
+```kotlin
+fun hasLessonId(
+    id: String
+): SemanticsMatcher {
+    return SemanticsMatcher.expectValue(
+        LessonIdKey,
+        id
+    )
+}
+```
+
+Тест:
+
+```kotlin
+composeRule
+    .onNode(hasLessonId("compose-110"))
+    .assertExists()
+```
+
+Custom semantics useful, но не превращайте tests в проверку internal ids, если можно проверить visible behavior.
+
+## Collection nodes
+
+Для списков иногда полезно проверять collection semantics:
+
+```kotlin
+val hasListCollection = SemanticsMatcher(
+    "имеет collectionInfo"
+) { node ->
+    node.config.getOrNull(
+        SemanticsProperties.CollectionInfo
+    ) != null
+}
+```
+
+Но чаще list behavior проверяют через visible items, scroll actions и item content.
+
+## Finding lazy items
+
+Lazy items, которых нет в viewport, могут отсутствовать в semantics tree. Сначала scroll, потом assert.
+
+```kotlin
+composeRule
+    .onNodeWithTag("lesson-list")
+    .performScrollToNode(
+        hasText("Screenshot testing")
+    )
+
+composeRule
+    .onNodeWithText("Screenshot testing")
+    .assertIsDisplayed()
+```
+
+Если item не composed, `onNodeWithText` его не найдет до scroll.
+
+## Stable selectors
+
+Устойчивые selectors:
+
+- user-visible text для static labels;
+- contentDescription для icon actions;
+- role + text для buttons;
+- testTag для containers/lists;
+- custom semantics для domain identity;
+- ancestor context для repeated items.
+
+Хрупкие selectors:
+
+- index position;
+- random generated test tags;
+- translated text в locale-independent тесте;
+- internal implementation-only tags;
+- substring слишком общего текста;
+- unmerged tree без причины.
+
+## Localization
+
+Если тест зависит от текста, он зависит от locale. Это нормально для locale-specific теста. Для generic теста можно:
+
+- фиксировать locale;
+- получать string resource из Activity;
+- использовать testTag для container;
+- проверять role/action;
+- использовать fake labels в isolated component test.
+
+```kotlin
+val saveText = composeRule.activity.getString(R.string.save)
+
+composeRule
+    .onNodeWithText(saveText)
+    .performClick()
+```
+
+Это требует `createAndroidComposeRule`, потому что нужен Activity resource.
+
+## Типичные ошибки
+
+### Искать node, которого нет в semantics tree
+
+Не каждый composable создает semantics node.
+
+### Использовать unmerged tree по умолчанию
+
+Тест начинает зависеть от внутренней структуры компонента.
+
+### Test tag вместо label
+
+Пользователь и accessibility service могут не видеть то, что тест считает важным.
+
+### Искать lazy item без scroll
+
+Не composed item не существует в semantics tree.
+
+### Matcher слишком общий
+
+`substring = true` может найти неожиданный node.
+
+### Не читать error output
+
+Compose test errors часто показывают доступные nodes и matcher description.
+
+## Итоги
+
+Поиск nodes в Compose UI tests строится вокруг semantics:
+
+- `onNodeWithText` подходит для visible text;
+- `onNodeWithContentDescription` подходит для icon/non-text actions;
+- `testTag` полезен для containers, lists и технически стабильных selectors;
+- merged tree отражает user-facing semantics;
+- unmerged tree нужен для debugging и редких precise checks;
+- `SemanticsMatcher` позволяет комбинировать role, text, actions и custom properties;
+- custom semantics keys помогают domain-specific tests;
+- lazy items нужно сначала прокрутить в viewport;
+- устойчивый selector проверяет смысл UI, а не случайную структуру composables.

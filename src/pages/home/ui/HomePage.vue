@@ -2,12 +2,32 @@
 import { ArrowRight, BookOpen, Code2, Layers3, Sparkles } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 import { buttons, layout } from '@/shared/config/ui'
+import { composeCourseStats, courseStats } from '@/entities/course/model/course'
+
+function lessonWord(count: number): string {
+  const remainder100 = count % 100
+  const remainder10 = count % 10
+
+  if (remainder100 >= 11 && remainder100 <= 14) {
+    return 'уроков'
+  }
+
+  if (remainder10 === 1) {
+    return 'урок'
+  }
+
+  if (remainder10 >= 2 && remainder10 <= 4) {
+    return 'урока'
+  }
+
+  return 'уроков'
+}
 
 const tracks = [
   {
     title: 'Kotlin',
     href: '/kotlin',
-    status: '104 урока готовы',
+    status: `${courseStats.lessonCount} ${lessonWord(courseStats.lessonCount)} готовы`,
     description: 'Плотный курс по языку, типам, функциям, классам, коллекциям, coroutines, JVM, Multiplatform и архитектуре.',
     icon: BookOpen,
     accent: 'border-accent/35 bg-accent/10 text-accent',
@@ -15,8 +35,8 @@ const tracks = [
   {
     title: 'Jetpack Compose',
     href: '/compose',
-    status: 'страница подготовлена',
-    description: 'Будущий курс по декларативному Android UI: layout, state, side effects, navigation, Material 3 и тестирование.',
+    status: `${composeCourseStats.lessonCount} ${lessonWord(composeCourseStats.lessonCount)} готовы`,
+    description: 'Курс по декларативному Android UI: setup, activity, mental model, lifecycle, composable-функции, state и Material 3.',
     icon: Layers3,
     accent: 'border-violet/35 bg-violet/10 text-violet',
   },
@@ -59,7 +79,7 @@ const tracks = [
             <div>
               <p class="m-0 text-xs font-black uppercase tracking-wide text-muted">Сейчас доступно</p>
               <strong class="mt-2 block text-5xl font-black">2</strong>
-              <p class="m-0 mt-2 text-sm leading-6 text-muted">страницы курса: готовый Kotlin reader и заготовка Compose.</p>
+              <p class="m-0 mt-2 text-sm leading-6 text-muted">reader-курса с MDX-уроками, прогрессом, избранным и оглавлением.</p>
             </div>
           </div>
         </div>

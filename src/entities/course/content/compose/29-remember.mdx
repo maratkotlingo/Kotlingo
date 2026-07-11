@@ -1,0 +1,630 @@
+---
+title: "remember and Positional Memory"
+description: "Глубоко разбираем remember в Jetpack Compose: positional memory, Slot Table, ключи, сброс состояния, conditional composition, key(), стабильность объектов и типичные ошибки при списках."
+order: 29
+category: "Compose: State, recomposition и архитектура"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что делает remember
+
+`remember` сохраняет значение между recomposition одного и того же места в composition.
+
+Без `remember` локальная переменная создается заново при каждом выполнении composable-функции. С `remember` Compose сохраняет результат calculation в Slot Table и возвращает его при следующих recomposition.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun RememberCounter() {
+    var count by remember {
+        mutableStateOf(0)
+    }
+
+    Button(
+        onClick = {
+            count += 1
+        }
+    ) {
+        Text(text = "Счетчик: $count")
+    }
+}
+```
+
+Что сохраняется:
+
+- не число `0` само по себе;
+- не текст кнопки;
+- объект `MutableState<Int>`, созданный в блоке `remember`.
+
+Когда `count` меняется, меняется `value` внутри сохраненного state-объекта. При recomposition `remember` возвращает тот же объект.
+
+## Почему remember называется positional memory
+
+Compose привязывает remembered value не к имени переменной, а к позиции вызова в composition.
+
+Упрощенно:
+
+- composable-функции создают группы в Slot Table;
+- вызов `remember` занимает слот внутри текущей группы;
+- при следующей recomposition Compose идет по тем же группам и слотам;
+- если структура вызовов совпала, старое значение находится по позиции;
+- если структура изменилась, Compose использует ключи и группы, чтобы сопоставить значения корректно.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun PositionalMemoryDemo(
+    title: String
+) {
+    val expensiveLabel = remember {
+        "Подготовленный заголовок"
+    }
+
+    Text(text = "$expensiveLabel: $title")
+}
+```
+
+Имя `expensiveLabel` не хранится в runtime как идентификатор state. Важна позиция вызова `remember` внутри composable.
+
+<CatTip>
+Думайте о `remember` как о ячейке памяти, закрепленной за местом в дереве composition. Пока место остается тем же, значение остается тем же.
+</CatTip>
+
+## Slot Table
+
+Slot Table — внутренняя структура Compose runtime, где хранится информация о composition:
+
+- группы composable-вызовов;
+- remembered values;
+- данные для пропуска recomposition;
+- ключи групп;
+- информация о структуре дерева.
+
+Slot Table не является публичным API для прикладного кода, но понимание его идеи помогает писать надежный Compose.
+
+Когда Compose выполняет composable впервые:
+
+1. Runtime открывает группу.
+2. Доходит до `remember`.
+3. Выполняет calculation.
+4. Сохраняет результат в slot.
+5. Продолжает строить composition.
+
+При recomposition:
+
+1. Runtime открывает ту же группу.
+2. Доходит до той же позиции.
+3. Проверяет ключи `remember`.
+4. Возвращает старое значение или пересоздает его.
+5. Обновляет UI на основе актуального state.
+
+## Базовые overloads remember
+
+### remember без ключей
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun FormatterDemo() {
+    val formatter = remember {
+        java.text.DecimalFormat("#,##0")
+    }
+}
+```
+
+Calculation выполняется при первом попадании в это место composition. Значение живет, пока это место остается в composition.
+
+### remember с одним ключом
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+data class UserDraft(
+    val userId: String,
+    val initialName: String
+)
+
+@Composable
+fun UserDraftEditor(
+    userId: String,
+    initialName: String
+) {
+    val draft = remember(userId) {
+        UserDraft(
+            userId = userId,
+            initialName = initialName
+        )
+    }
+}
+```
+
+Если `userId` изменится, Compose пересоздаст `draft`. Если изменится только `initialName`, remembered value останется прежним, потому что `initialName` не входит в ключ.
+
+### remember с несколькими ключами
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+data class SearchRequestKey(
+    val query: String,
+    val categoryId: String
+)
+
+@Composable
+fun SearchKeyDemo(
+    query: String,
+    categoryId: String
+) {
+    val requestKey = remember(query, categoryId) {
+        SearchRequestKey(
+            query = query.trim(),
+            categoryId = categoryId
+        )
+    }
+}
+```
+
+Calculation выполнится заново, если изменится хотя бы один ключ.
+
+## Ключи remember
+
+Ключи отвечают за жизненный цикл remembered value.
+
+Ключ нужен, когда значение должно быть сброшено при смене входных данных.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun CommentEditor(
+    commentId: String,
+    initialText: String
+) {
+    var text by remember(commentId) {
+        mutableStateOf(initialText)
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { nextText ->
+            text = nextText
+        },
+        label = {
+            Text(text = "Комментарий")
+        }
+    )
+}
+```
+
+Если пользователь открыл другой комментарий, `commentId` изменится, и поле получит новое initial value. Если не указать ключ, старый текст может остаться от предыдущего комментария.
+
+<MouseTrap>
+Не добавляйте ключи механически. Каждый ключ говорит: "если это изменится, старое remembered value больше не подходит". Слишком много ключей может сбрасывать состояние чаще, чем ожидает пользователь.
+</MouseTrap>
+
+## remember и условные ветки
+
+`remember` живет только пока его место присутствует в composition.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun ConditionalRememberDemo(
+    expanded: Boolean
+) {
+    if (expanded) {
+        val label = remember {
+            "Раскрытая панель"
+        }
+
+        Text(text = label)
+    }
+}
+```
+
+Когда `expanded` становится `false`, ветка удаляется из composition. Remembered value освобождается. Если `expanded` снова станет `true`, значение будет создано заново.
+
+Это важно для:
+
+- вкладок;
+- диалогов;
+- временных панелей;
+- conditional content;
+- экранов, которые появляются и исчезают.
+
+## key()
+
+`key()` создает группу с явным ключом. Он нужен, когда одинаковые composable-вызовы могут менять порядок, но состояние должно оставаться привязанным к доменной сущности.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+data class DraftField(
+    val id: String,
+    val label: String,
+    val initialValue: String
+)
+
+@Composable
+fun ReorderableFields(
+    fields: List<DraftField>
+) {
+    Column {
+        fields.forEach { field ->
+            key(field.id) {
+                var value by remember {
+                    mutableStateOf(field.initialValue)
+                }
+
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { nextValue ->
+                        value = nextValue
+                    },
+                    label = {
+                        Text(text = field.label)
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Если список `fields` поменяет порядок, состояние каждого поля останется у своего `id`.
+
+Без `key(field.id)` Compose сопоставлял бы remembered values по позиции. При перестановке первое состояние могло бы оказаться у первого нового элемента, даже если это уже другая доменная сущность.
+
+## remember в LazyColumn
+
+В lazy-списках ключи задаются через параметр `key` у функции `items`.
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+
+data class EditableTask(
+    val id: String,
+    val title: String
+)
+
+@Composable
+fun EditableTaskList(
+    tasks: List<EditableTask>
+) {
+    LazyColumn {
+        items(
+            items = tasks,
+            key = { task ->
+                task.id
+            }
+        ) { task ->
+            var title by remember {
+                mutableStateOf(task.title)
+            }
+
+            OutlinedTextField(
+                value = title,
+                onValueChange = { nextTitle ->
+                    title = nextTitle
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = {
+                    Text(text = "Задача")
+                }
+            )
+        }
+    }
+}
+```
+
+`key` в `items` помогает lazy-list сохранить локальное состояние элемента при вставках, удалениях и перестановках.
+
+## remember не переживает пересоздание Activity
+
+`remember` сохраняет значение только внутри текущей composition.
+
+Он не переживает:
+
+- поворот экрана с пересозданием Activity;
+- завершение процесса;
+- удаление composable из composition;
+- смену ключа;
+- навигационный pop, если экран уничтожен.
+
+Для сохранения через configuration changes используется `rememberSaveable`, а для долгоживущего состояния экрана обычно применяется `ViewModel`.
+
+## remember для дорогих объектов
+
+`remember` подходит для объектов, которые дорого создавать или которые должны сохранять identity.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+class PhoneNumberFormatter(
+    private val countryCode: String
+) {
+    fun format(raw: String): String {
+        val digits = raw.filter { char ->
+            char.isDigit()
+        }
+
+        return "+$countryCode $digits"
+    }
+}
+
+@Composable
+fun PhoneFormatterDemo(
+    countryCode: String,
+    rawPhone: String
+): String {
+    val formatter = remember(countryCode) {
+        PhoneNumberFormatter(countryCode = countryCode)
+    }
+
+    return formatter.format(rawPhone)
+}
+```
+
+Здесь formatter пересоздается только при смене `countryCode`.
+
+Но важно не класть в `remember` тяжелую работу, которую лучше сделать вне UI:
+
+- сетевые запросы;
+- запись в базу данных;
+- чтение больших файлов;
+- сложный domain-processing;
+- бесконечные циклы;
+- операции, требующие coroutine.
+
+Для этих задач есть ViewModel, repository, side effects и coroutine APIs.
+
+## remember и derived values
+
+Если значение легко вычисляется из параметров и не хранит identity, `remember` может быть лишним.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun FullNameRemembered(
+    firstName: String,
+    lastName: String
+): String {
+    val fullName = remember(firstName, lastName) {
+        "$firstName $lastName"
+    }
+
+    return fullName
+}
+```
+
+Такой код корректен, но для простой конкатенации `remember` не нужен:
+
+```kotlin
+import androidx.compose.runtime.Composable
+
+@Composable
+fun FullNameDirect(
+    firstName: String,
+    lastName: String
+): String {
+    return "$firstName $lastName"
+}
+```
+
+`remember` не является универсальным ускорителем. Он имеет смысл, когда creation cost, identity или lifecycle действительно важны.
+
+## rememberUpdatedState
+
+`rememberUpdatedState` сохраняет актуальное значение в state, не перезапуская эффект или long-lived operation. Полноценно side effects разбираются отдельно, но этот API связан с проблемой устаревших callback.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+
+@Composable
+fun AutoCloseBanner(
+    visible: Boolean,
+    onClose: () -> Unit
+) {
+    val latestOnClose by rememberUpdatedState(onClose)
+
+    if (visible) {
+        LaunchedEffect(Unit) {
+            delay(3_000)
+            latestOnClose()
+        }
+    }
+}
+```
+
+Зачем это нужно:
+
+- `LaunchedEffect(Unit)` не перезапускается при изменении `onClose`;
+- `latestOnClose` всегда указывает на свежий callback;
+- эффект не держит устаревшую лямбду.
+
+<MouseTrap>
+Не используйте `rememberUpdatedState` как замену ключам эффекта. Если операция действительно должна перезапуститься при изменении параметра, этот параметр должен быть ключом эффекта.
+</MouseTrap>
+
+## Production-пример: состояние вкладок формы
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+enum class ProfileTab {
+    Personal,
+    Contacts
+}
+
+@Composable
+fun ProfileTabsForm(
+    userId: String,
+    initialName: String,
+    initialEmail: String
+) {
+    var selectedTab by remember(userId) {
+        mutableStateOf(ProfileTab.Personal)
+    }
+
+    var name by remember(userId) {
+        mutableStateOf(initialName)
+    }
+
+    var email by remember(userId) {
+        mutableStateOf(initialEmail)
+    }
+
+    Column {
+        Row {
+            FilterChip(
+                selected = selectedTab == ProfileTab.Personal,
+                onClick = {
+                    selectedTab = ProfileTab.Personal
+                },
+                label = {
+                    Text(text = "Личные данные")
+                }
+            )
+
+            FilterChip(
+                selected = selectedTab == ProfileTab.Contacts,
+                onClick = {
+                    selectedTab = ProfileTab.Contacts
+                },
+                label = {
+                    Text(text = "Контакты")
+                }
+            )
+        }
+
+        when (selectedTab) {
+            ProfileTab.Personal -> {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { nextName ->
+                        name = nextName
+                    },
+                    label = {
+                        Text(text = "Имя")
+                    }
+                )
+            }
+
+            ProfileTab.Contacts -> {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { nextEmail ->
+                        email = nextEmail
+                    },
+                    label = {
+                        Text(text = "Email")
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Почему `userId` является ключом:
+
+- при переходе к другому пользователю форма должна начать с его данных;
+- локальные черновики старого пользователя не должны перейти к новому;
+- выбранная вкладка также сбрасывается для новой сущности.
+
+## Типичные ошибки
+
+### Ждать, что remember сохранит состояние навсегда
+
+`remember` привязан к composition. Для configuration changes используйте `rememberSaveable`, для состояния экрана — ViewModel.
+
+### Использовать remember для всего
+
+Не каждое вычисление надо запоминать. Простые выражения дешевле и понятнее пересчитать.
+
+### Забывать ключ при смене сущности
+
+Форма редактирования без ключа по `userId` может показать текст от предыдущего пользователя.
+
+### Использовать нестабильные ключи
+
+Ключ должен быть связан с identity данных. Случайное число или новый объект без стабильного equality будет сбрасывать состояние слишком часто.
+
+### Хранить в remember бизнес-логику
+
+`remember` не заменяет ViewModel, repository и domain layer. Он хранит UI-local objects и local state.
+
+## Итоги
+
+`remember` — базовый инструмент локальной памяти в Compose:
+
+- сохраняет значение между recomposition;
+- привязан к позиции в composition;
+- хранит данные в Slot Table;
+- пересоздает значение при смене ключей;
+- удаляет значение, когда соответствующая группа выходит из composition;
+- требует явных ключей при смене доменной сущности;
+- в списках должен сочетаться с `key()` или параметром `key` у `items`;
+- не переживает пересоздание Activity;
+- полезен для local state, дорогих объектов и сохранения identity;
+- не должен использоваться вместо архитектурного состояния.

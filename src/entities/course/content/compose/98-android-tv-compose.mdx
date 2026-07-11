@@ -1,0 +1,612 @@
+---
+title: "Android TV Compose"
+description: "Разбираем Compose для Android TV: TV Material 3, focus-first interaction, D-pad navigation, lazy rows, carousels, immersive content, background updates by focus, large-screen media grids, remote-friendly controls и production pitfalls."
+order: 98
+category: "Compose: Adaptive UI and form factors"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## TV UI мыслит фокусом
+
+На Android TV главный input — D-pad/remote. Пользователь не тапает произвольную точку экрана, а перемещает focus между элементами. Поэтому TV Compose начинается не с красивых карточек, а с focus model:
+
+- каждый interactive element должен быть focusable;
+- focused state должен быть очень заметным;
+- D-pad traversal должен быть предсказуемым;
+- Enter/Center активирует элемент;
+- Back возвращает уровень назад;
+- большие расстояния между elements не должны ломать navigation;
+- lazy rows должны корректно bring focused item into view;
+- background/hero area часто зависит от focused item.
+
+```kotlin
+data class TvMovie(
+    val id: String,
+    val title: String,
+    val posterUrl: String,
+    val backdropUrl: String,
+    val description: String
+)
+```
+
+TV screen обычно строится вокруг browsing и focus-driven preview: пользователь двигается по row, а верхний content или background обновляется.
+
+<CatTip>
+TV UI не должен ждать click, чтобы дать context. Focus уже является намерением пользователя, и экран должен отвечать на него визуально.
+</CatTip>
+
+## Dependencies
+
+TV Compose имеет отдельные artifacts:
+
+```kotlin
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.00")
+    implementation(composeBom)
+
+    implementation("androidx.activity:activity-compose:1.12.0")
+    implementation("androidx.tv:tv-foundation:1.0.0")
+    implementation("androidx.tv:tv-material:1.0.0")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+
+    debugImplementation("androidx.compose.ui:ui-tooling")
+}
+```
+
+Следите за актуальными версиями `androidx.tv:*`. TV APIs долго были experimental и менялись: проверяйте release notes перед массовой миграцией.
+
+## TV Material 3
+
+TV Material components отличаются от phone Material:
+
+- focus indications;
+- scale/glow/border states;
+- TV-friendly cards;
+- buttons для remote input;
+- carousel/featured content;
+- navigation drawer patterns;
+- surface indications.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+
+@Composable
+fun TvThemeExample() {
+    MaterialTheme {
+        Text(text = "Android TV")
+    }
+}
+```
+
+Не используйте phone cards/buttons на TV без явной причины. Они могут быть too subtle for couch distance.
+
+## Focusable card
+
+Focused state должен менять scale, border, glow или другие сильные признаки.
+
+```kotlin
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Card
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+
+@Composable
+fun TvMovieCard(
+    movie: TvMovie,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    Card(
+        onClick = onClick,
+        border = if (focused) {
+            BorderStroke(
+                width = 3.dp,
+                color = MaterialTheme.colorScheme.primary
+            )
+        } else {
+            null
+        },
+        modifier = modifier
+            .onFocusChanged { state ->
+                focused = state.isFocused
+            }
+            .focusable()
+            .scale(
+                if (focused) {
+                    1.06f
+                } else {
+                    1f
+                }
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+        ) {
+            Text(
+                text = movie.title,
+                color = Color.White,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+    }
+}
+```
+
+В TV Material реальные card defaults уже умеют многое из этого. Пример показывает, почему focus state должен быть частью component contract.
+
+## Lazy rows
+
+Классический TV home screen — вертикальный список горизонтальных rails.
+
+```kotlin
+data class TvShelf(
+    val id: String,
+    val title: String,
+    val movies: List<TvMovie>
+)
+```
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Text
+
+@Composable
+fun TvHomeRows(
+    shelves: List<TvShelf>,
+    onMovieFocused: (TvMovie) -> Unit,
+    onMovieClick: (TvMovie) -> Unit
+) {
+    LazyColumn(
+        contentPadding = PaddingValues(
+            vertical = 32.dp
+        )
+    ) {
+        items(
+            items = shelves,
+            key = { shelf ->
+                shelf.id
+            },
+            contentType = {
+                "movie-shelf"
+            }
+        ) { shelf ->
+            Column {
+                Text(text = shelf.title)
+
+                LazyRow(
+                    contentPadding = PaddingValues(
+                        horizontal = 48.dp
+                    ),
+                    modifier = Modifier.height(240.dp)
+                ) {
+                    items(
+                        items = shelf.movies,
+                        key = { movie ->
+                            movie.id
+                        },
+                        contentType = {
+                            "movie-card"
+                        }
+                    ) { movie ->
+                        FocusAwareMovieCard(
+                            movie = movie,
+                            onFocused = {
+                                onMovieFocused(movie)
+                            },
+                            onClick = {
+                                onMovieClick(movie)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Stable keys важны: при обновлении shelf content focus не должен прыгать на случайную карточку.
+
+## Focus callbacks
+
+Обновление preview/background по focus:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+
+@Composable
+fun FocusAwareMovieCard(
+    movie: TvMovie,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(focused, movie.id) {
+        if (focused) {
+            onFocused()
+        }
+    }
+
+    TvMovieCard(
+        movie = movie,
+        onClick = onClick,
+        modifier = modifier.onFocusChanged { state ->
+            focused = state.isFocused
+        }
+    )
+}
+```
+
+Если focus перемещается быстро, preview updates должны быть дешевыми или debounce-aware. Не запускайте тяжелый network request на каждый transient focus без cache.
+
+## Immersive content
+
+TV home часто имеет background/poster backdrop, который меняется по focused item.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+
+@Composable
+fun ImmersiveTvHome(
+    shelves: List<TvShelf>,
+    focusedMovie: TvMovie?,
+    onMovieFocused: (TvMovie) -> Unit,
+    onMovieClick: (TvMovie) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        focusedMovie?.let { movie ->
+            BackdropImage(
+                url = movie.backdropUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        TvHomeRows(
+            shelves = shelves,
+            onMovieFocused = onMovieFocused,
+            onMovieClick = onMovieClick
+        )
+    }
+}
+```
+
+Backdrop является декоративным, если title/description уже доступны в foreground. Не дублируйте его в accessibility tree.
+
+## Focus restoration
+
+На TV back-and-forth navigation должна возвращать focus туда, где пользователь был.
+
+```kotlin
+data class TvHomeFocusState(
+    val shelfId: String?,
+    val movieId: String?
+)
+```
+
+State holder:
+
+```kotlin
+class TvHomeStateHolder {
+    var focusState by mutableStateOf(
+        TvHomeFocusState(
+            shelfId = null,
+            movieId = null
+        )
+    )
+        private set
+
+    fun rememberFocusedMovie(
+        shelfId: String,
+        movieId: String
+    ) {
+        focusState = TvHomeFocusState(
+            shelfId = shelfId,
+            movieId = movieId
+        )
+    }
+}
+```
+
+В UI можно привязать `FocusRequester` к remembered item. Не создавайте requester для каждой карточки без cleanup/keys; на больших каталогах это быстро становится дорогим.
+
+## D-pad navigation order
+
+Сложные layouts иногда требуют `focusProperties`.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+
+@Composable
+fun TvHeaderActions(
+    onSearch: () -> Unit,
+    onSettings: () -> Unit
+) {
+    val searchRequester = remember {
+        FocusRequester()
+    }
+    val settingsRequester = remember {
+        FocusRequester()
+    }
+
+    SearchButton(
+        onClick = onSearch,
+        modifier = Modifier
+            .focusRequester(searchRequester)
+            .focusProperties {
+                right = settingsRequester
+            }
+            .focusable()
+    )
+
+    SettingsButton(
+        onClick = onSettings,
+        modifier = Modifier
+            .focusRequester(settingsRequester)
+            .focusProperties {
+                left = searchRequester
+            }
+            .focusable()
+    )
+}
+```
+
+Ручной focus order нужен только там, где default geometry не дает ожидаемый путь. Сначала пробуйте исправить layout.
+
+## Remote-friendly controls
+
+TV controls должны быть:
+
+- крупными;
+- с большим spacing;
+- с понятным focused state;
+- без hover-only behavior;
+- без drag-only сценариев;
+- без мелких nested actions;
+- с понятным Back behavior.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Button
+import androidx.tv.material3.Text
+
+@Composable
+fun PlaybackActions(
+    playing: Boolean,
+    onPlayPause: () -> Unit,
+    onDetails: () -> Unit
+) {
+    Row(
+        modifier = Modifier.padding(32.dp)
+    ) {
+        Button(onClick = onPlayPause) {
+            Text(
+                text = if (playing) {
+                    "Пауза"
+                } else {
+                    "Смотреть"
+                }
+            )
+        }
+
+        Button(onClick = onDetails) {
+            Text(text = "Подробнее")
+        }
+    }
+}
+```
+
+У пользователя нет точного pointer. Не заставляйте его попадать в маленькие icon-only targets.
+
+## Playback surface
+
+Video playback UI должен учитывать:
+
+- full-screen immersive mode;
+- focus overlay controls;
+- auto-hide controls;
+- D-pad reveal;
+- Back closes controls before leaving playback;
+- subtitles/audio track menus;
+- system volume;
+- HDMI/remote key events.
+
+```kotlin
+@Composable
+fun TvPlaybackScreen(
+    state: PlaybackUiState,
+    onPlayPause: () -> Unit,
+    onBack: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        PlayerSurface(
+            media = state.media,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (state.controlsVisible) {
+            PlaybackActions(
+                playing = state.playing,
+                onPlayPause = onPlayPause,
+                onDetails = state.onOpenDetails
+            )
+        }
+    }
+}
+```
+
+Player integration чаще идет через `AndroidView`/media SDK. Compose отвечает за controls и state mapping.
+
+## Accessibility на TV
+
+TV accessibility включает не только TalkBack:
+
+- focus order;
+- visible focus;
+- readable text at couch distance;
+- sufficient contrast over backdrops;
+- captions/subtitles;
+- no reliance on color only;
+- predictable Back behavior.
+
+Для decorative background используйте `contentDescription = null`. Для карточек давайте title и role через component semantics.
+
+## Testing TV UI
+
+Проверяйте:
+
+- D-pad navigation по rows;
+- focus visible на каждой карточке;
+- selected/focused item не теряется при data update;
+- Back behavior;
+- large catalog performance;
+- remote key events;
+- 10-foot readability;
+- overscan/safe areas на реальных TV;
+- accessibility labels.
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import org.junit.Rule
+import org.junit.Test
+
+class TvMovieCardTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun card_clicksMovie() {
+        var clicked = false
+
+        composeRule.setContent {
+            TvMovieCard(
+                movie = TvMovie(
+                    id = "movie-1",
+                    title = "Космос",
+                    posterUrl = "",
+                    backdropUrl = "",
+                    description = "Фильм о путешествии"
+                ),
+                onClick = {
+                    clicked = true
+                }
+            )
+        }
+
+        composeRule
+            .onNodeWithText("Космос")
+            .performClick()
+
+        assert(clicked)
+    }
+}
+```
+
+Для D-pad лучше иметь instrumented tests с key events и manual matrix на emulator/real TV.
+
+## Типичные ошибки
+
+### Делать phone UI на TV
+
+Phone components часто имеют слишком слабый focus indication и неподходящие размеры.
+
+### Не показывать focused state
+
+Пользователь теряет позицию на экране.
+
+### Обновлять background тяжелым запросом на каждый focus
+
+Focus может двигаться очень быстро. Нужны cache, placeholder и дешевые transitions.
+
+### Забывать stable keys в rails
+
+Focus прыгает при обновлении списка.
+
+### Делать nested tiny controls
+
+Remote input плохо работает с мелкими вложенными actions.
+
+### Игнорировать Back hierarchy
+
+Back должен закрывать overlay/controls до выхода из playback.
+
+## Итоги
+
+Android TV Compose — это focus-first UI:
+
+- используйте TV Material/Foundation artifacts;
+- focused state является главным interaction signal;
+- lazy rows должны иметь stable keys и predictable focus;
+- preview/background часто зависит от focused item;
+- immersive content должен оставаться readable и accessible;
+- D-pad navigation иногда требует `focusProperties`, но сначала исправляйте layout;
+- remote-friendly controls крупные и понятные;
+- playback UI требует отдельного Back/controls state machine;
+- TV testing должно покрывать D-pad, focus restoration, 10-foot readability и real device behavior.

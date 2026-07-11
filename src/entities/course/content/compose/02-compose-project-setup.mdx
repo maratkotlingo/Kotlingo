@@ -1,0 +1,496 @@
+---
+title: "Настройка проекта Compose"
+description: "Подробно настраиваем Android-проект для Jetpack Compose: Gradle plugins, Compose Compiler Gradle Plugin, Compose BOM, Material 3, tooling-зависимости, preview и типичные ошибки версионирования."
+order: 02
+category: "Compose: Вход и рабочая среда"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему настройку нужно понять, а не скопировать
+
+Jetpack Compose живет на стыке Kotlin, Android Gradle Plugin, Compose Compiler и набора AndroidX-библиотек. Если версии этих частей расходятся, ошибка может выглядеть как что угодно: не находится `setContent`, не работает preview, IDE подсвечивает `@Composable`, сборка ругается на compiler extension, Material 3 компоненты не совпадают по бинарной совместимости.
+
+Хорошая настройка проекта решает четыре задачи:
+
+- включает Android-приложение через Android Gradle Plugin;
+- включает Kotlin для Android;
+- подключает Compose Compiler Gradle Plugin, версия которого соответствует версии Kotlin;
+- подключает Compose-библиотеки через BOM, чтобы runtime, ui, foundation, material3 и tooling были согласованы.
+
+В этом уроке мы соберем минимальный, но полноценный Android-модуль. Он подходит как baseline для учебного приложения, pet-проекта и production-модуля, где Compose является основным UI.
+
+## Главные участники сборки
+
+### Android Gradle Plugin
+
+Android Gradle Plugin, или AGP, превращает Gradle-модуль в Android-модуль. Он знает про `namespace`, `compileSdk`, `minSdk`, manifest, resources, build variants, signing и packaging.
+
+В Kotlin DSL плагин обычно подключается так:
+
+```kotlin
+plugins {
+    id("com.android.application")
+}
+```
+
+Для библиотечного модуля используется другой plugin id:
+
+```kotlin
+plugins {
+    id("com.android.library")
+}
+```
+
+### Kotlin Android Plugin
+
+Kotlin Android Plugin добавляет компиляцию Kotlin-кода в Android-модуль.
+
+```kotlin
+plugins {
+    id("org.jetbrains.kotlin.android")
+}
+```
+
+### Compose Compiler Gradle Plugin
+
+Compose Compiler Gradle Plugin подключает compiler plugin, который преобразует `@Composable`-код. Начиная с Kotlin 2.0+, Compose compiler распространяется через Kotlin plugin ecosystem и подключается как `org.jetbrains.kotlin.plugin.compose`.
+
+```kotlin
+plugins {
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+```
+
+Версия этого плагина должна совпадать с версией Kotlin plugin. Если Kotlin plugin имеет версию `2.3.21`, Compose Compiler Gradle Plugin тоже должен иметь версию `2.3.21`.
+
+### Compose BOM
+
+BOM — Bill of Materials. Это специальная зависимость-платформа, которая задает совместимые версии Compose-библиотек. Когда ты используешь BOM, у зависимостей `androidx.compose.material3:material3`, `androidx.compose.ui:ui`, `androidx.compose.foundation:foundation` и других Compose artifacts обычно не нужно писать версии вручную.
+
+```kotlin
+dependencies {
+    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    implementation("androidx.compose.material3:material3")
+}
+```
+
+Здесь версия указана только у BOM. У `material3` версии нет, потому что Gradle берет ее из BOM.
+
+<CatTip title="Котосовет: версии Compose лучше обновлять через BOM">
+  Если в проекте руками указаны разные версии `ui`, `foundation`, `runtime`,
+  `animation` и `material3`, ты сам становишься менеджером совместимости. BOM
+  снимает эту работу: обновляешь одну строку, а Compose-библиотеки остаются
+  согласованными.
+</CatTip>
+
+## Полный `libs.versions.toml`
+
+Version Catalog делает зависимости читаемыми и убирает повторение версий. Ниже цельный файл `gradle/libs.versions.toml` для Compose-приложения. Версии зафиксированы как учебный baseline; перед обновлением проекта сверяй актуальный AndroidX BOM mapping и release notes.
+
+```toml
+[versions]
+agp = "8.13.0"
+kotlin = "2.3.21"
+composeBom = "2026.06.01"
+activityCompose = "1.12.1"
+androidxLifecycle = "2.9.4"
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+
+[libraries]
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "androidxLifecycle" }
+```
+
+Разбор:
+
+- `agp` управляет Android-сборкой;
+- `kotlin` используется сразу двумя plugin aliases: `kotlin-android` и `kotlin-compose`;
+- `composeBom` управляет версиями Compose-библиотек;
+- `activityCompose` не входит в Compose BOM, потому что это artifact из группы `androidx.activity`;
+- `lifecycle-runtime-compose` тоже версионируется отдельно от Compose BOM;
+- artifacts из `androidx.compose.*` без версии получают ее из BOM;
+- `ui-tooling` подключается только для debug-сборок;
+- `ui-test-manifest` нужен для некоторых instrumented UI-тестов и тоже подключается только в debug/test окружении.
+
+<MouseTrap title="Мышеловка: BOM не управляет всеми AndroidX-библиотеками">
+  Compose BOM управляет Compose artifacts, но не управляет `activity-compose`,
+  `navigation-compose`, `lifecycle-runtime-compose`, `paging-compose`, Room,
+  DataStore и другими AndroidX-библиотеками вне Compose-групп. Для них версии
+  нужно задавать отдельно.
+</MouseTrap>
+
+## Полный `settings.gradle.kts`
+
+Корневой `settings.gradle.kts` подключает репозитории и сам модуль приложения.
+
+```kotlin
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "KotlingoCompose"
+
+include(":app")
+```
+
+Почему порядок репозиториев важен:
+
+- `google()` нужен для Android Gradle Plugin и AndroidX artifacts;
+- `mavenCentral()` нужен для Kotlin и множества JVM-зависимостей;
+- `gradlePluginPortal()` нужен в `pluginManagement`, потому что Gradle ищет plugins отдельно от обычных dependencies;
+- `RepositoriesMode.FAIL_ON_PROJECT_REPOS` запрещает модулям добавлять неожиданные репозитории и делает сборку предсказуемее.
+
+## Корневой `build.gradle.kts`
+
+Корневой build file объявляет plugins через aliases, но не применяет их сразу ко всем модулям.
+
+```kotlin
+plugins {
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.library) apply false
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.kotlin.compose) apply false
+}
+```
+
+`apply false` означает: plugin доступен проекту, но конкретный модуль сам решает, применять его или нет.
+
+## Полный `app/build.gradle.kts`
+
+Это главный файл для Compose-приложения.
+
+```kotlin
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+}
+
+android {
+    namespace = "com.kotlingo.reader"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "com.kotlingo.reader"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    kotlin {
+        jvmToolchain(21)
+    }
+
+    composeCompiler {
+        reportsDestination = layout.buildDirectory.dir("compose_compiler/reports")
+        metricsDestination = layout.buildDirectory.dir("compose_compiler/metrics")
+    }
+}
+
+dependencies {
+    implementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+
+    implementation(libs.androidx.compose.runtime)
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.material3)
+
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+}
+```
+
+Разбор важных блоков:
+
+- `alias(libs.plugins.android.application)` делает модуль Android-приложением;
+- `alias(libs.plugins.kotlin.android)` включает Kotlin в Android-модуле;
+- `alias(libs.plugins.kotlin.compose)` включает Compose compiler;
+- `namespace` используется Android Gradle Plugin для generated-кода и resources;
+- `applicationId` является идентификатором установленного приложения;
+- `compileSdk` задает SDK, против которого компилируется проект;
+- `minSdk` задает минимальную версию Android для установки;
+- `targetSdk` сообщает системе, под какие платформенные правила приложение адаптировано;
+- `buildFeatures.compose = true` включает Compose support в Android-модуле;
+- `jvmToolchain(21)` фиксирует JDK для Kotlin-компиляции;
+- `composeCompiler` включает compiler reports и metrics;
+- `implementation(platform(libs.androidx.compose.bom))` подключает BOM для main source set;
+- `androidTestImplementation(platform(libs.androidx.compose.bom))` подключает тот же BOM для instrumented tests;
+- `debugImplementation(libs.androidx.compose.ui.tooling)` нужен для preview и tooling в debug;
+- `androidTestImplementation(libs.androidx.compose.ui.test.junit4)` нужен для Compose UI-тестов.
+
+<MouseTrap title="Мышеловка: не смешивай старый и новый способ настройки compiler">
+  В проектах на Kotlin 2.0+ не нужно добавлять `composeOptions{" "}
+  {(kotlinCompilerExtensionVersion = "1.5.15")}` как основной способ настройки
+  Compose Compiler. Используй `org.jetbrains.kotlin.plugin.compose`. Смешивание
+  старых инструкций из статей и новых Gradle-плагинов часто приводит к
+  непонятным ошибкам совместимости.
+</MouseTrap>
+
+## Минимальный `AndroidManifest.xml`
+
+Compose не отменяет manifest. Активити все равно регистрируется обычным Android-способом.
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Kotlingo Compose"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Kotlingo">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+```
+
+Для Compose-приложения тема в XML обычно остается легкой оболочкой: системный splash, edge-to-edge, базовые platform-настройки. Цвета, типографика и shape system чаще задаются через `MaterialTheme` в Compose.
+
+## Минимальная XML-тема
+
+Даже если весь UI написан на Compose, Android-окну нужна platform-тема.
+
+```xml
+<resources>
+    <style name="Theme.Kotlingo" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>
+```
+
+Здесь нет цветов Material 3, потому что они будут заданы в Kotlin через `MaterialTheme`. XML-тема отвечает за Android window и базовое поведение до того, как Compose нарисует первый кадр.
+
+## Первая проверка: приложение собирается и рисует Compose
+
+После Gradle-настройки полезно добавить максимально маленькую активити.
+
+```kotlin
+package com.kotlingo.reader
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            KotlingoApp()
+        }
+    }
+}
+
+@Composable
+fun KotlingoApp() {
+    MaterialTheme {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Compose настроен и готов к работе",
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, widthDp = 360, heightDp = 240)
+@Composable
+fun KotlingoAppPreview() {
+    KotlingoApp()
+}
+```
+
+Если этот файл компилируется, запускается и отображается в Preview, базовая цепочка работает:
+
+- Gradle видит Android-модуль;
+- Kotlin компилирует исходники;
+- Compose Compiler обрабатывает `@Composable`;
+- `activity-compose` дает `setContent`;
+- `material3` дает `MaterialTheme`, `Surface` и `Text`;
+- tooling dependency дает Android Studio preview.
+
+## Каталог зависимостей Compose
+
+Ниже практическая карта зависимостей, которые будут встречаться в курсе.
+
+### `androidx.activity:activity-compose`
+
+Дает интеграцию Compose с `Activity`, включая `ComponentActivity.setContent`. Нужна почти каждому Android-приложению на Compose.
+
+### `androidx.compose.runtime:runtime`
+
+Содержит runtime primitives: `@Composable`, `State`, `MutableState`, `remember`, effects, snapshots. Обычно приходит транзитивно, но явное подключение делает намерение понятным в учебном проекте.
+
+### `androidx.compose.ui:ui`
+
+Содержит базовые UI-примитивы: `Modifier`, layout node infrastructure, geometry, input, semantics, density, graphics foundations.
+
+### `androidx.compose.ui:ui-graphics`
+
+Содержит типы для графики: `Color`, `Brush`, `Path`, `ImageBitmap`, `ColorFilter`, canvas-related primitives.
+
+### `androidx.compose.ui:ui-tooling-preview`
+
+Дает `@Preview`. Подключается в `implementation`, потому что annotation должна быть доступна main source set.
+
+### `androidx.compose.ui:ui-tooling`
+
+Дает расширенные tooling-возможности для debug, включая интерактивные preview-инструменты. Подключается через `debugImplementation`, чтобы не попадать в release как обычная runtime-зависимость.
+
+### `androidx.compose.foundation:foundation`
+
+Дает layout primitives, scrolling, lazy lists, foundation input, `Image`, `Canvas`, `BasicText`, `BasicTextField`. Это нижний UI-слой без Material-стилизации.
+
+### `androidx.compose.material3:material3`
+
+Дает Material 3 components и theming: `MaterialTheme`, `Button`, `Card`, `Scaffold`, `TextField`, app bars, navigation surfaces, dialogs, sheets, pickers.
+
+### `androidx.lifecycle:lifecycle-runtime-compose`
+
+Дает lifecycle-aware helpers, особенно `collectAsStateWithLifecycle`, чтобы безопасно собирать `Flow` из UI.
+
+### `androidx.navigation:navigation-compose`
+
+Нужен для Navigation Compose. В этот базовый setup он не добавлен, потому что навигация будет отдельным уровнем курса. Когда он понадобится, версия задается отдельно от Compose BOM.
+
+### `androidx.paging:paging-compose`
+
+Нужен для интеграции Paging 3 с Compose lazy lists. Версия задается отдельно от Compose BOM.
+
+### `androidx.hilt:hilt-navigation-compose`
+
+Нужен, если приложение использует Hilt и ViewModel injection в Navigation Compose. Версия задается отдельно от Compose BOM.
+
+## Проверочный список после настройки
+
+После подключения Compose проверь проект по этому списку:
+
+- `MainActivity` наследуется от `ComponentActivity`;
+- `setContent` импортируется из `androidx.activity.compose.setContent`;
+- `@Composable` импортируется из `androidx.compose.runtime.Composable`;
+- `Text` импортируется из `androidx.compose.material3.Text` или осознанно из foundation/basic text APIs;
+- в Gradle подключен `org.jetbrains.kotlin.plugin.compose`;
+- версия Compose Compiler plugin совпадает с версией Kotlin plugin;
+- Compose artifacts подключены через BOM;
+- у Compose artifacts нет ручных версий рядом с BOM;
+- `ui-tooling` подключен через `debugImplementation`;
+- Preview видит `@Preview` из `ui-tooling-preview`;
+- проект синхронизируется в Android Studio без warnings о Compose compiler mismatch.
+
+## Частые ошибки сборки
+
+### `Unresolved reference: setContent`
+
+Обычно не хватает `androidx.activity:activity-compose` или импорт взят не из `androidx.activity.compose.setContent`.
+
+### `This function is marked as @Composable and can only be called from the context of a @Composable function`
+
+Composable-функция вызывается из обычной функции. Нужно либо пометить вызывающую функцию `@Composable`, либо вынести вызов в правильный composable-контекст.
+
+### Preview не отображается
+
+Проверь `ui-tooling-preview`, `ui-tooling`, синхронизацию Gradle, корректный `@Preview`, отсутствие runtime-исключений в composable и то, что preview-функция не требует обязательных runtime-зависимостей вроде реального repository.
+
+### Конфликт версий Compose
+
+Проверь, что у `androidx.compose.*` dependencies не указаны разные ручные версии. Если используется BOM, версии должны быть только у BOM и у AndroidX-библиотек вне Compose BOM.
+
+### Ошибка compiler extension version
+
+В Kotlin 2.x проектах проверь, что подключен `org.jetbrains.kotlin.plugin.compose`, а старый `composeOptions.kotlinCompilerExtensionVersion` не тянет проект в несовместимую конфигурацию.
+
+## Итоги
+
+Для корректной Compose-настройки нужны не десятки случайных строк, а ясная схема:
+
+- Android Gradle Plugin создает Android-модуль;
+- Kotlin Android Plugin компилирует Kotlin;
+- Compose Compiler Gradle Plugin обрабатывает `@Composable`;
+- Compose BOM согласует версии Compose artifacts;
+- `activity-compose` дает `setContent`;
+- `material3`, `foundation`, `ui` и `runtime` дают UI toolkit;
+- `ui-tooling-preview` и `ui-tooling` дают preview и debug tooling;
+- XML-тема остается для Android window, а дизайн-система живет в `MaterialTheme`.

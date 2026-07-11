@@ -1,0 +1,470 @@
+---
+title: "Размеры, отступы и constraints"
+description: "Разбираем размер и ограничения в Compose: constraints, size, requiredSize, width, height, fillMaxSize, wrapContentSize, padding, absolutePadding, systemBarsPadding, imePadding и устойчивые layout-правила."
+order: 18
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему размер в Compose не абсолютный
+
+В Compose ребенок не выбирает размер в пустоте. Родитель передает ребенку constraints: минимальную и максимальную ширину, минимальную и максимальную высоту. Ребенок измеряется внутри этих границ и возвращает фактический размер.
+
+Упрощенный алгоритм layout-фазы:
+
+- родитель получает constraints от своего родителя;
+- родитель передает constraints детям;
+- каждый ребенок выбирает размер внутри constraints;
+- родитель выбирает свой размер с учетом детей и своих constraints;
+- родитель размещает детей.
+
+`Modifier.size(100.dp)` не означает "всегда 100 dp любой ценой". Это preferred size, который все равно обязан уважать входящие constraints. Если нужен более жесткий запрос, используется `requiredSize`, но и он требует осторожности.
+
+## `size`
+
+`size` задает предпочтительный размер по ширине и высоте.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FixedSquare() {
+    Box(
+        modifier = Modifier
+            .size(96.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+    )
+}
+```
+
+Есть overload с разными шириной и высотой:
+
+```kotlin
+@Composable
+fun FixedRectangle() {
+    Box(
+        modifier = Modifier
+            .size(width = 180.dp, height = 96.dp)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+    )
+}
+```
+
+## `width` и `height`
+
+`width` фиксирует ширину, не фиксируя высоту. `height` фиксирует высоту, не фиксируя ширину.
+
+```kotlin
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+
+@Composable
+fun FixedWidthFlexibleHeight() {
+    Text(
+        modifier = Modifier
+            .width(220.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(12.dp),
+        text = "Ширина фиксирована, высота зависит от текста."
+    )
+}
+
+@Composable
+fun FixedHeightFlexibleWidth() {
+    Box(
+        modifier = Modifier
+            .height(64.dp)
+            .background(MaterialTheme.colorScheme.tertiaryContainer)
+    )
+}
+```
+
+## `requiredSize`
+
+`requiredSize` жестче, чем `size`: он пытается заменить входящие constraints заданным размером. Это полезно редко: например, для декоративного элемента, который должен иметь точный размер независимо от мягких constraints родителя.
+
+```kotlin
+import androidx.compose.foundation.layout.requiredSize
+
+@Composable
+fun RequiredIconBackground() {
+    Box(
+        modifier = Modifier
+            .requiredSize(48.dp)
+            .background(
+                color = MaterialTheme.colorScheme.primary,
+                shape = MaterialTheme.shapes.medium
+            )
+    )
+}
+```
+
+Не используй `requiredSize` как универсальное средство "победить layout". Если элемент не помещается, сначала проверь родительские constraints и дизайн.
+
+<MouseTrap title="Мышеловка: requiredSize может маскировать плохой layout">
+  Если компонент постоянно требует размер, который родитель не может дать, проблема обычно не в родителе. Возможно,
+  нужно пересмотреть адаптивность, min/max constraints, перенос текста или сам дизайн.
+</MouseTrap>
+
+## `sizeIn`, `widthIn`, `heightIn`
+
+Эти modifiers задают диапазон.
+
+```kotlin
+import androidx.compose.foundation.layout.sizeIn
+
+@Composable
+fun BoundedDescription(text: String) {
+    Text(
+        modifier = Modifier
+            .sizeIn(
+                minWidth = 120.dp,
+                maxWidth = 360.dp,
+                minHeight = 48.dp
+            )
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(12.dp),
+        text = text
+    )
+}
+```
+
+Диапазон полезнее жесткого размера, когда текст может меняться из-за локализации и font scale.
+
+## `fillMaxSize`, `fillMaxWidth`, `fillMaxHeight`
+
+`fillMaxSize` просит занять максимум доступного размера. `fillMaxWidth` и `fillMaxHeight` делают это по одной оси.
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+
+@Composable
+fun FullWidthBanner() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = "Баннер занимает всю доступную ширину"
+        )
+    }
+}
+```
+
+Можно передать fraction:
+
+```kotlin
+@Composable
+fun HalfWidthBlock() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth(0.5f)
+            .height(48.dp)
+            .background(MaterialTheme.colorScheme.primary)
+    )
+}
+```
+
+`fillMaxWidth(0.5f)` просит половину максимальной ширины родителя.
+
+## `wrapContentSize`
+
+`wrapContentSize` позволяет дочернему содержимому занимать свой естественный размер и задает alignment внутри доступной области.
+
+```kotlin
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.Alignment
+
+@Composable
+fun CenteredSmallBox() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .wrapContentSize(Alignment.Center)
+            .size(96.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+    )
+}
+```
+
+Порядок здесь важен: сначала `fillMaxSize`, затем `wrapContentSize`, затем `size`.
+
+## `padding`
+
+`padding` добавляет пространство вокруг содержимого. В modifier-цепочке он влияет на constraints.
+
+Внешний padding:
+
+```kotlin
+@Composable
+fun CardWithOuterPadding() {
+    Card(
+        modifier = Modifier.padding(16.dp)
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = "У карточки есть внешний и внутренний отступ"
+        )
+    }
+}
+```
+
+Внутренний padding — это modifier содержимого. Внешний padding — modifier контейнера.
+
+## `absolutePadding`
+
+`absolutePadding` использует left/right, а не start/end. В локализованном UI чаще нужен обычный `padding(start = 16.dp, end = 24.dp)`, потому что он учитывает layout direction.
+
+```kotlin
+import androidx.compose.foundation.layout.absolutePadding
+
+@Composable
+fun AbsolutePaddingExample() {
+    Text(
+        modifier = Modifier.absolutePadding(
+            left = 16.dp,
+            top = 8.dp,
+            right = 24.dp,
+            bottom = 8.dp
+        ),
+        text = "Absolute padding не меняется в RTL"
+    )
+}
+```
+
+Используй `absolutePadding` только когда физическая левая и правая сторона действительно важны, например для canvas overlay или специфичного media layout.
+
+## Insets padding
+
+Edge-to-edge UI требует учитывать системные области: status bar, navigation bar, IME, display cutout.
+
+Частые modifiers:
+
+- `systemBarsPadding`;
+- `statusBarsPadding`;
+- `navigationBarsPadding`;
+- `safeDrawingPadding`;
+- `imePadding`;
+- `windowInsetsPadding`;
+- `consumeWindowInsets`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.systemBarsPadding
+
+@Composable
+fun EdgeToEdgeForm(
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .safeDrawingPadding()
+            .imePadding()
+            .padding(16.dp)
+    ) {
+        content()
+    }
+}
+```
+
+`safeDrawingPadding` защищает контент от системных областей, где рисовать небезопасно. `imePadding` добавляет отступ под экранную клавиатуру.
+
+<CatTip title="Котосовет: edge-to-edge — это договор window и content">
+  `enableEdgeToEdge()` разрешает рисовать под системными барами, но не добавляет отступы за тебя. Контент должен сам
+  решить, где использовать `safeDrawingPadding`, `systemBarsPadding`, `imePadding` или `Scaffold` insets.
+</CatTip>
+
+## `defaultMinSize`
+
+`defaultMinSize` задает minimum только если incoming constraints не задали minimum. Это удобно для компонентов с минимальной touch target или базовой высотой.
+
+```kotlin
+import androidx.compose.foundation.layout.defaultMinSize
+
+@Composable
+fun MinimumHeightAction(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.defaultMinSize(minHeight = 48.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            text = text
+        )
+    }
+}
+```
+
+## Constraints и порядок `size`
+
+Если цепочка содержит несколько size modifiers, первый может сделать constraints точными, и следующий уже не сможет изменить размер.
+
+```kotlin
+@Composable
+fun SizeOrderExample() {
+    Box(
+        modifier = Modifier
+            .size(120.dp)
+            .size(48.dp)
+            .background(MaterialTheme.colorScheme.errorContainer)
+    )
+}
+```
+
+Такой элемент останется 120 dp, потому что первый `size` уже превратил constraints в точные 120 dp. Не пиши несколько size подряд, если не понимаешь, какой из них реально управляет размером.
+
+## Полный пример: устойчивый layout карточки
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class SizedLessonCardState(
+    val title: String,
+    val description: String,
+    val badge: String
+)
+
+@Composable
+fun SizedLessonCard(
+    state: SizedLessonCardState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .sizeIn(minHeight = 180.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Text(
+                    modifier = Modifier.padding(16.dp),
+                    text = "Обложка урока",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Text(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        text = state.badge,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+
+            Text(
+                text = state.title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = state.description,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+```
+
+Разбор:
+
+- карточка занимает ширину родителя;
+- `sizeIn(minHeight = 180.dp)` задает нижнюю границу без жесткого фиксирования высоты;
+- обложка имеет стабильный `aspectRatio`;
+- внутренний padding живет внутри карточки;
+- текст защищен `maxLines` и `overflow`;
+- badge имеет внутренний padding, но не управляет внешним layout.
+
+## Типичные ошибки
+
+### Фиксировать высоту текстового блока
+
+При крупном font scale текст может не поместиться. Лучше использовать min height, padding и max lines.
+
+### Использовать `absolutePadding` для обычного UI
+
+В RTL-интерфейсах физические left/right могут ломать направление. Используй start/end.
+
+### Надеяться, что `size` победит родителя
+
+Родительские constraints сильнее preferred size. Если элемент не получает нужный размер, смотри на родителя.
+
+### Ставить `imePadding` на маленький дочерний элемент
+
+Отступ от клавиатуры чаще нужен контейнеру экрана или scrollable области, а не отдельному `TextField`.
+
+### Смешивать внешний и внутренний padding
+
+Внешний padding задает родитель, внутренний задает компонент. Это упрощает переиспользование.
+
+## Итоги
+
+Размеры в Compose управляются constraints:
+
+- `size` задает preferred размер;
+- `requiredSize` жестче и нужен редко;
+- `width` и `height` фиксируют одну ось;
+- `sizeIn`, `widthIn`, `heightIn` задают диапазон;
+- `fillMaxSize`, `fillMaxWidth`, `fillMaxHeight` заполняют доступное место;
+- `wrapContentSize` возвращает содержимое к естественному размеру внутри большего пространства;
+- `padding` влияет на constraints и порядок modifier;
+- `absolutePadding` не учитывает layout direction;
+- `safeDrawingPadding`, `systemBarsPadding`, `imePadding` помогают edge-to-edge UI;
+- устойчивый layout предпочитает диапазоны, aspect ratio и переносы вместо жестких размеров.

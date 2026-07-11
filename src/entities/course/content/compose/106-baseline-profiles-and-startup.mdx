@@ -1,0 +1,487 @@
+---
+title: "Baseline Profiles and startup"
+description: "Разбираем Baseline Profiles и startup для Jetpack Compose: ART/JIT/AOT mental model, Macrobenchmark, BaselineProfileRule, profile installation, startupMode, compilationMode, critical user journeys, scroll profiles и production workflow."
+order: 106
+category: "Compose: Performance, stability and tooling"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему Compose выигрывает от Baseline Profiles
+
+Compose UI часто состоит из большого количества Kotlin bytecode: composables, lambdas, layout code, Material components, state readers, navigation. При первом запуске без profile часть кода может интерпретироваться или компилироваться Just-In-Time. Baseline Profile помогает ART заранее оптимизировать critical code paths после установки приложения.
+
+Baseline Profiles особенно полезны для:
+
+- cold startup;
+- first screen rendering;
+- navigation to common screens;
+- first scroll of Compose lists;
+- Material component initialization;
+- animation-heavy first interactions;
+- libraries, которые поставляют common UI.
+
+```kotlin
+data class CriticalJourney(
+    val name: String,
+    val includesStartup: Boolean,
+    val actions: List<String>
+)
+```
+
+Baseline Profile — это не "магический файл для всего приложения". Он должен покрывать реальные user journeys.
+
+<CatTip>
+Baseline Profile оптимизирует путь, который вы записали. Если вы записали только пустой startup, первый scroll каталога все еще может платить цену JIT.
+</CatTip>
+
+## ART, JIT и AOT mental model
+
+Упрощенно:
+
+- JIT компилирует горячий код во время выполнения;
+- AOT компиляция подготавливает код заранее;
+- Baseline Profile говорит runtime, какие методы/classes важны;
+- profile installer доставляет profile на device;
+- Macrobenchmark помогает измерить benefit.
+
+Для пользователя это проявляется как:
+
+- быстрее открывается app;
+- меньше jank на первых interactions;
+- меньше warm-up cost после установки/update.
+
+## Baseline Profile module
+
+Обычно создают отдельный `baselineprofile` или `macrobenchmark` module.
+
+Gradle plugins:
+
+```kotlin
+plugins {
+    id("com.android.test")
+    id("androidx.baselineprofile")
+    kotlin("android")
+}
+```
+
+Dependencies:
+
+```kotlin
+dependencies {
+    implementation("androidx.test.ext:junit:1.3.0")
+    implementation("androidx.test.uiautomator:uiautomator:2.4.0")
+    implementation("androidx.benchmark:benchmark-macro-junit4:1.4.0")
+}
+```
+
+Конкретные версии проверяйте в project catalog. Baseline Profile toolchain чувствителен к версиям AGP, benchmark и profile installer.
+
+## Generate profile
+
+Пример generator test:
+
+```kotlin
+import androidx.benchmark.macro.junit4.BaselineProfileRule
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class BaselineProfileGenerator {
+
+    @get:Rule
+    val baselineProfileRule = BaselineProfileRule()
+
+    @Test
+    fun generate() {
+        baselineProfileRule.collect(
+            packageName = "com.example.kotlingo"
+        ) {
+            pressHome()
+            startActivityAndWait()
+
+            device.waitForIdle()
+            openComposeCourse()
+            scrollLessonList()
+            openLessonDetails()
+        }
+    }
+}
+```
+
+Helper actions:
+
+```kotlin
+fun MacrobenchmarkScope.openComposeCourse() {
+    device.findObject(
+        By.text("Compose")
+    ).click()
+    device.waitForIdle()
+}
+
+fun MacrobenchmarkScope.scrollLessonList() {
+    val list = device.findObject(
+        By.res("lesson-list")
+    )
+    list.fling(Direction.DOWN)
+    device.waitForIdle()
+}
+```
+
+UIAutomator selectors должны быть устойчивыми. Если text локализуется, лучше использовать resource ids/test tags exposed to accessibility carefully.
+
+## Critical startup path
+
+Startup profile должен доходить до first meaningful screen, а не просто запускать Activity.
+
+Плохой generator:
+
+```kotlin
+baselineProfileRule.collect(
+    packageName = "com.example.app"
+) {
+    startActivityAndWait()
+}
+```
+
+Лучше:
+
+```kotlin
+baselineProfileRule.collect(
+    packageName = "com.example.app"
+) {
+    startActivityAndWait()
+    device.waitForIdle()
+
+    // Проверяем, что главный экран действительно построен.
+    device.findObject(
+        By.text("Главная")
+    )
+}
+```
+
+Еще лучше добавить первый common interaction: scroll, open tab, navigate.
+
+## Scroll critical path
+
+Compose apps часто платят first-scroll cost. Добавьте scroll в profile:
+
+```kotlin
+baselineProfileRule.collect(
+    packageName = "com.example.kotlingo"
+) {
+    startActivityAndWait()
+    openComposeCourse()
+
+    repeat(3) {
+        scrollLessonList()
+    }
+}
+```
+
+Не нужно проходить весь app. Profile должен быть representative, но не бесконечным.
+
+## Macrobenchmark startup
+
+Macrobenchmark измеряет startup и runtime performance.
+
+```kotlin
+import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.StartupMode
+import androidx.benchmark.macro.StartupTimingMetric
+import androidx.benchmark.macro.junit4.MacrobenchmarkRule
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class StartupBenchmark {
+
+    @get:Rule
+    val benchmarkRule = MacrobenchmarkRule()
+
+    @Test
+    fun coldStartup() {
+        benchmarkRule.measureRepeated(
+            packageName = "com.example.kotlingo",
+            metrics = listOf(
+                StartupTimingMetric()
+            ),
+            iterations = 10,
+            startupMode = StartupMode.COLD,
+            compilationMode = CompilationMode.Partial()
+        ) {
+            pressHome()
+            startActivityAndWait()
+        }
+    }
+}
+```
+
+`CompilationMode.Partial()` позволяет измерять behavior с profile-like compilation. Для сравнения можно запускать разные compilation modes.
+
+## Compare compilation modes
+
+Для оценки benefit:
+
+```kotlin
+@Test
+fun coldStartupWithoutCompilation() {
+    benchmarkRule.measureRepeated(
+        packageName = "com.example.kotlingo",
+        metrics = listOf(StartupTimingMetric()),
+        iterations = 10,
+        startupMode = StartupMode.COLD,
+        compilationMode = CompilationMode.None()
+    ) {
+        pressHome()
+        startActivityAndWait()
+    }
+}
+
+@Test
+fun coldStartupWithBaselineProfile() {
+    benchmarkRule.measureRepeated(
+        packageName = "com.example.kotlingo",
+        metrics = listOf(StartupTimingMetric()),
+        iterations = 10,
+        startupMode = StartupMode.COLD,
+        compilationMode = CompilationMode.Partial()
+    ) {
+        pressHome()
+        startActivityAndWait()
+    }
+}
+```
+
+Не сравнивайте результаты из разных devices или сильно разного thermal state.
+
+## Frame timing benchmark
+
+Для scroll:
+
+```kotlin
+import androidx.benchmark.macro.FrameTimingMetric
+
+@Test
+fun composeCourseScroll() {
+    benchmarkRule.measureRepeated(
+        packageName = "com.example.kotlingo",
+        metrics = listOf(
+            FrameTimingMetric()
+        ),
+        iterations = 5,
+        startupMode = StartupMode.WARM,
+        compilationMode = CompilationMode.Partial()
+    ) {
+        startActivityAndWait()
+        openComposeCourse()
+        scrollLessonList()
+    }
+}
+```
+
+Frame metrics показывают jank/slow frames и помогают оценить scroll critical path.
+
+## Profile installation
+
+Чтобы profile реально работал в installed app, нужна корректная delivery/installation pipeline:
+
+- Baseline Profile Gradle plugin;
+- generated profile попадает в app module;
+- `androidx.profileinstaller` dependency, если нужна поддержка на старых API;
+- проверка packaging;
+- release build test.
+
+App module dependency:
+
+```kotlin
+dependencies {
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+}
+```
+
+Gradle:
+
+```kotlin
+dependencies {
+    baselineProfile(project(":baselineprofile"))
+}
+```
+
+Современный шаблон Android Studio обычно генерирует большую часть boilerplate. Но проверьте, что profile действительно появляется в APK/AAB.
+
+## Libraries and Compose design systems
+
+Baseline Profiles полезны не только app module. Библиотека с Compose design system может поставлять baseline profile для своих common components.
+
+```kotlin
+plugins {
+    id("com.android.library")
+    id("androidx.baselineprofile")
+}
+```
+
+Library profile должен покрывать:
+
+- common buttons/cards;
+- lazy item components;
+- theme initialization;
+- navigation shell components;
+- heavy composable paths.
+
+Но app-level journeys все равно важны: библиотека не знает реальный startup route пользователя.
+
+## Startup anti-patterns
+
+Baseline Profile не исправит плохой startup design:
+
+- network call blocking first frame;
+- synchronous database migration on main thread;
+- huge image decode on startup;
+- eager initialization of every SDK;
+- building all navigation graphs with heavy work;
+- reading large files in `Application.onCreate`;
+- complex composition before first meaningful content.
+
+Плохо:
+
+```kotlin
+class App : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // Нельзя блокировать первый запуск тяжелой синхронной работой.
+        analytics.initializeBlocking()
+        imageCache.preloadAllImages()
+        database.runMigrationsOnMainThread()
+    }
+}
+```
+
+Baseline Profile ускоряет compiled code paths, но не отменяет main-thread IO.
+
+## Compose startup patterns
+
+Хороший Compose startup:
+
+- minimal Activity setup;
+- `enableEdgeToEdge`;
+- lightweight theme;
+- state collection lifecycle-aware;
+- first meaningful content quickly;
+- heavy data loads asynchronous;
+- placeholders stable size;
+- navigation lazy where possible;
+- images loaded after first frame.
+
+```kotlin
+@Composable
+fun AppRoot(
+    state: AppStartupState
+) {
+    when {
+        state.initializing -> {
+            StartupSkeleton()
+        }
+        state.ready -> {
+            MainAppContent(
+                state = state.main
+            )
+        }
+        else -> {
+            StartupError(
+                onRetry = state.onRetry
+            )
+        }
+    }
+}
+```
+
+Skeleton должен быть легким. Не строите весь dashboard за invisible loading overlay.
+
+## Baseline Profile workflow
+
+Практический процесс:
+
+- выбрать critical journeys;
+- написать baseline profile generator;
+- написать macrobenchmarks для startup/scroll;
+- сгенерировать profile;
+- подключить profile в app module;
+- проверить installation;
+- измерить before/after;
+- добавить CI job или periodic benchmark;
+- обновлять profile при крупных UI/navigation changes.
+
+```kotlin
+data class BaselineProfilePlan(
+    val journeys: List<CriticalJourney>,
+    val benchmarks: List<String>,
+    val owner: String,
+    val updateTrigger: String
+)
+```
+
+Profile устаревает. Если вы переписали startup screen или lazy list, обновите generator.
+
+## CI considerations
+
+Macrobenchmark в CI требует:
+
+- physical device farm или стабильный managed device;
+- release/benchmark build variants;
+- fixed animations/settings;
+- warmed thermal state;
+- repeat iterations;
+- artifact upload: JSON, traces, profiles;
+- threshold policy без flaky panic.
+
+Не делайте CI gate слишком жестким на early stage. Лучше сначала собирать trend.
+
+## Типичные ошибки
+
+### Генерировать profile только для Activity launch
+
+Первый scroll/navigation остается без прогрева.
+
+### Сравнивать debug builds
+
+Baseline Profile имеет смысл в release-like measurements.
+
+### Не проверять profile installation
+
+Сгенерированный файл может не попасть в app delivery.
+
+### Писать нестабильные UIAutomator selectors
+
+Generator ломается от локализации или малой правки текста.
+
+### Ожидать, что profile исправит main-thread IO
+
+Он ускоряет code execution, но не превращает блокирующий IO в asynchronous.
+
+### Не обновлять profile после UI refactor
+
+Profile покрывает старые пути и перестает помогать новым.
+
+## Итоги
+
+Baseline Profiles помогают Compose app быстрее прогреваться:
+
+- profile сообщает ART, какие code paths оптимизировать заранее;
+- critical journeys должны включать startup, first screen и common interactions;
+- `BaselineProfileRule` генерирует profile;
+- Macrobenchmark измеряет startup и frame timing;
+- сравнивайте compilation modes на одном device/setup;
+- profile installation нужно проверить в app build;
+- library profiles полезны, но app-level journeys обязательны;
+- Baseline Profile не исправляет плохую startup architecture;
+- profile нужно обновлять после крупных UI/navigation changes;
+- CI лучше начинать с trend monitoring, а не с жестких flaky gates.

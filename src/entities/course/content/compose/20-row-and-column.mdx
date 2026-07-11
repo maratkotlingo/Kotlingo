@@ -1,0 +1,524 @@
+---
+title: "Row и Column"
+description: "Разбираем Row и Column в Compose: horizontalArrangement, verticalArrangement, alignment, weight, baseline alignment, spacing, nested layouts и production-паттерны линейной раскладки."
+order: 20
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Линейные layout-компоненты
+
+`Row` и `Column` — самые частые layout-компоненты Compose.
+
+`Row` размещает детей горизонтально: слева направо в LTR и справа налево в RTL, если используется direction-aware поведение.
+
+`Column` размещает детей вертикально: сверху вниз.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun RowAndColumnBasics() {
+    Column {
+        Text(text = "Первая строка")
+        Text(text = "Вторая строка")
+
+        Row {
+            Text(text = "Слева")
+            Text(text = "Справа")
+        }
+    }
+}
+```
+
+В Compose вложенные layout-компоненты обычно не являются проблемой сами по себе. Runtime и layout engine спроектированы так, чтобы вложенность была нормальным способом выражать UI. Проблемой становятся не вложенные `Row`/`Column`, а тяжелые измерения, лишние state reads, неограниченные списки без lazy containers и сложные intrinsics в горячих местах.
+
+## `Row`
+
+Основные параметры `Row`:
+
+- `modifier`;
+- `horizontalArrangement`;
+- `verticalAlignment`;
+- `content`.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
+@Composable
+fun HeaderRow() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = "Уроки")
+        Text(text = "12 тем")
+    }
+}
+```
+
+`horizontalArrangement` управляет расположением детей вдоль главной горизонтальной оси. `verticalAlignment` управляет выравниванием по вертикальной поперечной оси.
+
+## `Column`
+
+Основные параметры `Column`:
+
+- `modifier`;
+- `verticalArrangement`;
+- `horizontalAlignment`;
+- `content`.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonSummaryColumn() {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(text = "Jetpack Compose")
+        Text(text = "UI как функция состояния")
+    }
+}
+```
+
+`verticalArrangement` управляет размещением сверху вниз. `horizontalAlignment` выравнивает детей по горизонтали.
+
+## Arrangement в `Row`
+
+Частые варианты:
+
+- `Arrangement.Start` — дети у начала строки;
+- `Arrangement.End` — дети у конца строки;
+- `Arrangement.Center` — дети по центру;
+- `Arrangement.SpaceBetween` — свободное место между детьми;
+- `Arrangement.SpaceAround` — свободное место вокруг детей;
+- `Arrangement.SpaceEvenly` — равные промежутки до, между и после детей;
+- `Arrangement.spacedBy(8.dp)` — фиксированный промежуток между детьми.
+
+```kotlin
+@Composable
+fun ActionRow(
+    onCancel: () -> Unit,
+    onSave: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(
+            space = 12.dp,
+            alignment = Alignment.End
+        ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedButton(onClick = onCancel) {
+            Text(text = "Отмена")
+        }
+
+        Button(onClick = onSave) {
+            Text(text = "Сохранить")
+        }
+    }
+}
+```
+
+`spacedBy(space, alignment)` удобен, когда нужны фиксированные промежутки, а вся группа должна стоять у края.
+
+## Arrangement в `Column`
+
+Частые варианты:
+
+- `Arrangement.Top`;
+- `Arrangement.Bottom`;
+- `Arrangement.Center`;
+- `Arrangement.SpaceBetween`;
+- `Arrangement.SpaceAround`;
+- `Arrangement.SpaceEvenly`;
+- `Arrangement.spacedBy(12.dp)`.
+
+```kotlin
+@Composable
+fun FormColumn(
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        content()
+    }
+}
+```
+
+`Arrangement.spacedBy` часто лучше, чем цепочка `Spacer(height = 16.dp)` между каждым элементом.
+
+<CatTip title="Котосовет: regular spacing лучше держать в Arrangement">
+  Если каждый элемент отделен одинаково, используй `Arrangement.spacedBy`. `Spacer` оставляй для осознанного пустого
+  места: гибкого push, отдельного gap или резервирования области.
+</CatTip>
+
+## Alignment в `Row`
+
+В `Row` вертикальное выравнивание задается через `verticalAlignment`.
+
+```kotlin
+@Composable
+fun AvatarAndTitleRow() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = CircleShape
+                )
+        )
+
+        Text(text = "Наставник курса")
+    }
+}
+```
+
+Для конкретного ребенка можно переопределить alignment через `Modifier.align`.
+
+```kotlin
+@Composable
+fun MixedAlignmentRow() {
+    Row(
+        modifier = Modifier.height(80.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = "По центру")
+
+        Text(
+            modifier = Modifier.align(Alignment.Bottom),
+            text = "Снизу"
+        )
+    }
+}
+```
+
+## Alignment в `Column`
+
+В `Column` горизонтальное выравнивание задается через `horizontalAlignment`.
+
+```kotlin
+@Composable
+fun CenteredColumn() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(text = "Готово")
+        Text(text = "Прогресс сохранен")
+    }
+}
+```
+
+Для конкретного ребенка можно использовать `Modifier.align`.
+
+```kotlin
+@Composable
+fun ColumnWithTrailingAction(
+    onDetailsClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(text = "Описание урока")
+
+        TextButton(
+            modifier = Modifier.align(Alignment.End),
+            onClick = onDetailsClick
+        ) {
+            Text(text = "Подробнее")
+        }
+    }
+}
+```
+
+## `weight`
+
+`Modifier.weight` распределяет оставшееся пространство между детьми `Row` или `Column`.
+
+В `Row`:
+
+```kotlin
+@Composable
+fun TitleAndMetadataRow(
+    title: String,
+    minutes: Int
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            modifier = Modifier.weight(1f),
+            text = title,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Text(text = "$minutes мин.")
+    }
+}
+```
+
+`Text` с `weight(1f)` занимает оставшуюся ширину и не выталкивает metadata за экран.
+
+В `Column`:
+
+```kotlin
+@Composable
+fun LessonScreenWithBottomAction(
+    content: @Composable () -> Unit,
+    onContinueClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(16.dp)
+        ) {
+            content()
+        }
+
+        Button(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            onClick = onContinueClick
+        ) {
+            Text(text = "Продолжить")
+        }
+    }
+}
+```
+
+`weight` в верхнем контенте оставляет кнопку внизу. Но если контент может быть длинным, лучше добавить scrollable container.
+
+<MouseTrap title="Мышеловка: weight не заменяет scroll">
+  Если контент не помещается по высоте, `weight` не сделает его прокручиваемым. Он только распределяет доступное место.
+  Для длинного текста, форм и списков нужен scroll или lazy container.
+</MouseTrap>
+
+## `fill` в `weight`
+
+`Modifier.weight(weight, fill = true)` по умолчанию заставляет ребенка занять выделенное пространство. Если `fill = false`, ребенок может быть меньше выделенного места.
+
+```kotlin
+@Composable
+fun WeightFillExample() {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            modifier = Modifier.weight(1f, fill = false),
+            text = "Короткий текст"
+        )
+
+        Text(text = "Справа")
+    }
+}
+```
+
+`fill = false` нужен редко. В большинстве UI ожидается `fill = true`.
+
+## Baseline alignment
+
+Для текста разного размера вертикальное центрирование может выглядеть хуже, чем выравнивание по baseline.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.alignByBaseline
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun PriceBaselineRow() {
+    Row {
+        Text(
+            modifier = Modifier.alignByBaseline(),
+            text = "1290",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Text(
+            modifier = Modifier.alignByBaseline(),
+            text = "₽",
+            style = MaterialTheme.typography.titleMedium
+        )
+    }
+}
+```
+
+`alignByBaseline` доступен для `Row` children. Он помогает аккуратно выровнять крупное число и маленькую валюту.
+
+## Полный пример: карточка строки курса
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class RowColumnLessonState(
+    val title: String,
+    val module: String,
+    val minutes: Int,
+    val completed: Boolean
+)
+
+@Composable
+fun RowColumnLessonCard(
+    state: RowColumnLessonState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (state.completed) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (state.completed) {
+                        "✓"
+                    } else {
+                        state.minutes.toString()
+                    },
+                    color = if (state.completed) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = state.module,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Text(
+                    text = state.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Text(
+                text = "${state.minutes} мин.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+```
+
+Разбор:
+
+- `Row` строит горизонтальную структуру карточки;
+- `Box` рисует круглый индикатор;
+- `Column` группирует module и title;
+- `weight(1f)` защищает правую подпись от вытеснения;
+- `Arrangement.spacedBy` задает регулярные промежутки;
+- `Alignment.CenterVertically` выравнивает элементы по центру строки;
+- текст ограничен `maxLines`, чтобы длинный перевод не сломал layout.
+
+## Типичные ошибки
+
+### Использовать `Row` для длинного списка
+
+`Row` и `Column` измеряют всех детей сразу. Для больших списков используй `LazyRow` и `LazyColumn`.
+
+### Ставить `Spacer` между каждым элементом
+
+Если spacing одинаковый, используй `Arrangement.spacedBy`.
+
+### Забывать `weight` у длинного текста
+
+Длинный заголовок без `weight` может вытолкнуть trailing content за экран.
+
+### Использовать `SpaceBetween` для двух действий без проверки маленьких экранов
+
+На узких экранах действия могут оказаться слишком далеко или столкнуться с длинным текстом. Иногда `spacedBy` и перенос в `Column` лучше.
+
+### Надеяться, что `Column` сам прокрутится
+
+`Column` не scrollable по умолчанию. Добавь `verticalScroll` или используй lazy container.
+
+## Итоги
+
+`Row` и `Column` — основа линейного layout:
+
+- `Row` размещает детей горизонтально;
+- `Column` размещает детей вертикально;
+- `Arrangement` управляет пространством вдоль главной оси;
+- `Alignment` управляет поперечной осью;
+- `Modifier.weight` распределяет оставшееся пространство;
+- `alignByBaseline` полезен для текста разного размера;
+- `Arrangement.spacedBy` лучше для регулярных промежутков;
+- для больших или неизвестно длинных списков нужны lazy containers;
+- вложенность в Compose нормальна, если она выражает структуру UI и не создает лишнюю работу.

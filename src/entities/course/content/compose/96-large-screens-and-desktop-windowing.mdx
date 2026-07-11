@@ -1,0 +1,771 @@
+---
+title: "Large screens and desktop windowing"
+description: "Разбираем large screens и desktop windowing в Jetpack Compose: resizable windows, multi-window, pointer, hover, keyboard, focus, caption area, adaptive panes, density and typography scaling, window constraints, testing и production pitfalls."
+order: 96
+category: "Compose: Adaptive UI and form factors"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что меняется на больших экранах
+
+Большой экран — это не просто больше места. На tablets, ChromeOS и desktop windowing меняется способ работы:
+
+- пользователь может открыть несколько приложений рядом;
+- окно можно свободно менять;
+- есть mouse, trackpad, keyboard;
+- hover state становится видимым;
+- focus navigation становится обязательной;
+- строки текста не должны становиться бесконечно длинными;
+- dialogs и menus должны иметь max width;
+- panes становятся естественнее, чем огромная single column;
+- desktop caption/header area может занимать верх окна;
+- typography и density могут требовать другого масштаба.
+
+```kotlin
+data class DesktopWindowState(
+    val widthClass: WindowWidthClass,
+    val heightClass: WindowHeightClass,
+    val inputMode: InputModeKind,
+    val resizable: Boolean
+)
+
+enum class InputModeKind {
+    TouchFirst,
+    PointerKeyboard,
+    Mixed
+}
+```
+
+В реальности input mode может меняться во время сессии: пользователь подключил mouse, взял stylus, открыл hardware keyboard.
+
+<CatTip>
+На large screens пользователь часто не "смотрит экран", а "работает в окне". Это меняет приоритеты: scannability, keyboard flow, panes и resize resilience важнее красивого растягивания mobile UI.
+</CatTip>
+
+## Desktop windowing
+
+Desktop windowing позволяет запускать apps в resizable windows с system controls. Окно может быть:
+
+- narrow;
+- wide;
+- short;
+- almost square;
+- partially overlapping other windows;
+- moved between displays;
+- resized repeatedly.
+
+Практические требования:
+
+- layout должен реагировать на размер окна, а не device;
+- Activity не должна запрещать resize;
+- orientation lock не должен ломать windows;
+- min width должен быть разумным;
+- content должен reflow, а не scale bitmap-like;
+- state должен сохраняться при configuration changes;
+- caption bar/system areas должны учитываться.
+
+Manifest antipattern:
+
+```xml
+<!-- Не блокируйте режим рабочего стола и многооконные сценарии -->
+<activity
+    android:name=".MainActivity"
+    android:resizeableActivity="false"
+    android:screenOrientation="portrait" />
+```
+
+Лучший путь: убрать ограничения и сделать UI adaptive.
+
+## App root для resizable windows
+
+Root layout должен принимать adaptive info.
+
+```kotlin
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LargeScreenAppRoot(
+    appState: AppState
+) {
+    val windowState = rememberAdaptiveWindowState()
+
+    AppFrame(
+        windowState = windowState,
+        currentDestination = appState.currentDestination,
+        onDestinationClick = appState::navigateTo
+    ) {
+        when (appState.currentDestination) {
+            AppDestination.Mail -> {
+                MailScreen(
+                    windowState = windowState,
+                    state = appState.mailState,
+                    onMessageClick = appState::openMessage
+                )
+            }
+            AppDestination.Calendar -> {
+                CalendarScreen(
+                    windowState = windowState,
+                    state = appState.calendarState
+                )
+            }
+        }
+    }
+}
+```
+
+`windowState` передается только туда, где layout decision действительно нужен. Leaf components не должны знать про всю adaptive модель без необходимости.
+
+## Width constraints
+
+На expanded screen single column не должна растягиваться до 1400dp.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ReadableArticle(
+    article: Article
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        ArticleBody(
+            article = article,
+            modifier = Modifier.widthIn(
+                max = 760.dp
+            )
+        )
+    }
+}
+```
+
+Для reading content ограничивайте line length. Для productivity UI используйте panes, а не один центрированный narrow column.
+
+## Pane layouts для productivity
+
+Большие экраны лучше используют panes:
+
+- navigation;
+- list;
+- detail;
+- inspector;
+- preview;
+- activity feed.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun DesktopMailLayout(
+    state: MailUiState,
+    onFolderClick: (String) -> Unit,
+    onMessageClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(modifier = modifier) {
+        FolderPane(
+            folders = state.folders,
+            selectedFolderId = state.openedFolderId,
+            onFolderClick = onFolderClick,
+            modifier = Modifier.weight(0.18f)
+        )
+        MessageListPane(
+            messages = state.messages,
+            selectedMessageId = state.selectedMessageId,
+            onMessageClick = onMessageClick,
+            modifier = Modifier.weight(0.32f)
+        )
+        MessageDetailPane(
+            messageId = state.selectedMessageId,
+            modifier = Modifier.weight(0.50f)
+        )
+    }
+}
+```
+
+Проверяйте min width каждого pane. Если окно слишком узкое, переключайтесь на canonical list-detail behavior.
+
+## Pointer и hover
+
+Mouse/trackpad input требует hover states. В Compose можно использовать `hoverable` и `InteractionSource`.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun HoverableListRow(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember {
+        MutableInteractionSource()
+    }
+    val hovered by interactionSource.collectIsHoveredAsState()
+
+    Box(
+        modifier = modifier
+            .hoverable(interactionSource)
+            .background(
+                if (hovered) {
+                    MaterialTheme.colorScheme.surfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+            )
+            .padding(12.dp)
+    ) {
+        Text(text = title)
+    }
+}
+```
+
+Если элемент clickable, Material components часто уже дают interaction states. Custom UI должен показывать hover/focus/pressed явно.
+
+## Pointer cursor
+
+Pointer icon помогает сообщить, что элемент интерактивен.
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LinkLikeText(
+    text: String,
+    onClick: () -> Unit
+) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(onClick = onClick)
+            .padding(8.dp)
+    )
+}
+```
+
+Pointer cursor не заменяет semantics role и click behavior. Это только дополнительный visual affordance.
+
+## Keyboard-first UI
+
+На desktop-like devices keyboard navigation должна быть полноценной:
+
+- Tab order;
+- focus ring;
+- Enter/Space activation;
+- Escape close;
+- arrow navigation;
+- shortcuts;
+- focus restoration;
+- visible focus state.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FocusAwareCommandItem(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = modifier
+            .onFocusChanged { state ->
+                focused = state.isFocused
+            }
+            .focusable()
+            .padding(8.dp)
+    ) {
+        Text(
+            text = title,
+            color = if (focused) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                Color.Unspecified
+            }
+        )
+    }
+}
+```
+
+`focusable()` не рисует focus ring сам по себе. UI должен показывать focus state или использовать компоненты, которые уже это делают.
+
+## Keyboard shortcuts
+
+Desktop-like UI ожидает shortcuts.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+
+@Composable
+fun ShortcutRoot(
+    onSave: () -> Unit,
+    onFind: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) {
+                    return@onPreviewKeyEvent false
+                }
+
+                when {
+                    event.isCtrlPressed && event.key == Key.S -> {
+                        onSave()
+                        true
+                    }
+                    event.isCtrlPressed && event.key == Key.F -> {
+                        onFind()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable()
+    ) {
+        content()
+    }
+}
+```
+
+Shortcuts должны быть discoverable: menu, tooltip, keyboard shortcuts helper или command palette.
+
+<MouseTrap>
+Shortcut без focus strategy часто "иногда работает". Keyboard event приходит focused subtree, а не всей вселенной приложения.
+</MouseTrap>
+
+## Focus restoration
+
+При переходах между panes focus не должен теряться.
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+
+@Composable
+fun DetailsPaneWithInitialFocus(
+    title: String,
+    onClose: () -> Unit
+) {
+    val closeRequester = remember {
+        FocusRequester()
+    }
+
+    LaunchedEffect(title) {
+        closeRequester.requestFocus()
+    }
+
+    CloseButton(
+        onClick = onClose,
+        modifier = Modifier
+            .focusRequester(closeRequester)
+            .focusable()
+    )
+}
+```
+
+Не запрашивайте focus на каждом recomposition. Key должен отражать событие открытия/смены content.
+
+## Resizable dialogs and menus
+
+Dialogs на large screens должны иметь max width и не занимать весь экран без причины.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun DeleteDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(text = "Удалить документ?")
+        },
+        text = {
+            Column(
+                modifier = Modifier.widthIn(
+                    max = 480.dp
+                )
+            ) {
+                Text(text = "Это действие нельзя отменить.")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = "Удалить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Отмена")
+            }
+        }
+    )
+}
+```
+
+Для complex desktop workflows иногда лучше side panel или popover, чем modal dialog.
+
+## Caption area и system gestures
+
+В desktop windowing top area может использоваться system для dragging/minimize/maximize. Если приложение рисует interactive UI в caption area, нужно учитывать gesture conflicts и system gesture handling.
+
+Практическое правило:
+
+- не кладите critical tabs/search прямо под window handle без проверки;
+- учитывайте `WindowInsets.captionBar`;
+- не перекрывайте system controls;
+- проверяйте drag window gestures;
+- избегайте custom title bars, пока нет сильной причины.
+
+```kotlin
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.captionBar
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun DesktopAwareTopBar() {
+    TopAppBar(
+        title = {
+            Text(text = "Workspace")
+        },
+        modifier = Modifier.windowInsetsPadding(
+            WindowInsets.captionBar
+        )
+    )
+}
+```
+
+## Density и typography scaling
+
+На large screens нельзя просто увеличить все пропорционально. Иногда нужно:
+
+- ограничить text line length;
+- поднять type scale на editorial screens;
+- сохранить плотность operational UI;
+- увеличить touch/pointer targets;
+- использовать panes вместо гигантских cards;
+- учитывать user font scale;
+- поддержать in-app scaling для reading content.
+
+Пример локальной density scaling для reading area:
+
+```kotlin
+import androidx.compose.foundation.gestures.TransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+
+@Composable
+fun ScalableReadingArea(
+    content: @Composable () -> Unit
+) {
+    val baseDensity = LocalDensity.current
+    val scale = remember {
+        mutableFloatStateOf(1f)
+    }
+    val transformableState = remember {
+        TransformableState { zoomChange, _, _ ->
+            scale.floatValue = (scale.floatValue * zoomChange)
+                .coerceIn(0.85f, 2.5f)
+        }
+    }
+
+    Box(
+        modifier = Modifier.transformable(transformableState)
+    ) {
+        CompositionLocalProvider(
+            LocalDensity provides Density(
+                density = baseDensity.density * scale.floatValue,
+                fontScale = baseDensity.fontScale
+            )
+        ) {
+            content()
+        }
+    }
+}
+```
+
+Для обычной app shell не меняйте density внезапно. Это специализированный pattern для scalable content, например reading/document areas.
+
+## Pointer precision vs touch targets
+
+На desktop pointer точный, но приложение все равно должно оставаться touch-friendly на tablet. Не уменьшайте все controls до desktop density, если same UI используется touch.
+
+```kotlin
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AdaptiveIconButton(
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.sizeIn(
+            minWidth = 48.dp,
+            minHeight = 48.dp
+        )
+    ) {
+        content()
+    }
+}
+```
+
+Minimum touch target остается важным, даже если у пользователя сейчас mouse.
+
+## Drag and drop на больших экранах
+
+Large screens делают drag-and-drop полезнее:
+
+- между panes;
+- из файлового менеджера;
+- между приложениями;
+- из list в editor;
+- из gallery в document.
+
+Но drag не должен быть единственным path.
+
+```kotlin
+@Composable
+fun AttachmentDropZone(
+    onPickFile: () -> Unit,
+    onFilesDropped: (List<Uri>) -> Unit
+) {
+    DropZoneSurface(
+        onDrop = onFilesDropped,
+        fallbackAction = {
+            PickFileButton(onClick = onPickFile)
+        }
+    )
+}
+```
+
+Keyboard/menu fallback нужен для accessibility и для пользователей без pointer.
+
+## Testing large screens
+
+Проверяйте:
+
+- narrow desktop window;
+- wide desktop window;
+- short height;
+- split-screen;
+- external display;
+- mouse hover;
+- keyboard tab order;
+- shortcuts;
+- focus restoration;
+- caption bar overlap;
+- 100%, 150%, 200% font scale;
+- display size changes;
+- dialogs max width;
+- drag-and-drop fallback.
+
+Previews:
+
+```kotlin
+import androidx.compose.ui.tooling.preview.Preview
+
+@Preview(
+    name = "desktop wide",
+    widthDp = 1440,
+    heightDp = 900
+)
+@Preview(
+    name = "desktop narrow",
+    widthDp = 640,
+    heightDp = 720
+)
+@Preview(
+    name = "short window",
+    widthDp = 1000,
+    heightDp = 420
+)
+annotation class DesktopWindowPreviews
+```
+
+UI tests для keyboard:
+
+```kotlin
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.requestFocus
+import org.junit.Rule
+import org.junit.Test
+
+class ShortcutRootTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun ctrlS_savesDocument() {
+        var saved = false
+
+        composeRule.setContent {
+            ShortcutRoot(
+                onSave = {
+                    saved = true
+                },
+                onFind = {}
+            ) {
+                Text("Документ")
+            }
+        }
+
+        composeRule
+            .onNodeWithText("Документ")
+            .requestFocus()
+
+        composeRule
+            .onNodeWithText("Документ")
+            .performKeyInput {
+                keyDown(Key.CtrlLeft)
+                keyDown(Key.S)
+                keyUp(Key.S)
+                keyUp(Key.CtrlLeft)
+            }
+
+        assert(saved)
+    }
+}
+```
+
+Для hover и caption overlap часто нужны manual/screenshot checks.
+
+## Типичные ошибки
+
+### Растягивать mobile layout
+
+Получаются длинные строки, пустые области и плохая scannability.
+
+### Запрещать resize/orientation
+
+Это ломает multi-window, ChromeOS, foldables и desktop windowing.
+
+### Не показывать hover/focus states
+
+Pointer/keyboard users теряют feedback.
+
+### Делать keyboard shortcuts без focus root
+
+Сочетания работают случайно в зависимости от текущего focus.
+
+### Уменьшать touch targets под mouse
+
+Same UI может использоваться пальцем через секунду.
+
+### Хардкодить dialog width
+
+Dialog должен иметь min/max constraints и работать в narrow windows.
+
+### Игнорировать caption bar
+
+Top UI может конфликтовать с window controls.
+
+## Итоги
+
+Large screens и desktop windowing требуют desktop-aware Compose UI:
+
+- решения принимаются по размеру окна, не устройства;
+- resize/orientation нужно поддерживать, а не блокировать;
+- panes лучше используют expanded space, чем растянутые columns;
+- text line length и dialogs должны иметь max constraints;
+- pointer input требует hover states и cursor affordances;
+- keyboard-first UI требует focus order, visible focus и shortcuts;
+- caption bar/system areas нужно учитывать в desktop windowing;
+- density/typography scaling должен быть осознанным и content-specific;
+- touch targets остаются важными даже при mouse input;
+- drag-and-drop полезен, но требует fallback action;
+- testing должно покрывать wide, narrow, short, split-screen, keyboard, hover и font scale.

@@ -1,0 +1,777 @@
+---
+title: "Custom Layout, MeasurePolicy and SubcomposeLayout"
+description: "Подробно разбираем собственные layout-компоненты в Jetpack Compose: фазы измерения и размещения, Layout, MeasurePolicy, Measurable, Placeable, alignment lines, intrinsics, BoxWithConstraints и SubcomposeLayout."
+order: 26
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем писать свой layout
+
+В Jetpack Compose большинство интерфейсов можно собрать из `Box`, `Row`, `Column`, `LazyColumn`, `LazyVerticalGrid`, `FlowRow` и `Modifier`. Но иногда готовых layout-компонентов недостаточно.
+
+Собственный layout нужен, когда:
+
+- дочерние элементы должны измеряться по особому алгоритму;
+- позиция элемента зависит от размеров других элементов;
+- нужна нестандартная сетка, диаграмма, шкала, календарь, timeline или бейдж;
+- часть контента должна измеряться только после того, как уже известны размеры другой части;
+- обычная комбинация `Box`, `Row` и `Column` стала слишком глубокой и трудно поддерживаемой;
+- надо сделать переиспользуемый layout-компонент с понятным API.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Layout
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun BadgeLayout(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+    badge: @Composable () -> Unit
+) {
+    Layout(
+        modifier = modifier,
+        content = {
+            content()
+            badge()
+        }
+    ) { measurables, constraints ->
+        // Первый дочерний элемент считается основным контентом.
+        val contentPlaceable: Placeable = measurables[0].measure(constraints)
+
+        // Бейдж измеряется теми же ограничениями, но обычно сам выбирает компактный размер.
+        val badgePlaceable: Placeable = measurables[1].measure(constraints)
+
+        // Размер контейнера равен размеру контента.
+        layout(
+            width = contentPlaceable.width,
+            height = contentPlaceable.height
+        ) {
+            // Контент кладем в левый верхний угол.
+            contentPlaceable.placeRelative(x = 0, y = 0)
+
+            // Бейдж частично нависает над правым верхним углом.
+            val badgeX = contentPlaceable.width - badgePlaceable.width / 2
+            val badgeY = -badgePlaceable.height / 2
+            badgePlaceable.placeRelative(x = badgeX, y = badgeY)
+        }
+    }
+}
+
+@Composable
+fun BadgeLayoutDemo() {
+    BadgeLayout(
+        content = {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFEAF4FF)
+            ) {
+                Text(
+                    text = "Входящие",
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
+                )
+            }
+        },
+        badge = {
+            Text(
+                text = "8",
+                modifier = Modifier
+                    .background(
+                        color = Color(0xFFD73A31),
+                        shape = RoundedCornerShape(999.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                color = Color.White
+            )
+        }
+    )
+}
+```
+
+В этом примере `Layout` дает полный контроль над двумя фазами:
+
+- измерение: `measure` превращает `Measurable` в `Placeable`;
+- размещение: `placeRelative` задает координаты уже измеренного элемента.
+
+<CatTip>
+Собственный layout в Compose обычно не рисует UI сам. Он решает, сколько места нужно дочерним composable и где они будут стоять. За внешний вид по-прежнему отвечают сами дочерние элементы и модификаторы.
+</CatTip>
+
+## Фазы layout в Compose
+
+Чтобы написать надежный custom layout, важно понимать, что Compose не просто вызывает функции сверху вниз и сразу рисует пиксели.
+
+У UI есть несколько связанных фаз:
+
+- composition: Compose вызывает composable-функции и строит описание интерфейса;
+- measurement: layout-компоненты измеряют дочерние элементы в рамках `Constraints`;
+- placement: layout-компоненты размещают уже измеренные элементы;
+- drawing: элементы рисуют фон, контент, обводки, тени и графику;
+- semantics: Compose собирает информацию для accessibility и тестов.
+
+Custom layout работает главным образом во фазах measurement и placement.
+
+## Constraints
+
+`Constraints` описывает допустимый диапазон размеров:
+
+- `minWidth`: минимальная ширина;
+- `maxWidth`: максимальная ширина;
+- `minHeight`: минимальная высота;
+- `maxHeight`: максимальная высота;
+- `hasBoundedWidth`: есть ли конечный верхний предел ширины;
+- `hasBoundedHeight`: есть ли конечный верхний предел высоты;
+- `copy`: создает измененную копию ограничений;
+- `offset`: уменьшает или увеличивает ограничения на заданные отступы;
+- `constrainWidth`: приводит ширину к допустимому диапазону;
+- `constrainHeight`: приводит высоту к допустимому диапазону;
+- `constrain`: приводит `IntSize` к допустимому диапазону.
+
+Constraints не говорят, какого размера должен быть child. Они говорят, какого размера ему разрешено быть.
+
+```kotlin
+import androidx.compose.foundation.layout.Layout
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FixedGapColumn(
+    gap: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Layout(
+        modifier = modifier,
+        content = content
+    ) { measurables, constraints ->
+        val gapPx = gap.roundToPx()
+
+        // Каждый child получает ограничения родителя.
+        val placeables = measurables.map { measurable ->
+            measurable.measure(constraints)
+        }
+
+        val contentWidth = placeables.maxOfOrNull { it.width } ?: 0
+        val contentHeight = placeables.sumOf { it.height } +
+            gapPx * (placeables.size - 1).coerceAtLeast(0)
+
+        // Размер layout обязан уважать ограничения родителя.
+        val width = constraints.constrainWidth(contentWidth)
+        val height = constraints.constrainHeight(contentHeight)
+
+        layout(width = width, height = height) {
+            var y = 0
+
+            placeables.forEach { placeable ->
+                placeable.placeRelative(x = 0, y = y)
+                y += placeable.height + gapPx
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- `gap.roundToPx()` доступен внутри `MeasureScope`;
+- `measure(constraints)` измеряет child;
+- `maxOfOrNull` корректно обрабатывает пустой список;
+- итоговый размер приводится к constraints;
+- размещение идет через накопление `y`.
+
+<MouseTrap>
+Самая частая ошибка в custom layout — вернуть размер, который игнорирует `Constraints`. Родитель имеет право дать жесткие или узкие ограничения. Если layout отвечает размером вне этого диапазона, поведение становится неожиданным: обрезка, смещения, неверные клики и сложные баги на маленьких экранах.
+</MouseTrap>
+
+## Measurable и Placeable
+
+`Measurable` — это дочерний элемент до измерения. У него еще нет конкретных пиксельных размеров.
+
+`Placeable` — это результат измерения. У него уже есть:
+
+- `width`;
+- `height`;
+- `measuredWidth`;
+- `measuredHeight`;
+- alignment lines;
+- методы размещения.
+
+Ключевой принцип Compose: в обычном `Layout` child можно измерить только один раз за один measurement pass. Это ограничение делает layout-систему предсказуемой и быстрой.
+
+```kotlin
+import androidx.compose.foundation.layout.Layout
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun OverlappingRow(
+    overlapPx: Int,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Layout(
+        modifier = modifier,
+        content = content
+    ) { measurables, constraints ->
+        val placeables = measurables.map { measurable ->
+            measurable.measure(constraints)
+        }
+
+        val widthWithoutOverlap = placeables.sumOf { it.width }
+        val totalOverlap = overlapPx * (placeables.size - 1).coerceAtLeast(0)
+        val rawWidth = widthWithoutOverlap - totalOverlap
+
+        val width = constraints.constrainWidth(rawWidth)
+        val height = constraints.constrainHeight(placeables.maxOfOrNull { it.height } ?: 0)
+
+        layout(width = width, height = height) {
+            var x = 0
+
+            placeables.forEach { placeable ->
+                placeable.placeRelative(x = x, y = 0)
+                x += placeable.width - overlapPx
+            }
+        }
+    }
+}
+```
+
+Такой layout может пригодиться для аватаров участников, стопки карточек или компактной визуализации выбранных элементов.
+
+## PlaceRelative и направление текста
+
+Для обычного UI почти всегда нужно использовать `placeRelative`, а не `place`.
+
+- `placeRelative` учитывает `LayoutDirection`;
+- в LTR координата `x = 0` означает левый край;
+- в RTL координата `x = 0` означает начало строки с учетом зеркалирования;
+- `place` использует физические координаты и не зеркалит размещение.
+
+```kotlin
+import androidx.compose.foundation.layout.Layout
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun StartEndLayout(
+    modifier: Modifier = Modifier,
+    startContent: @Composable () -> Unit,
+    endContent: @Composable () -> Unit
+) {
+    Layout(
+        modifier = modifier,
+        content = {
+            startContent()
+            endContent()
+        }
+    ) { measurables, constraints ->
+        val start = measurables[0].measure(constraints)
+        val end = measurables[1].measure(constraints)
+
+        val width = constraints.maxWidth
+        val height = constraints.constrainHeight(maxOf(start.height, end.height))
+
+        layout(width = width, height = height) {
+            start.placeRelative(x = 0, y = 0)
+            end.placeRelative(x = width - end.width, y = 0)
+        }
+    }
+}
+```
+
+Если приложение поддерживает арабский, иврит или другой RTL-язык, `placeRelative` избавляет от ручного зеркалирования.
+
+## Alignment lines
+
+Alignment line — это невидимая линия, по которой родитель может выравнивать элементы. Самый знакомый пример — `FirstBaseline` у текста.
+
+Compose использует alignment lines для:
+
+- базовой линии текста;
+- пользовательских графиков;
+- осей диаграмм;
+- выравнивания разных элементов по общему смысловому ориентиру.
+
+```kotlin
+import androidx.compose.foundation.layout.Layout
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun BaselinePaddedText(
+    text: String,
+    firstBaselineToTop: Int,
+    modifier: Modifier = Modifier
+) {
+    Layout(
+        modifier = modifier,
+        content = {
+            Text(text = text)
+        }
+    ) { measurables, constraints ->
+        val placeable = measurables.first().measure(constraints)
+        val firstBaseline = placeable[FirstBaseline]
+
+        val topPadding = if (firstBaseline != androidx.compose.ui.layout.AlignmentLine.Unspecified) {
+            firstBaselineToTop - firstBaseline
+        } else {
+            0
+        }.coerceAtLeast(0)
+
+        val width = constraints.constrainWidth(placeable.width)
+        val height = constraints.constrainHeight(placeable.height + topPadding)
+
+        layout(width = width, height = height) {
+            placeable.placeRelative(x = 0, y = topPadding)
+        }
+    }
+}
+```
+
+Разбор:
+
+- `placeable[FirstBaseline]` читает baseline;
+- если baseline отсутствует, возвращается `AlignmentLine.Unspecified`;
+- верхний padding вычисляется на основе реальной baseline;
+- layout сохраняет корректное положение текста независимо от размера шрифта.
+
+<CatTip>
+Alignment lines особенно ценны там, где обычное выравнивание по краям выглядит визуально неверно: текст рядом с иконкой, подписи диаграмм, значения в таблицах, сложные формы.
+</CatTip>
+
+## Intrinsic measurements
+
+Intrinsic measurement отвечает на вопрос: "Какой размер был бы естественным для child, если дать ему такие условия?"
+
+Основные intrinsic-методы:
+
+- `minIntrinsicWidth(height)`;
+- `maxIntrinsicWidth(height)`;
+- `minIntrinsicHeight(width)`;
+- `maxIntrinsicHeight(width)`.
+
+Intrinsic measurement нужен редко, но он важен для компонентов вроде `height(IntrinsicSize.Min)`, где родитель хочет узнать естественную высоту строки до обычного измерения.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun IntrinsicDividerRow(
+    title: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.height(IntrinsicSize.Min)
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(1.dp)
+                .background(Color(0xFFB9C2CF))
+        )
+
+        Text(
+            text = value,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp)
+        )
+    }
+}
+```
+
+Здесь divider получает высоту строки, хотя сам `Box` не содержит текста. Это достигается через intrinsic measurement.
+
+<MouseTrap>
+Intrinsic measurement может быть дороже обычного измерения. Не применяйте `IntrinsicSize` как универсальное средство выравнивания. Сначала попробуйте обычные constraints, `Box`, `Row`, `Column`, `Modifier.align`, `weight` и явные размеры.
+</MouseTrap>
+
+## MeasurePolicy
+
+`MeasurePolicy` — это объект, который описывает алгоритм измерения и размещения. В `Layout` его можно передать явно, если хочется вынести алгоритм из composable-функции.
+
+```kotlin
+import androidx.compose.foundation.layout.Layout
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.unit.Dp
+
+@Composable
+fun RememberedGapColumn(
+    gap: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val measurePolicy = remember(gap) {
+        MeasurePolicy { measurables, constraints ->
+            val gapPx = gap.roundToPx()
+            val placeables = measurables.map { measurable ->
+                measurable.measure(constraints)
+            }
+
+            val width = constraints.constrainWidth(placeables.maxOfOrNull { it.width } ?: 0)
+            val height = constraints.constrainHeight(
+                placeables.sumOf { it.height } +
+                    gapPx * (placeables.size - 1).coerceAtLeast(0)
+            )
+
+            layout(width = width, height = height) {
+                var y = 0
+
+                placeables.forEach { placeable ->
+                    placeable.placeRelative(x = 0, y = y)
+                    y += placeable.height + gapPx
+                }
+            }
+        }
+    }
+
+    Layout(
+        modifier = modifier,
+        content = content,
+        measurePolicy = measurePolicy
+    )
+}
+```
+
+`remember(gap)` не является обязательным для корректности, но помогает не пересоздавать объект политики без причины.
+
+## BoxWithConstraints
+
+`BoxWithConstraints` дает доступ к constraints в composition-фазе. Это не custom layout в строгом смысле, но часто решает задачи адаптивного UI без ручного `Layout`.
+
+```kotlin
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ResponsiveUserSummary(
+    name: String,
+    email: String,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        if (maxWidth < 420.dp) {
+            Column {
+                Text(text = name)
+                Text(text = email)
+            }
+        } else {
+            Row {
+                Text(
+                    text = name,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = email,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+```
+
+Когда использовать `BoxWithConstraints`:
+
+- нужно выбрать разные composable-ветки по доступной ширине;
+- layout-логика проще, чем ручное измерение;
+- размер влияет на состав UI, а не только на координаты.
+
+Когда лучше `Layout`:
+
+- надо измерять детей вручную;
+- надо размещать элементы по вычисленным координатам;
+- нельзя решить задачу обычными контейнерами.
+
+## SubcomposeLayout
+
+`SubcomposeLayout` нужен, когда часть UI надо скомпоновать и измерить после того, как уже известны размеры другой части.
+
+Типичные случаи:
+
+- overlay зависит от размера основного контента;
+- sticky header должен влиять на измерение body;
+- lazy-компоненты используют подкомпозицию для видимых элементов;
+- сложный layout должен сначала измерить один слот, а потом на основании результата создать другой слот.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun HeaderMeasuredPanel(
+    modifier: Modifier = Modifier,
+    header: @Composable () -> Unit,
+    body: @Composable (headerHeightPx: Int) -> Unit
+) {
+    SubcomposeLayout(modifier = modifier) { constraints ->
+        val headerPlaceables = subcompose(slotId = "header") {
+            header()
+        }.map { measurable ->
+            measurable.measure(constraints)
+        }
+
+        val headerHeight = headerPlaceables.maxOfOrNull { it.height } ?: 0
+
+        val bodyConstraints = constraints.copy(
+            minHeight = 0,
+            maxHeight = (constraints.maxHeight - headerHeight).coerceAtLeast(0)
+        )
+
+        val bodyPlaceables = subcompose(slotId = "body") {
+            body(headerHeight)
+        }.map { measurable ->
+            measurable.measure(bodyConstraints)
+        }
+
+        val width = constraints.constrainWidth(
+            maxOf(
+                headerPlaceables.maxOfOrNull { it.width } ?: 0,
+                bodyPlaceables.maxOfOrNull { it.width } ?: 0
+            )
+        )
+
+        val height = constraints.constrainHeight(
+            headerHeight + (bodyPlaceables.maxOfOrNull { it.height } ?: 0)
+        )
+
+        layout(width = width, height = height) {
+            headerPlaceables.forEach { placeable ->
+                placeable.placeRelative(x = 0, y = 0)
+            }
+
+            bodyPlaceables.forEach { placeable ->
+                placeable.placeRelative(x = 0, y = headerHeight)
+            }
+        }
+    }
+}
+
+@Composable
+fun HeaderMeasuredPanelDemo() {
+    HeaderMeasuredPanel(
+        header = {
+            Text(
+                text = "Заголовок панели",
+                modifier = Modifier.background(Color(0xFFE7F2EA))
+            )
+        },
+        body = { headerHeightPx ->
+            Text(
+                text = "Высота заголовка в пикселях: $headerHeightPx",
+                modifier = Modifier.background(Color(0xFFF9F1D7))
+            )
+        }
+    )
+}
+```
+
+Главное отличие от обычного `Layout`: в `SubcomposeLayout` можно вызвать `subcompose` несколько раз и передать данные из измерения одного слота в композицию другого.
+
+<MouseTrap>
+`SubcomposeLayout` мощный, но дорогой инструмент. Если задачу можно решить обычным `Layout`, `BoxWithConstraints` или комбинацией стандартных контейнеров, лучше начать с них. Подкомпозиция усложняет mental model и может стоить дороже на горячих экранах.
+</MouseTrap>
+
+## Production-пример: компактный timeline
+
+Этот пример показывает layout, который размещает точки событий на вертикальной оси и кладет карточки справа от оси. Такой компонент часто встречается в истории заказов, трекинге доставки и аудит-логах.
+
+```kotlin
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Layout
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class TimelineEvent(
+    val id: String,
+    val title: String,
+    val description: String,
+    val accentColor: Color
+)
+
+@Composable
+fun Timeline(
+    events: List<TimelineEvent>,
+    modifier: Modifier = Modifier,
+    axisWidth: Dp = 36.dp,
+    itemGap: Dp = 12.dp
+) {
+    Layout(
+        modifier = modifier,
+        content = {
+            events.forEach { event ->
+                TimelineEventCard(event = event)
+            }
+        }
+    ) { measurables, constraints ->
+        val axisWidthPx = axisWidth.roundToPx()
+        val itemGapPx = itemGap.roundToPx()
+
+        val cardConstraints = constraints.copy(
+            minWidth = 0,
+            maxWidth = (constraints.maxWidth - axisWidthPx).coerceAtLeast(0)
+        )
+
+        val placeables = measurables.map { measurable ->
+            measurable.measure(cardConstraints)
+        }
+
+        val contentHeight = placeables.sumOf { it.height } +
+            itemGapPx * (placeables.size - 1).coerceAtLeast(0)
+
+        val width = constraints.constrainWidth(
+            axisWidthPx + (placeables.maxOfOrNull { it.width } ?: 0)
+        )
+        val height = constraints.constrainHeight(contentHeight)
+
+        layout(width = width, height = height) {
+            var y = 0
+
+            placeables.forEach { placeable ->
+                val cardY = y
+                placeable.placeRelative(x = axisWidthPx, y = cardY)
+                y += placeable.height + itemGapPx
+            }
+        }
+    }
+}
+
+@Composable
+fun TimelineEventCard(
+    event: TimelineEvent,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = event.accentColor.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(10.dp)
+            ),
+        color = Color(0xFFF7FAFC),
+        shape = RoundedCornerShape(10.dp),
+        tonalElevation = 1.dp
+    ) {
+        Text(
+            text = "${event.title}\n${event.description}",
+            modifier = Modifier.padding(14.dp),
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+```
+
+Это базовая версия. В production-компоненте ось можно рисовать отдельным `Canvas` за карточками или через `drawBehind` в модификаторе. Сам layout при этом продолжит отвечать только за геометрию.
+
+## Когда custom layout не нужен
+
+Не стоит писать `Layout`, если задачу можно просто выразить через:
+
+- `Row`;
+- `Column`;
+- `Box`;
+- `FlowRow`;
+- `LazyColumn`;
+- `ConstraintLayout`;
+- `Modifier.layout`;
+- `BoxWithConstraints`.
+
+Custom layout увеличивает ответственность автора компонента. Нужно думать о constraints, RTL, accessibility, intrinsic measurement, тестах на разных размерах, performance и edge cases.
+
+## Типичные ошибки
+
+### Измерять child дважды
+
+В обычном `Layout` каждый child измеряется один раз. Если нужен второй этап, используйте `SubcomposeLayout` или пересмотрите алгоритм.
+
+### Игнорировать minWidth и minHeight
+
+Если родитель дал минимальные ограничения, layout должен их уважать через `constraints.constrainWidth` и `constraints.constrainHeight`.
+
+### Использовать физический place вместо placeRelative
+
+`place` может сломать RTL. Для интерфейсных компонентов выбирайте `placeRelative`.
+
+### Создавать сложный layout ради пары отступов
+
+Если задача решается `Modifier.padding`, `Spacer` или `Arrangement.spacedBy`, custom layout будет лишним усложнением.
+
+### Смешивать layout и domain-логику
+
+Layout должен знать про размеры и координаты. Он не должен решать, кто имеет доступ к кнопке, какие данные загрузить и какой бизнес-статус выбрать.
+
+## Итоги
+
+Custom layout — это способ взять под контроль измерение и размещение:
+
+- `Layout` подходит для собственного алгоритма measurement и placement;
+- `Constraints` задают разрешенный диапазон размеров;
+- `Measurable` измеряется в `Placeable`;
+- `Placeable` размещается через `placeRelative`;
+- alignment lines помогают выравнивать элементы по смысловым линиям;
+- intrinsic measurements нужны редко, но решают задачи естественных размеров;
+- `BoxWithConstraints` полезен для адаптивной композиции;
+- `SubcomposeLayout` нужен, когда композиция одного слота зависит от измерения другого;
+- чем глубже layout-логика, тем важнее тестировать разные размеры, RTL и длинные тексты.

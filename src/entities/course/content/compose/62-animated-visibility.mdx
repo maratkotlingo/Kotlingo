@@ -1,0 +1,814 @@
+---
+title: "AnimatedVisibility"
+description: "Разбираем AnimatedVisibility в Jetpack Compose: visible, enter и exit transitions, MutableTransitionState, animateEnterExit, transition внутри content, удаление из composition, state hoisting и production-паттерны."
+order: 62
+category: "Compose: Animation and motion"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `AnimatedVisibility`
+
+`AnimatedVisibility` — composable для анимированного появления и исчезновения content. Он принимает boolean `visible` или `MutableTransitionState<Boolean>` и применяет enter/exit transitions. Когда `visible` становится `true`, content входит в composition и проигрывает enter animation. Когда `visible` становится `false`, content проигрывает exit animation, а после завершения exit удаляется из composition.
+
+Это главное отличие от простой alpha-анимации. `AnimatedVisibility` управляет не только прозрачностью, но и присутствием content в composition.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun SimpleVisibilityMessage(
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        label = "simple message visibility"
+    ) {
+        Text(text = "Сообщение появилось")
+    }
+}
+```
+
+Если `visible == false`, после exit animation `Text` больше не находится в composition. Его remembered state, effects и child composition будут удалены.
+
+<CatTip>
+Используйте `AnimatedVisibility`, когда content действительно должен появляться и исчезать. Если элемент должен оставаться в layout и только визуально бледнеть, часто достаточно `animateFloatAsState` плюс `alpha`.
+</CatTip>
+
+## Базовая механика
+
+Жизненный цикл content внутри `AnimatedVisibility` выглядит так:
+
+1. `visible == false`: content отсутствует.
+2. `visible` становится `true`: content добавляется в composition.
+3. Enter transition проигрывается.
+4. Content остается видимым.
+5. `visible` становится `false`: content остается в composition на время exit transition.
+6. Exit transition завершается.
+7. Content удаляется из composition.
+
+Эта механика важна для effects. Если внутри content есть `LaunchedEffect`, он стартует при появлении и будет отменен при удалении content после exit.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ExpandableErrorBlock(
+    visible: Boolean,
+    title: String,
+    details: String
+) {
+    Column {
+        Text(text = title)
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn() + expandVertically(),
+            exit = shrinkVertically() + fadeOut(),
+            label = "error details"
+        ) {
+            Text(text = details)
+        }
+    }
+}
+```
+
+`fadeIn() + expandVertically()` означает, что transitions запускаются вместе. Content одновременно становится непрозрачным и раскрывается по высоте.
+
+## Enter transitions
+
+Enter transition описывает, как content появляется. Основные функции:
+
+- `fadeIn`: прозрачность от initial alpha к полной видимости;
+- `slideIn`: сдвиг из заданной позиции;
+- `slideInHorizontally`: горизонтальный вход;
+- `slideInVertically`: вертикальный вход;
+- `expandIn`: раскрытие по размеру;
+- `expandHorizontally`: раскрытие по ширине;
+- `expandVertically`: раскрытие по высоте;
+- `scaleIn`: увеличение или уменьшение масштаба до обычного размера.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+
+@Composable
+fun LeadingPanel(
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInHorizontally { fullWidth ->
+            -fullWidth
+        } + expandHorizontally(
+            expandFrom = Alignment.Start
+        ) + fadeIn(),
+        label = "leading panel enter"
+    ) {
+        Row {
+            Text(text = "Панель фильтров")
+        }
+    }
+}
+```
+
+Lambda в `slideInHorizontally` получает полный размер content и возвращает initial offset. Отрицательное значение по X означает вход слева.
+
+## Exit transitions
+
+Exit transition описывает, как content исчезает. Основные функции:
+
+- `fadeOut`;
+- `slideOut`;
+- `slideOutHorizontally`;
+- `slideOutVertically`;
+- `shrinkOut`;
+- `shrinkHorizontally`;
+- `shrinkVertically`;
+- `scaleOut`.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+
+@Composable
+fun DismissibleHint(
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        exit = slideOutVertically { fullHeight ->
+            -fullHeight
+        } + shrinkVertically(
+            shrinkTowards = Alignment.Top
+        ) + fadeOut(),
+        label = "dismissible hint exit"
+    ) {
+        Text(text = "Подсказка исчезает вверх")
+    }
+}
+```
+
+Если enter или exit не заданы, используются default transitions. В production-коде лучше задавать transitions явно, когда motion является частью UX.
+
+## Комбинирование transitions
+
+Enter и exit transitions можно складывать через `+`. Все transitions в сумме запускаются как один transition.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+private val NotificationEnter: EnterTransition = fadeIn() + expandVertically()
+private val NotificationExit: ExitTransition = shrinkVertically() + fadeOut()
+
+@Composable
+fun NotificationMessage(
+    visible: Boolean,
+    text: String
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = NotificationEnter,
+        exit = NotificationExit,
+        label = "notification visibility"
+    ) {
+        Text(text = text)
+    }
+}
+```
+
+Вынос transitions в val полезен, если один motion pattern повторяется в нескольких местах. Но не создавайте общую константу для всех анимаций продукта, если разные элементы должны двигаться по-разному.
+
+## `EnterTransition.None` и `ExitTransition.None`
+
+Иногда контейнер не должен анимироваться сам, потому что анимацию выполняют дочерние элементы через `animateEnterExit`. Тогда можно отключить transition контейнера.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateEnterExit
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun StaggeredTextBlock(
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = EnterTransition.None,
+        exit = ExitTransition.None,
+        label = "staggered text container"
+    ) {
+        Column {
+            Text(
+                text = "Заголовок",
+                modifier = Modifier.animateEnterExit(
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                )
+            )
+            Text(
+                text = "Описание",
+                modifier = Modifier.animateEnterExit(
+                    enter = slideInVertically { height ->
+                        height
+                    } + fadeIn(),
+                    exit = slideOutVertically { height ->
+                        height
+                    } + fadeOut()
+                )
+            )
+        }
+    }
+}
+```
+
+`animateEnterExit` комбинируется с transition родительского `AnimatedVisibility`. Если родитель тоже анимируется, эффекты складываются.
+
+## `MutableTransitionState`
+
+Перегрузка с `visibleState` дает больше контроля. `MutableTransitionState<Boolean>` хранит:
+
+- `currentState`: текущее состояние transition;
+- `targetState`: состояние, к которому transition движется;
+- `isIdle`: завершилась ли transition;
+- возможность стартовать animation сразу после входа в composition.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun AppearingOnFirstComposition() {
+    val visibleState = remember {
+        MutableTransitionState(false).apply {
+            // Content появится сразу после первой composition.
+            targetState = true
+        }
+    }
+
+    AnimatedVisibility(
+        visibleState = visibleState,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        label = "first composition visibility"
+    ) {
+        Text(text = "Я появляюсь после входа в composition")
+    }
+}
+```
+
+С обычным `visible = true` content сразу считается видимым. С `MutableTransitionState(false).apply { targetState = true }` можно стартовать enter transition при первом появлении.
+
+## Отслеживание завершения transition
+
+`MutableTransitionState` удобно использовать, когда нужно понять, завершилась ли exit animation.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+
+@Composable
+fun RemovableBanner(
+    visible: Boolean,
+    onFullyHidden: () -> Unit
+) {
+    val visibleState = remember {
+        MutableTransitionState(false)
+    }
+
+    visibleState.targetState = visible
+
+    LaunchedEffect(
+        visibleState.currentState,
+        visibleState.targetState,
+        visibleState.isIdle
+    ) {
+        if (
+            visibleState.isIdle &&
+            !visibleState.currentState &&
+            !visibleState.targetState
+        ) {
+            onFullyHidden()
+        }
+    }
+
+    AnimatedVisibility(
+        visibleState = visibleState,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        label = "removable banner"
+    ) {
+        Text(text = "Баннер можно удалить после exit")
+    }
+}
+```
+
+Такой подход полезен, если модель должна оставаться в списке, пока exit animation не завершилась.
+
+<MouseTrap>
+Не удаляйте item из списка в тот же момент, когда ставите `visible = false`, если хотите показать exit animation. Если item исчез из данных, composable уже нечему анимировать.
+</MouseTrap>
+
+## `AnimatedVisibilityScope.transition`
+
+Content внутри `AnimatedVisibility` выполняется в `AnimatedVisibilityScope`. У scope есть `transition`, через который можно анимировать дополнительные значения синхронно с visibility transition.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun VisibilityCard(
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        label = "visibility card"
+    ) {
+        val contentPadding by transition.animateDp(
+            label = "visibility card padding"
+        ) { state ->
+            if (state) {
+                16.dp
+            } else {
+                0.dp
+            }
+        }
+
+        Card(
+            modifier = Modifier.padding(contentPadding)
+        ) {
+            Text(text = "Карточка синхронизирует padding с visibility")
+        }
+    }
+}
+```
+
+Эта анимация знает о том же visibility state, что enter и exit. Это надежнее, чем заводить отдельный `animateDpAsState` с дублирующимся target.
+
+## State hoisting
+
+`AnimatedVisibility` не должен сам решать, что content видим. Visibility state обычно принадлежит caller или ViewModel, если это часть screen state.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun FiltersPanel(
+    filtersVisible: Boolean,
+    onFiltersVisibleChange: (Boolean) -> Unit
+) {
+    Column {
+        Button(
+            onClick = {
+                onFiltersVisibleChange(!filtersVisible)
+            }
+        ) {
+            Text(
+                text = if (filtersVisible) {
+                    "Скрыть фильтры"
+                } else {
+                    "Показать фильтры"
+                }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = filtersVisible,
+            label = "filters panel"
+        ) {
+            Text(text = "Фильтры каталога")
+        }
+    }
+}
+```
+
+Локальный `remember` допустим, если visibility является purely local UI state: раскрытие подсказки, временный help block, показ inline details внутри карточки.
+
+## Сохранение внутреннего state
+
+Когда content удаляется из composition, его `remember` state теряется. Это часто ожидаемо, но иногда становится неожиданной ошибкой.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun TemporaryCommentForm(
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        label = "comment form"
+    ) {
+        var comment by remember {
+            mutableStateOf("")
+        }
+
+        Column {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = { value ->
+                    comment = value
+                },
+                label = {
+                    Text(text = "Комментарий")
+                }
+            )
+        }
+    }
+}
+```
+
+Если скрыть форму и дождаться exit, `comment` будет потерян. Если текст нужно сохранить, поднимите state выше:
+
+```kotlin
+@Composable
+fun PersistentCommentForm(
+    visible: Boolean,
+    comment: String,
+    onCommentChange: (String) -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        label = "persistent comment form"
+    ) {
+        OutlinedTextField(
+            value = comment,
+            onValueChange = onCommentChange,
+            label = {
+                Text(text = "Комментарий")
+            }
+        )
+    }
+}
+```
+
+## Production-пример: undo banner после удаления
+
+Задача: пользователь удаляет item, item должен проиграть exit animation, затем исчезнуть из списка данных. Для этого UI-модель хранит `visible`.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class DeletableTaskUi(
+    val id: String,
+    val title: String,
+    val visible: Boolean
+)
+```
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AnimatedTaskRow(
+    task: DeletableTaskUi,
+    onDeleteClick: (String) -> Unit,
+    onExitFinished: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val visibleState = remember(task.id) {
+        MutableTransitionState(false).apply {
+            targetState = true
+        }
+    }
+
+    visibleState.targetState = task.visible
+
+    LaunchedEffect(
+        task.id,
+        visibleState.isIdle,
+        visibleState.currentState,
+        visibleState.targetState
+    ) {
+        if (
+            visibleState.isIdle &&
+            !visibleState.currentState &&
+            !visibleState.targetState
+        ) {
+            onExitFinished(task.id)
+        }
+    }
+
+    AnimatedVisibility(
+        visibleState = visibleState,
+        enter = fadeIn(),
+        exit = slideOutHorizontally { fullWidth ->
+            fullWidth
+        } + shrinkVertically() + fadeOut(),
+        label = "task row visibility"
+    ) {
+        Card(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clickable {
+                    onDeleteClick(task.id)
+                }
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(text = task.title)
+            }
+        }
+    }
+}
+```
+
+Такой компонент не удаляет данные сам. Он сообщает владельцу, что exit завершился. ViewModel или state holder после этого убирает item из списка.
+
+## Production-пример: collapsible search filters
+
+Фильтры часто раскрываются в верхней части списка. Здесь важны layout animation и сохранение state фильтров.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SearchFiltersSection(
+    visible: Boolean,
+    onlyAvailable: Boolean,
+    withDiscount: Boolean,
+    onOnlyAvailableChange: (Boolean) -> Unit,
+    onWithDiscountChange: (Boolean) -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + expandVertically(
+            expandFrom = Alignment.Top
+        ),
+        exit = shrinkVertically(
+            shrinkTowards = Alignment.Top
+        ) + fadeOut(),
+        label = "search filters"
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = onlyAvailable,
+                onClick = {
+                    onOnlyAvailableChange(!onlyAvailable)
+                },
+                label = {
+                    Text(text = "Только в наличии")
+                }
+            )
+
+            FilterChip(
+                selected = withDiscount,
+                onClick = {
+                    onWithDiscountChange(!withDiscount)
+                },
+                label = {
+                    Text(text = "Со скидкой")
+                }
+            )
+        }
+    }
+}
+```
+
+State фильтров передается извне. Если секция скрылась и удалилась из composition, выбранные фильтры не потеряются.
+
+## Accessibility
+
+Анимированное появление content должно оставаться понятным для accessibility:
+
+- не скрывайте критическую ошибку слишком быстро;
+- не полагайтесь только на motion для передачи смысла;
+- если появляется важное сообщение, подумайте о semantics или snackbar;
+- content, удаленный из composition, больше не доступен screen reader;
+- длительные или сильные animations могут раздражать пользователей с чувствительностью к motion.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
+
+@Composable
+fun AccessibleErrorMessage(
+    visible: Boolean,
+    message: String
+) {
+    AnimatedVisibility(
+        visible = visible,
+        label = "accessible error"
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.semantics {
+                // Важная ошибка должна быть озвучена как новое сообщение.
+                liveRegion = LiveRegionMode.Assertive
+            }
+        )
+    }
+}
+```
+
+Используйте live region осторожно. Если много сообщений будут assertive, screen reader станет перебивать пользователя.
+
+## Тестирование
+
+При тестировании `AnimatedVisibility` важно помнить, что content удаляется только после exit. Если test clock не продвинут, элемент может все еще существовать.
+
+```kotlin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+
+@Composable
+fun TestableVisibility(
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        label = "testable visibility"
+    ) {
+        Text(
+            text = "Контент",
+            modifier = Modifier.testTag("animated-content")
+        )
+    }
+}
+```
+
+```kotlin
+@org.junit.Test
+fun contentIsRemovedAfterExitAnimation() {
+    composeTestRule.mainClock.autoAdvance = false
+
+    var visible = true
+
+    composeTestRule.setContent {
+        TestableVisibility(visible = visible)
+    }
+
+    composeTestRule.runOnIdle {
+        visible = false
+    }
+
+    composeTestRule.mainClock.advanceTimeBy(1_000)
+
+    composeTestRule
+        .onNodeWithTag("animated-content")
+        .assertDoesNotExist()
+}
+```
+
+В реальном тесте нужно учитывать конкретную длительность transition. Если используете spring, лучше продвигать clock до idle или использовать достаточно большой интервал.
+
+## Типичные ошибки
+
+### Удалять данные до exit animation
+
+Если item удален из списка данных, его composable исчезает сразу. Чтобы показать exit, держите item в state до завершения transition.
+
+### Хранить важный state внутри исчезающего content
+
+`remember` внутри `AnimatedVisibility` будет сброшен после удаления. Поднимайте важный state выше.
+
+### Использовать visibility вместо enabled
+
+Скрыть кнопку и отключить кнопку — разные UX-смыслы. Если действие временно недоступно, часто лучше `enabled = false`, а не исчезновение.
+
+### Анимировать layout там, где достаточно alpha
+
+`expandVertically` и `shrinkVertically` меняют layout. Для overlay или scrim часто достаточно fade.
+
+### Навигировать из body при исчезновении
+
+Navigation после exit должна идти из event handler, `LaunchedEffect` или callback завершения. Не вызывайте navigation прямо в composable body.
+
+## Итоги
+
+`AnimatedVisibility` управляет появлением и исчезновением composable content:
+
+- `visible` задает target visibility;
+- enter transition проигрывается при появлении;
+- exit transition проигрывается перед удалением;
+- после exit content удаляется из composition;
+- transitions можно комбинировать через `+`;
+- `animateEnterExit` задает анимации для дочерних элементов;
+- `MutableTransitionState` дает доступ к `currentState`, `targetState` и `isIdle`;
+- `AnimatedVisibilityScope.transition` позволяет синхронизировать дополнительные values;
+- важный state лучше hoist-ить выше исчезающего content;
+- для списков с exit animation item нельзя удалять из данных сразу.

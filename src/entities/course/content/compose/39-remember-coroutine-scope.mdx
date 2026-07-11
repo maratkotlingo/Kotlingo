@@ -1,0 +1,651 @@
+---
+title: "rememberCoroutineScope"
+description: "Разбираем rememberCoroutineScope в Jetpack Compose: запуск coroutine из пользовательских событий, lifetime scope, snackbar, drawer, scroll, manual jobs, cancellation и отличие от LaunchedEffect."
+order: 39
+category: "Compose: Side Effects, coroutines и CompositionLocal"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что делает rememberCoroutineScope
+
+`rememberCoroutineScope` возвращает `CoroutineScope`, привязанный к текущему месту в composition. Этот scope отменяется, когда соответствующий composable выходит из composition.
+
+Главная задача: запускать suspend-работу из callback, который сам не является suspend.
+
+Например, `Button(onClick)` не может напрямую вызвать suspend-функцию:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+suspend fun saveDraft() {
+    // Сохраняем черновик во внешнем источнике данных.
+}
+
+@Composable
+fun SaveDraftButtonWrong() {
+    Button(
+        onClick = {
+            // Здесь нельзя вызвать saveDraft(), потому что onClick не suspend.
+        }
+    ) {
+        Text(text = "Сохранить")
+    }
+}
+```
+
+Правильно:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun SaveDraftButton(
+    onSaveDraft: suspend () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+
+    Button(
+        onClick = {
+            scope.launch {
+                onSaveDraft()
+            }
+        }
+    ) {
+        Text(text = "Сохранить")
+    }
+}
+```
+
+<CatTip>
+Если coroutine должна стартовать сама при входе в composition — обычно нужен `LaunchedEffect`. Если coroutine стартует из пользовательского события — обычно нужен `rememberCoroutineScope`.
+</CatTip>
+
+## Lifetime scope
+
+Scope, возвращенный `rememberCoroutineScope`, живет столько же, сколько место вызова в composition.
+
+Это значит:
+
+- если composable остается на экране, запущенные jobs могут продолжаться;
+- если composable удален из composition, scope отменяется;
+- все дочерние coroutines в этом scope получают cancellation;
+- повторная recomposition не создает новый scope;
+- scope нельзя безопасно хранить в singleton, repository или ViewModel.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+@Composable
+fun DelayedActionButton(
+    onAction: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+
+    Button(
+        onClick = {
+            scope.launch {
+                delay(500)
+                onAction()
+            }
+        }
+    ) {
+        Text(text = "Выполнить через полсекунды")
+    }
+}
+```
+
+Если кнопка исчезнет до окончания задержки, coroutine будет отменена.
+
+## Отличие от LaunchedEffect
+
+`LaunchedEffect`:
+
+- запускает coroutine автоматически;
+- запускается при входе в composition;
+- перезапускается при изменении ключей;
+- хорошо подходит для state-driven effects.
+
+`rememberCoroutineScope`:
+
+- сам ничего не запускает;
+- возвращает scope;
+- coroutine запускает ваш event handler;
+- подходит для user-driven actions.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun SnackbarButton() {
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+    val scope = rememberCoroutineScope()
+
+    Button(
+        onClick = {
+            scope.launch {
+                snackbarHostState.showSnackbar("Действие выполнено")
+            }
+        }
+    ) {
+        Text(text = "Показать сообщение")
+    }
+
+    SnackbarHost(hostState = snackbarHostState)
+}
+```
+
+Здесь snackbar появляется по нажатию. Это не lifecycle-started effect, поэтому `rememberCoroutineScope` подходит лучше.
+
+<MouseTrap>
+Не используйте `LaunchedEffect(clicked)` как замену обычному `onClick` с coroutine scope. Событие пользователя уже находится в callback. Запускайте suspend-действие прямо оттуда через `scope.launch`.
+</MouseTrap>
+
+## Snackbar по событию пользователя
+
+Полный пример с ошибкой:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun DeleteItemPanel(
+    itemTitle: String,
+    onDeleteConfirmed: suspend () -> Boolean
+) {
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+    val scope = rememberCoroutineScope()
+
+    Column {
+        Text(text = itemTitle)
+
+        Button(
+            onClick = {
+                scope.launch {
+                    val deleted = onDeleteConfirmed()
+
+                    if (deleted) {
+                        snackbarHostState.showSnackbar("Элемент удален")
+                    } else {
+                        snackbarHostState.showSnackbar("Не удалось удалить элемент")
+                    }
+                }
+            }
+        ) {
+            Text(text = "Удалить")
+        }
+
+        SnackbarHost(hostState = snackbarHostState)
+    }
+}
+```
+
+Важные детали:
+
+- suspend callback вызывается внутри `scope.launch`;
+- snackbar показывается в той же coroutine;
+- если панель уйдет из composition, операция будет отменена;
+- для screen-level delete лучше ViewModel, но UI-specific snackbar можно запускать на route boundary.
+
+## Scroll по нажатию
+
+`LazyListState.animateScrollToItem` — suspend-функция. Для кнопки "вверх" нужен scope.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
+
+@Composable
+fun ScrollToTopList(
+    items: List<String>
+) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(
+                items = items,
+                key = { item ->
+                    item
+                }
+            ) { item ->
+                Text(text = item)
+            }
+        }
+
+        FloatingActionButton(
+            onClick = {
+                scope.launch {
+                    listState.animateScrollToItem(index = 0)
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomEnd)
+        ) {
+            Text(text = "Вверх")
+        }
+    }
+}
+```
+
+Если пользователь нажмет несколько раз, запустится несколько coroutine. Иногда это нормально, но для сложных анимаций лучше отменять предыдущую job.
+
+## Manual Job
+
+Если действие может повторяться, иногда нужно хранить текущую `Job`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+@Composable
+fun DebouncedSaveButton(
+    onSave: suspend () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var saveJob by remember {
+        mutableStateOf<Job?>(null)
+    }
+    var saving by remember {
+        mutableStateOf(false)
+    }
+
+    Column {
+        Button(
+            enabled = !saving,
+            onClick = {
+                saveJob?.cancel()
+                saveJob = scope.launch {
+                    saving = true
+                    delay(300)
+                    onSave()
+                    saving = false
+                }
+            }
+        ) {
+            Text(
+                text = if (saving) {
+                    "Сохраняем"
+                } else {
+                    "Сохранить"
+                }
+            )
+        }
+
+        Button(
+            enabled = saveJob != null,
+            onClick = {
+                saveJob?.cancel()
+                saveJob = null
+                saving = false
+            }
+        ) {
+            Text(text = "Отменить")
+        }
+    }
+}
+```
+
+Разбор:
+
+- `saveJob` хранит текущую работу;
+- перед новым запуском старая работа отменяется;
+- cancel button явно отменяет job;
+- UI state `saving` меняется в composition-bound coroutine.
+
+Для business-critical сохранения такой код лучше переносить во ViewModel, потому что локальный scope отменится при уходе composable.
+
+## Drawer и BottomSheet
+
+Многие Material state APIs имеют suspend-функции.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun DrawerController() {
+    val drawerState = rememberDrawerState(
+        initialValue = DrawerValue.Closed
+    )
+    val scope = rememberCoroutineScope()
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Text(text = "Навигация")
+            }
+        }
+    ) {
+        Button(
+            onClick = {
+                scope.launch {
+                    drawerState.open()
+                }
+            }
+        ) {
+            Text(text = "Открыть меню")
+        }
+    }
+}
+```
+
+`drawerState.open()` suspend, потому что анимация и состояние drawer управляются coroutine.
+
+## Почему не GlobalScope
+
+`GlobalScope` не привязан к composition. Coroutine может продолжить работу после ухода экрана.
+
+Плохо:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun GlobalScopeButtonWrong(
+    onAction: suspend () -> Unit
+) {
+    Button(
+        onClick = {
+            GlobalScope.launch {
+                onAction()
+            }
+        }
+    ) {
+        Text(text = "Выполнить")
+    }
+}
+```
+
+Почему плохо:
+
+- работа не отменяется вместе с UI;
+- легко получить утечки;
+- error handling становится неявным;
+- тесты сложнее контролировать;
+- lifecycle нарушен.
+
+Используйте composition-bound scope или ViewModel scope.
+
+## Scope не должен уходить наружу
+
+Плохо:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineScope
+
+object ScopeRegistry {
+    var scope: CoroutineScope? = null
+}
+
+@Composable
+fun RegisterScopeWrong() {
+    val scope = rememberCoroutineScope()
+    ScopeRegistry.scope = scope
+}
+```
+
+Проблемы:
+
+- внешний singleton получает scope с UI lifetime;
+- scope может быть отменен, но ссылка останется;
+- side effects происходят в теле composable;
+- lifecycle становится нечитаемым.
+
+Scope нужен там, где он создан: в event handlers текущего UI или внутри локального helper.
+
+## Exception handling
+
+Ошибки внутри coroutine нужно обрабатывать осознанно.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+
+@Composable
+fun RetryableActionButton(
+    onAction: suspend () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var errorMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    Column {
+        Button(
+            onClick = {
+                scope.launch {
+                    errorMessage = null
+
+                    try {
+                        onAction()
+                    } catch (exception: Exception) {
+                        errorMessage = exception.message ?: "Действие не выполнено"
+                    }
+                }
+            }
+        ) {
+            Text(text = "Повторить")
+        }
+
+        if (errorMessage != null) {
+            Text(text = errorMessage)
+        }
+    }
+}
+```
+
+В production-коде исключения уровня данных чаще обрабатывает ViewModel/use case, а UI получает готовый `errorMessage` или effect.
+
+## rememberCoroutineScope и ViewModel
+
+Выбор:
+
+- UI-only действие: `rememberCoroutineScope`;
+- business operation: `viewModelScope`;
+- automatic effect on composition entry: `LaunchedEffect`;
+- listener with cleanup: `DisposableEffect`.
+
+Пример UI-only:
+
+```kotlin
+scope.launch {
+    snackbarHostState.showSnackbar("Скопировано")
+}
+```
+
+Пример ViewModel:
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
+
+class BookmarkViewModel(
+    private val repository: BookmarkRepository
+) : ViewModel() {
+
+    fun bookmark(articleId: String) {
+        viewModelScope.launch {
+            repository.bookmark(articleId)
+        }
+    }
+}
+
+interface BookmarkRepository {
+    suspend fun bookmark(articleId: String)
+}
+```
+
+Если пользователь ушел с экрана при повороте, ViewModel operation может продолжиться, а composition-bound scope был бы отменен.
+
+## Производственный пример: undo snackbar
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun ArchiveMessageActions(
+    messageId: String,
+    onArchive: (String) -> Unit,
+    onUndoArchive: (String) -> Unit
+) {
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+    val scope = rememberCoroutineScope()
+
+    Column {
+        Button(
+            onClick = {
+                onArchive(messageId)
+
+                scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Сообщение архивировано",
+                        actionLabel = "Отменить",
+                        duration = SnackbarDuration.Short
+                    )
+
+                    if (result == SnackbarResult.ActionPerformed) {
+                        onUndoArchive(messageId)
+                    }
+                }
+            }
+        ) {
+            Text(text = "Архивировать")
+        }
+
+        SnackbarHost(hostState = snackbarHostState)
+    }
+}
+```
+
+Здесь coroutine нужна для suspend `showSnackbar`. Само изменение состояния архивации отправляется наружу через callbacks.
+
+<MouseTrap>
+Если `onArchive` выполняет реальную запись в базу или сеть, лучше пусть это делает ViewModel. UI может показать snackbar, но источник истины должен жить выше.
+</MouseTrap>
+
+## Типичные ошибки
+
+### Создавать scope в условной ветке без понимания lifecycle
+
+Если ветка исчезнет, scope отменится. Это может быть правильно, но должно быть осознанно.
+
+### Хранить scope вне UI
+
+Composition-bound scope нельзя класть в singleton, repository или долгоживущий объект.
+
+### Запускать бизнес-операции, которые должны пережить экран
+
+Для таких операций лучше ViewModel или work manager, в зависимости от требований.
+
+### Не обрабатывать повторные клики
+
+Если пользователь нажмет кнопку несколько раз, вы можете запустить несколько jobs. Иногда нужен debounce, disabled state или cancel previous job.
+
+### Считать scope вечным
+
+Scope отменится, когда composable выйдет из composition.
+
+## Итоги
+
+`rememberCoroutineScope` нужен для coroutine из UI events:
+
+- возвращает scope, привязанный к composition;
+- сам ничего не запускает;
+- хорошо подходит для `Button(onClick)`;
+- используется со snackbar, drawer, bottom sheet, scroll и animations по событию;
+- отменяется при выходе composable из composition;
+- не должен храниться вне UI;
+- не заменяет `viewModelScope`;
+- для автоматического запуска при входе в composition используйте `LaunchedEffect`;
+- для listener cleanup используйте `DisposableEffect`.

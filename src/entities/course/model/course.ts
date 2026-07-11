@@ -8,6 +8,7 @@ import json from 'highlight.js/lib/languages/json'
 import kotlin from 'highlight.js/lib/languages/kotlin'
 import properties from 'highlight.js/lib/languages/properties'
 import plaintext from 'highlight.js/lib/languages/plaintext'
+import xml from 'highlight.js/lib/languages/xml'
 import { markdown as mdClass } from '@/shared/config/markdown'
 import { replaceCourseCallouts, restoreCourseCallouts, stripCourseComponentImports } from './courseCallouts'
 
@@ -38,6 +39,20 @@ export interface CourseModule {
   lessons: CourseLesson[]
 }
 
+export interface CourseContent {
+  lessons: CourseLesson[]
+  modules: CourseModule[]
+  categories: string[]
+  difficulties: string[]
+  stats: CourseStats
+}
+
+export interface CourseStats {
+  lessonCount: number
+  moduleCount: number
+  totalMinutes: number
+}
+
 interface RenderEnv {
   headings: LessonHeading[]
   headingCounts: Map<string, number>
@@ -51,7 +66,7 @@ interface LessonFrontmatter {
   difficulty?: string
 }
 
-const rawLessons = import.meta.glob<string>('../content/kotlin/*.mdx', {
+const rawLessons = import.meta.glob<string>('../content/**/*.mdx', {
   eager: true,
   import: 'default',
   query: '?raw',
@@ -64,6 +79,7 @@ hljs.registerLanguage('json', json)
 hljs.registerLanguage('kotlin', kotlin)
 hljs.registerLanguage('properties', properties)
 hljs.registerLanguage('plaintext', plaintext)
+hljs.registerLanguage('xml', xml)
 
 const markdown = new MarkdownIt({
   breaks: false,
@@ -174,35 +190,57 @@ markdown.renderer.rules.fence = (tokens, index) => {
   ].join('')
 }
 
-const lessons = Object.entries(rawLessons)
-  .map(([path, source]) => createLesson(path, source))
-  .sort((first, second) => first.order - second.order)
+export const kotlinCourse = createCourseContent('kotlin')
+export const composeCourse = createCourseContent('compose')
 
-export const courseLessons: CourseLesson[] = lessons
+export const courseLessons: CourseLesson[] = kotlinCourse.lessons
+export const courseModules: CourseModule[] = kotlinCourse.modules
+export const courseCategories = kotlinCourse.categories
+export const courseDifficulties = kotlinCourse.difficulties
+export const courseStats = kotlinCourse.stats
 
-export const courseModules: CourseModule[] = Array.from(
-  lessons.reduce((modules, lesson) => {
-    const moduleLessons = modules.get(lesson.category) ?? []
-    moduleLessons.push(lesson)
-    modules.set(lesson.category, moduleLessons)
-    return modules
-  }, new Map<string, CourseLesson[]>()),
-).map(([title, moduleLessons]) => ({
-  id: slugify(title),
-  title,
-  lessons: moduleLessons,
-}))
+export const composeCourseLessons: CourseLesson[] = composeCourse.lessons
+export const composeCourseModules: CourseModule[] = composeCourse.modules
+export const composeCourseCategories = composeCourse.categories
+export const composeCourseDifficulties = composeCourse.difficulties
+export const composeCourseStats = composeCourse.stats
 
-export const courseCategories = courseModules.map((module) => module.title)
+function createCourseContent(track: string): CourseContent {
+  const lessons = Object.entries(rawLessons)
+    .filter(([path]) => lessonPathTrack(path) === track)
+    .map(([path, source]) => createLesson(path, source))
+    .sort((first, second) => first.order - second.order)
 
-export const courseDifficulties = Array.from(new Set(lessons.map((lesson) => lesson.difficulty))).sort(
-  (first, second) => difficultyWeight(first) - difficultyWeight(second) || first.localeCompare(second, 'ru'),
-)
+  const modules = Array.from(
+    lessons.reduce((groupedModules, lesson) => {
+      const moduleLessons = groupedModules.get(lesson.category) ?? []
+      moduleLessons.push(lesson)
+      groupedModules.set(lesson.category, moduleLessons)
+      return groupedModules
+    }, new Map<string, CourseLesson[]>()),
+  ).map(([title, moduleLessons]) => ({
+    id: slugify(title),
+    title,
+    lessons: moduleLessons,
+  }))
 
-export const courseStats = {
-  lessonCount: lessons.length,
-  moduleCount: courseModules.length,
-  totalMinutes: lessons.reduce((total, lesson) => total + lesson.readingMinutes, 0),
+  const categories = modules.map((module) => module.title)
+  const difficulties = Array.from(new Set(lessons.map((lesson) => lesson.difficulty))).sort(
+    (first, second) => difficultyWeight(first) - difficultyWeight(second) || first.localeCompare(second, 'ru'),
+  )
+  const stats = {
+    lessonCount: lessons.length,
+    moduleCount: modules.length,
+    totalMinutes: lessons.reduce((total, lesson) => total + lesson.readingMinutes, 0),
+  }
+
+  return {
+    lessons,
+    modules,
+    categories,
+    difficulties,
+    stats,
+  }
 }
 
 function createLesson(path: string, source: string): CourseLesson {
@@ -303,6 +341,10 @@ function fileSlug(path: string): string {
     .pop()
     ?.replace(/\.mdx$/, '')
     .replace(/^\d+-/, '') ?? path
+}
+
+function lessonPathTrack(path: string): string {
+  return path.replace(/\\/g, '/').match(/\/content\/([^/]+)\//)?.[1] ?? ''
 }
 
 function slugify(value: string): string {

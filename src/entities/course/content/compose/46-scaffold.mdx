@@ -1,0 +1,553 @@
+---
+title: "Scaffold"
+description: "Подробно изучаем Scaffold в Material 3 Compose: topBar, bottomBar, snackbarHost, floatingActionButton, contentWindowInsets, inner padding, edge-to-edge layout и production-структуру экранов."
+order: 46
+category: "Compose: Material 3 components and app structure"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое Scaffold
+
+`Scaffold` — это Material 3 контейнер для стандартной структуры экрана.
+
+Он собирает вместе:
+
+- верхнюю app bar;
+- нижнюю app bar или navigation bar;
+- snackbar host;
+- floating action button;
+- drawer через внешнюю обертку;
+- основной content;
+- внутренние отступы, чтобы content не залезал под bars.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun BasicScaffoldScreen(
+    onCreateClick: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(text = "Задачи")
+                }
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onCreateClick) {
+                Text(text = "+")
+            }
+        }
+    ) { innerPadding ->
+        Text(
+            text = "Содержимое экрана",
+            modifier = Modifier.padding(innerPadding)
+        )
+    }
+}
+```
+
+`innerPadding` — ключевая часть `Scaffold`. Его нужно применить к корневому content, чтобы контент не оказался под app bar, navigation bar или system insets.
+
+<CatTip>
+`Scaffold` не является обязательным для каждого маленького компонента. Это структура экрана или крупной screen-like области.
+</CatTip>
+
+## Основные параметры
+
+Часто используемые параметры `Scaffold`:
+
+- `modifier`: modifier для самого scaffold;
+- `topBar`: slot верхней панели;
+- `bottomBar`: slot нижней панели;
+- `snackbarHost`: slot для `SnackbarHost`;
+- `floatingActionButton`: slot для FAB;
+- `floatingActionButtonPosition`: позиция FAB;
+- `containerColor`: цвет фона scaffold;
+- `contentColor`: цвет контента по умолчанию;
+- `contentWindowInsets`: insets, которые учитывает scaffold;
+- `content`: основной контент, получает `PaddingValues`.
+
+```kotlin
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FabPosition
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun ScaffoldParametersDemo(
+    content: @Composable (PaddingValues) -> Unit
+) {
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+        floatingActionButtonPosition = FabPosition.End,
+        floatingActionButton = {
+            FloatingActionButton(onClick = {}) {
+                Text(text = "Создать")
+            }
+        }
+    ) { innerPadding ->
+        content(innerPadding)
+    }
+}
+```
+
+## innerPadding
+
+`content` lambda получает `PaddingValues`. Это не декоративный padding. Это layout contract между scaffold chrome и content.
+
+Плохо:
+
+```kotlin
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun IgnoredPaddingWrong() {
+    Scaffold(
+        topBar = {
+            Text(text = "Верхняя панель")
+        }
+    ) {
+        Text(text = "Контент может оказаться под верхней панелью")
+    }
+}
+```
+
+Правильно:
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun AppliedPaddingCorrect() {
+    Scaffold(
+        topBar = {
+            Text(text = "Верхняя панель")
+        }
+    ) { innerPadding ->
+        Text(
+            text = "Контент учитывает отступы scaffold",
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        )
+    }
+}
+```
+
+<MouseTrap>
+Игнорирование `innerPadding` — одна из самых частых ошибок со `Scaffold`. На простом экране все может выглядеть нормально, а потом контент начнет прятаться под системными барами, navigation bar или app bar.
+</MouseTrap>
+
+## SnackbarHost
+
+`Scaffold` обычно владеет местом для snackbar, а `SnackbarHostState` хранится через `remember`.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
+
+@Composable
+fun SnackbarScaffold() {
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+    val scope = rememberCoroutineScope()
+
+    Scaffold(
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        }
+    ) { innerPadding ->
+        Button(
+            onClick = {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Изменения сохранены")
+                }
+            },
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            Text(text = "Сохранить")
+        }
+    }
+}
+```
+
+Для события из ViewModel snackbar обычно показывают в route через `LaunchedEffect`, а не напрямую внутри screen.
+
+## FloatingActionButton
+
+FAB предназначен для основной action экрана.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun NewMessageScaffold(
+    onNewMessageClick: () -> Unit
+) {
+    Scaffold(
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onNewMessageClick,
+                text = {
+                    Text(text = "Новое сообщение")
+                }
+            )
+        }
+    ) { innerPadding ->
+        Text(
+            text = "Список сообщений",
+            modifier = Modifier.padding(innerPadding)
+        )
+    }
+}
+```
+
+Не стоит использовать FAB для второстепенных действий, destructive actions или действий, которые не являются центральными для экрана.
+
+## Bottom bar
+
+`bottomBar` часто используется для `NavigationBar`.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+
+@Immutable
+data class MainDestination(
+    val id: String,
+    val label: String
+)
+
+@Composable
+fun BottomNavigationScaffold(
+    destinations: List<MainDestination>,
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit
+) {
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                destinations.forEach { destination ->
+                    NavigationBarItem(
+                        selected = selectedDestinationId == destination.id,
+                        onClick = {
+                            onDestinationClick(destination.id)
+                        },
+                        icon = {
+                            Text(text = destination.label.take(1))
+                        },
+                        label = {
+                            Text(text = destination.label)
+                        }
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        Text(
+            text = "Текущий раздел: $selectedDestinationId",
+            modifier = Modifier.padding(innerPadding)
+        )
+    }
+}
+```
+
+В production лучше использовать настоящие icons, но сам паттерн state down/events up остается тем же.
+
+## contentWindowInsets
+
+`contentWindowInsets` управляет insets, которые scaffold должен учитывать для content.
+
+```kotlin
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun EdgeToEdgeScaffold() {
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+    ) { innerPadding ->
+        Text(
+            text = "Контент сам управляет window insets",
+            modifier = Modifier.padding(innerPadding)
+        )
+    }
+}
+```
+
+Такой вариант нужен, если экран сам полностью управляет edge-to-edge, system bars и IME. Для обычных экранов лучше не сбрасывать insets без ясной причины.
+
+## Scaffold и nested scroll
+
+Top app bar scroll behavior часто подключается через `Modifier.nestedScroll`.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScrollBehaviorScaffold(
+    items: List<String>
+) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(text = "Список")
+                },
+                scrollBehavior = scrollBehavior
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            items(
+                items = items,
+                key = { item ->
+                    item
+                }
+            ) { item ->
+                Text(text = item)
+            }
+        }
+    }
+}
+```
+
+Важно передать `nestedScrollConnection` на общий контейнер, чтобы app bar получал scroll events.
+
+## Route и Screen со Scaffold
+
+Хороший production-паттерн:
+
+- route собирает state/effects;
+- screen принимает state/callbacks;
+- scaffold находится в screen, если это визуальная структура;
+- snackbar effect может жить в route, если snackbar связан с ViewModel effects.
+
+```kotlin
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+
+data class TasksUiState(
+    val title: String,
+    val tasks: List<String>,
+    val loading: Boolean
+)
+
+sealed interface TasksEffect {
+    data class ShowSnackbar(
+        val message: String
+    ) : TasksEffect
+}
+
+@Composable
+fun TasksRoute(
+    stateFlow: StateFlow<TasksUiState>,
+    effects: SharedFlow<TasksEffect>,
+    onTaskClick: (String) -> Unit,
+    onCreateTaskClick: () -> Unit
+) {
+    val state by stateFlow.collectAsStateWithLifecycle()
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+
+    LaunchedEffect(effects, snackbarHostState) {
+        effects.collect { effect ->
+            when (effect) {
+                is TasksEffect.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(effect.message)
+                }
+            }
+        }
+    }
+
+    TasksScreen(
+        state = state,
+        snackbarHostState = snackbarHostState,
+        onTaskClick = onTaskClick,
+        onCreateTaskClick = onCreateTaskClick
+    )
+}
+```
+
+Screen:
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TasksScreen(
+    state: TasksUiState,
+    snackbarHostState: SnackbarHostState,
+    onTaskClick: (String) -> Unit,
+    onCreateTaskClick: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(text = state.title)
+                }
+            )
+        },
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onCreateTaskClick) {
+                Text(text = "+")
+            }
+        }
+    ) { innerPadding ->
+        if (state.loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.padding(innerPadding)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.padding(innerPadding)
+            ) {
+                items(
+                    items = state.tasks,
+                    key = { task ->
+                        task
+                    }
+                ) { task ->
+                    ListItem(
+                        headlineContent = {
+                            Text(text = task)
+                        },
+                        modifier = Modifier.clickable {
+                            onTaskClick(task)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+```
+
+## Типичные ошибки
+
+### Игнорировать innerPadding
+
+Контент может оказаться под bars или system insets.
+
+### Вкладывать Scaffold в каждый маленький компонент
+
+`Scaffold` — структура экрана, а не карточки или строки списка.
+
+### Дублировать snackbarHostState
+
+Один экран обычно должен иметь один owner snackbar host state.
+
+### Сбрасывать contentWindowInsets без edge-to-edge стратегии
+
+Это приводит к конфликтам с system bars и IME.
+
+### Смешивать navigation logic внутри bottomBar
+
+`bottomBar` должен вызывать callbacks. Решение о back stack лучше держать на navigation boundary.
+
+## Итоги
+
+`Scaffold` задает Material-структуру экрана:
+
+- принимает `topBar`, `bottomBar`, `snackbarHost`, `floatingActionButton`;
+- передает `innerPadding` в content;
+- помогает согласовать content с bars и system insets;
+- хорошо сочетается с `SnackbarHostState`;
+- поддерживает FAB и navigation surfaces;
+- может участвовать в nested scroll app bar behavior;
+- не должен использоваться для мелких компонентов;
+- edge-to-edge требует осознанного управления `contentWindowInsets`;
+- лучший screen API оставляет state и events явными.

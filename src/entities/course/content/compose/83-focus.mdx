@@ -1,0 +1,653 @@
+---
+title: "Focus"
+description: "Разбираем focus в Jetpack Compose: focusable, FocusRequester, focusRequester, requestFocus, captureFocus, freeFocus, focusProperties, focus order, focusGroup, onFocusChanged, LocalFocusManager, TV, ChromeOS и keyboard-first UI."
+order: 83
+category: "Compose: Input, gestures, focus and accessibility"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое focus
+
+Focus — это состояние, при котором элемент является текущей целью keyboard, D-pad, controller или accessibility navigation. В touch-only интерфейсах focus можно почти не замечать. Но на больших экранах, TV, ChromeOS, desktop mode и при использовании keyboard focus становится фундаментом навигации.
+
+В Compose focus system отвечает за:
+
+- переходы по Tab;
+- переходы по стрелкам;
+- D-pad navigation;
+- request focus по действию пользователя;
+- выделение focused item;
+- keyboard event delivery;
+- focus capture для ошибок ввода;
+- пропуск unfocusable элементов;
+- управление traversal order.
+
+Основные API:
+
+- `Modifier.focusable()`;
+- `Modifier.focusRequester(focusRequester)`;
+- `FocusRequester`;
+- `FocusRequester.createRefs()`;
+- `FocusRequester.Default`;
+- `FocusRequester.Cancel`;
+- `Modifier.focusProperties`;
+- `Modifier.focusGroup()`;
+- `Modifier.onFocusChanged`;
+- `Modifier.onFocusEvent`;
+- `LocalFocusManager`;
+- `FocusDirection`;
+- `captureFocus()`;
+- `freeFocus()`.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FocusableTile() {
+    Box(
+        modifier = Modifier
+            .size(96.dp)
+            .focusable()
+    )
+}
+```
+
+`focusable()` добавляет элемент в focus system, но сам по себе не рисует focus ring. Визуальное focused-состояние нужно показывать компонентом, indication или собственным стилем.
+
+<CatTip>
+Фокус — это не только клавиатура. Это общий механизм "где сейчас находится внимание системы ввода".
+</CatTip>
+
+## `onFocusChanged`
+
+`onFocusChanged` позволяет реагировать на смену focus state.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FocusHighlightedTile() {
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(96.dp)
+            .background(
+                if (focused) {
+                    Color(0xFFBBDEFB)
+                } else {
+                    Color(0xFFECEFF1)
+                }
+            )
+            .onFocusChanged { state ->
+                focused = state.isFocused
+            }
+            .focusable()
+    )
+}
+```
+
+Порядок важен: `onFocusChanged` должен стоять перед `focusable`, чтобы наблюдать focus target ниже по modifier chain.
+
+## `FocusRequester`
+
+`FocusRequester` позволяет программно запросить focus. Его связывают с элементом через `focusRequester`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+
+@Composable
+fun RequestFocusForm() {
+    val focusRequester = remember {
+        FocusRequester()
+    }
+    var email by remember {
+        mutableStateOf("")
+    }
+
+    Column {
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = {
+                Text(text = "Email")
+            },
+            modifier = Modifier.focusRequester(focusRequester)
+        )
+
+        Button(
+            onClick = {
+                focusRequester.requestFocus()
+            }
+        ) {
+            Text(text = "Перейти к email")
+        }
+    }
+}
+```
+
+`requestFocus()` вызывайте из event handler, side effect или coroutine, но не напрямую в body composable.
+
+<MouseTrap>
+Не вызывайте `requestFocus()` прямо во время composition. При recomposition запрос повторится, и пользователь может потерять контроль над фокусом.
+</MouseTrap>
+
+## Порядок `focusRequester`
+
+`focusRequester` связывается с первым focusable элементом ниже в цепочке modifiers или в subtree.
+
+Правильный порядок:
+
+```kotlin
+Modifier
+    .focusRequester(focusRequester)
+    .focusable()
+```
+
+Проблемный порядок:
+
+```kotlin
+Modifier
+    .focusable()
+    .focusRequester(focusRequester)
+```
+
+Во втором случае requester не связан с тем focus target, который вы ожидаете. Это одна из самых частых ошибок focus API.
+
+## `LocalFocusManager`
+
+`LocalFocusManager` управляет focus на уровне текущей composition.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+
+@Composable
+fun FocusManagerForm() {
+    val focusManager = LocalFocusManager.current
+    var name by remember {
+        mutableStateOf("")
+    }
+
+    Column {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = {
+                Text(text = "Имя")
+            }
+        )
+        Button(
+            onClick = {
+                focusManager.moveFocus(FocusDirection.Next)
+            }
+        ) {
+            Text(text = "Следующее поле")
+        }
+        Button(
+            onClick = {
+                focusManager.clearFocus()
+            }
+        ) {
+            Text(text = "Снять фокус")
+        }
+    }
+}
+```
+
+`clearFocus()` часто используют после submit или IME action, чтобы скрыть keyboard и завершить editing.
+
+## `focusProperties`
+
+`focusProperties` переопределяет правила traversal.
+
+Поддерживаются свойства:
+
+- `next`: следующий элемент для one-dimensional navigation;
+- `previous`: предыдущий элемент;
+- `up`, `down`, `left`, `right`: направления для arrows и D-pad;
+- `start`, `end`: start/end-навигация с учетом layout direction;
+- `canFocus`: может ли элемент получить focus;
+- `enter`: что делать при входе в group;
+- `exit`: что делать при выходе из group.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+
+@Composable
+fun CustomTabOrder(
+    onFirst: () -> Unit,
+    onSecond: () -> Unit,
+    onThird: () -> Unit,
+    onFourth: () -> Unit
+) {
+    val (
+        first,
+        second,
+        third,
+        fourth
+    ) = remember {
+        FocusRequester.createRefs()
+    }
+
+    Column {
+        Row {
+            TextButton(
+                onClick = onFirst,
+                modifier = Modifier
+                    .focusRequester(first)
+                    .focusProperties {
+                        next = second
+                    }
+            ) {
+                Text(text = "Первый")
+            }
+            TextButton(
+                onClick = onThird,
+                modifier = Modifier
+                    .focusRequester(third)
+                    .focusProperties {
+                        next = fourth
+                    }
+            ) {
+                Text(text = "Третий")
+            }
+        }
+        Row {
+            TextButton(
+                onClick = onSecond,
+                modifier = Modifier
+                    .focusRequester(second)
+                    .focusProperties {
+                        next = third
+                    }
+            ) {
+                Text(text = "Второй")
+            }
+            TextButton(
+                onClick = onFourth,
+                modifier = Modifier
+                    .focusRequester(fourth)
+                    .focusProperties {
+                        next = first
+                    }
+            ) {
+                Text(text = "Четвертый")
+            }
+        }
+    }
+}
+```
+
+Custom order должен соответствовать визуальной и смысловой структуре. Не используйте его, чтобы скрыть хаос layout.
+
+## Two-dimensional focus
+
+TV, D-pad и keyboard arrows используют двухмерную навигацию.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+
+@Composable
+fun DpadFocusOrder(
+    onOpenLeft: () -> Unit,
+    onOpenRight: () -> Unit
+) {
+    val leftCard = remember {
+        FocusRequester()
+    }
+    val rightCard = remember {
+        FocusRequester()
+    }
+
+    Row {
+        TextButton(
+            onClick = onOpenLeft,
+            modifier = Modifier
+                .focusRequester(leftCard)
+                .focusProperties {
+                    right = rightCard
+                }
+        ) {
+            Text(text = "Слева")
+        }
+        TextButton(
+            onClick = onOpenRight,
+            modifier = Modifier
+                .focusRequester(rightCard)
+                .focusProperties {
+                    left = leftCard
+                }
+        ) {
+            Text(text = "Справа")
+        }
+    }
+}
+```
+
+Для TV UI визуальный focus state должен быть очень заметным: scale, border, glow, shadow или color contrast.
+
+## `canFocus`
+
+`canFocus = false` исключает элемент из focus traversal.
+
+```kotlin
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+
+@Composable
+fun NonFocusableDecorativeSwitch(
+    checked: Boolean
+) {
+    Switch(
+        checked = checked,
+        onCheckedChange = null,
+        modifier = Modifier.focusProperties {
+            canFocus = false
+        }
+    )
+}
+```
+
+Такой прием уместен, когда focus уже находится на родительской строке, а вложенный switch только визуализирует state.
+
+## `focusGroup`
+
+`focusGroup` помогает воспринимать набор descendants как связанную focus group. Это важно для horizontal chips, tabs и групп controls, где traversal должен сначала пройти внутри группы.
+
+```kotlin
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FocusedFilterGroup(
+    selected: String,
+    onSelect: (String) -> Unit
+) {
+    val filters = listOf(
+        "Все",
+        "Активные",
+        "Архив"
+    )
+
+    Row(
+        modifier = Modifier.focusGroup()
+    ) {
+        filters.forEach { filter ->
+            FilterChip(
+                selected = filter == selected,
+                onClick = {
+                    onSelect(filter)
+                },
+                label = {
+                    Text(text = filter)
+                },
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
+    }
+}
+```
+
+`focusGroup` особенно полезен, когда часть группы может быть частично скрыта scroll container-ом.
+
+## Capture и release focus
+
+`captureFocus()` удерживает focus, пока поле не станет валидным. `freeFocus()` освобождает его. Захватить можно только элемент, который уже сфокусирован.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+
+@Composable
+fun CapturingEmailField() {
+    val focusRequester = remember {
+        FocusRequester()
+    }
+    var email by remember {
+        mutableStateOf("")
+    }
+    val invalid = email.isNotEmpty() && !email.contains("@")
+
+    Column {
+        OutlinedTextField(
+            value = email,
+            onValueChange = { value ->
+                email = value
+
+                if (value.isNotEmpty() && !value.contains("@")) {
+                    focusRequester.captureFocus()
+                } else {
+                    focusRequester.freeFocus()
+                }
+            },
+            isError = invalid,
+            label = {
+                Text(text = "Email")
+            },
+            supportingText = {
+                if (invalid) {
+                    Text(text = "Введите корректный email")
+                }
+            },
+            modifier = Modifier.focusRequester(focusRequester)
+        )
+    }
+}
+```
+
+Не злоупотребляйте capture. Если пользователь не может покинуть поле, интерфейс может ощущаться как ловушка.
+
+## Реакция на focus event
+
+`onFocusEvent` дает более детальный state и может быть удобен для analytics или custom indication.
+
+```kotlin
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusEvent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FocusBorderBox() {
+    var hasFocus by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(120.dp)
+            .border(
+                width = 2.dp,
+                color = if (hasFocus) {
+                    Color(0xFF1976D2)
+                } else {
+                    Color.Transparent
+                }
+            )
+            .onFocusEvent { state ->
+                hasFocus = state.hasFocus
+            }
+            .focusable()
+    )
+}
+```
+
+`hasFocus` может быть true, если focus внутри descendant. `isFocused` относится к самому focus target.
+
+## Focus и keyboard shortcuts
+
+Keyboard shortcuts должны жить на корректном уровне focus hierarchy.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+
+@Composable
+fun EscapeClosableScreen(
+    onClose: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.key == Key.Escape && event.type == KeyEventType.KeyUp) {
+                    onClose()
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusable()
+    ) {
+        content()
+    }
+}
+```
+
+Если shortcut должен работать внутри `TextField`, используйте `onPreviewKeyEvent` на parent. Если shortcut должен работать только на конкретном элементе, ставьте handler ближе к нему.
+
+## TV, ChromeOS и keyboard-first UI
+
+Для keyboard-first интерфейсов проверяйте:
+
+- каждый interactive element достижим focus traversal;
+- focus order совпадает с визуальным order;
+- focused state виден без hover;
+- Escape, Back и Cancel имеют понятное поведение;
+- D-pad arrows не уводят focus в неожиданные области;
+- disabled элементы не получают focus;
+- scroll container прокручивает focused item в видимую область;
+- dialogs trap focus внутри себя;
+- shortcuts имеют альтернативу в UI;
+- focus не прыгает при recomposition.
+
+## Типичные ошибки
+
+### Невидимый focus
+
+Пользователь не понимает, где находится keyboard focus.
+
+### Неправильный порядок modifiers
+
+`focusRequester` после `focusable` часто не связывается с ожидаемым target.
+
+### Запрос focus в composition
+
+Запрашивайте focus из event handler или side effect.
+
+### Custom traversal без необходимости
+
+Если default order работает, не усложняйте `focusProperties`.
+
+### Focus trap без выхода
+
+Dialog может удерживать focus внутри, но должен иметь закрытие и predictable navigation.
+
+## Итоги
+
+Focus system связывает input, keyboard и accessibility:
+
+- `focusable` добавляет element в focus traversal;
+- `onFocusChanged` и `onFocusEvent` позволяют реагировать на state;
+- `FocusRequester` программно запрашивает focus;
+- порядок `focusRequester` и `focusable` критичен;
+- `LocalFocusManager` перемещает и очищает focus;
+- `focusProperties` задает next, previous, directions, canFocus, enter и exit;
+- `focusGroup` помогает traversal внутри связанных controls;
+- `captureFocus` удерживает focus только при явной необходимости;
+- keyboard-first UI нужен для TV, ChromeOS, tablets и accessibility.

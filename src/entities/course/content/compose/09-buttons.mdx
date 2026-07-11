@@ -1,0 +1,522 @@
+---
+title: "Кнопки и действия"
+description: "Разбираем Material 3 кнопки в Compose: Button, ElevatedButton, FilledTonalButton, OutlinedButton, TextButton, IconButton, FAB, Extended FAB и SegmentedButton с правилами выбора и production-примерами."
+order: 09
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Кнопка — это обещание действия
+
+Кнопка в UI не просто декоративный прямоугольник с текстом. Она сообщает пользователю: "здесь можно выполнить действие". Поэтому у хорошей кнопки есть три качества:
+
+- понятная роль: главное действие, вторичное действие, низкоприоритетное действие, icon action, floating action;
+- ясное состояние: enabled, disabled, pressed, focused, selected, loading;
+- доступное описание: screen reader должен понять, что произойдет при нажатии.
+
+В Material 3 для Compose есть несколько семейств кнопок. Они отличаются визуальным весом и сценарием использования, а не только внешним видом.
+
+## Основная пятерка Material buttons
+
+### `Button`
+
+Filled button. Используй для главного действия на экране или в блоке.
+
+```kotlin
+Button(onClick = onContinueClick) {
+    Text(text = "Продолжить")
+}
+```
+
+### `ElevatedButton`
+
+Filled button с elevation. Уместна, когда кнопку нужно отделить от поверхности, особенно на плоском фоне. Не стоит использовать elevation как единственный способ показать важность.
+
+```kotlin
+ElevatedButton(onClick = onOpenClick) {
+    Text(text = "Открыть")
+}
+```
+
+### `FilledTonalButton`
+
+Кнопка средней выразительности. Хороша для действий, которые важны, но не являются главным CTA.
+
+```kotlin
+FilledTonalButton(onClick = onSaveDraftClick) {
+    Text(text = "Сохранить черновик")
+}
+```
+
+### `OutlinedButton`
+
+Кнопка с контуром. Подходит для вторичных действий рядом с primary button.
+
+```kotlin
+OutlinedButton(onClick = onCancelClick) {
+    Text(text = "Отмена")
+}
+```
+
+### `TextButton`
+
+Самая легкая кнопка. Уместна в dialogs, toolbars, карточках и местах, где действие не должно визуально доминировать.
+
+```kotlin
+TextButton(onClick = onDetailsClick) {
+    Text(text = "Подробнее")
+}
+```
+
+<CatTip title="Котосовет: выбирай кнопку по важности действия">
+  Если все действия на экране выглядят как главные, пользователь не видит
+  маршрута. Один primary action обычно лучше, чем три одинаково громкие кнопки
+  рядом.
+</CatTip>
+
+## Общие параметры кнопок
+
+У Material-кнопок похожая структура API.
+
+### `onClick`
+
+Callback действия. Он должен сообщать событие наружу или вызывать уже переданную логику. Не помещай внутрь reusable-компонента навигацию, repository и analytics напрямую.
+
+### `modifier`
+
+Управляет внешним размещением кнопки: ширина, padding, test tag, semantics.
+
+### `enabled`
+
+Разрешает или запрещает действие. Disabled button не должна быть единственной подсказкой: рядом нужна причина, если пользователь может не понять, почему действие недоступно.
+
+### `shape`
+
+Форма контейнера. Обычно берется из Material defaults, но может быть переопределена.
+
+### `colors`
+
+Цвета контейнера и контента. Создаются через defaults: `ButtonDefaults.buttonColors`, `ButtonDefaults.outlinedButtonColors`, `ButtonDefaults.textButtonColors`.
+
+### `elevation`
+
+Elevation для тех вариантов, где он применим. Создается через `ButtonDefaults.buttonElevation` или похожие defaults.
+
+### `border`
+
+Граница для outlined-вариантов.
+
+### `contentPadding`
+
+Внутренние отступы кнопки. Не путай с внешним `Modifier.padding`.
+
+### `interactionSource`
+
+Источник interaction-событий: pressed, focused, hovered, dragged. Нужен для кастомной реакции на interaction state.
+
+### `content`
+
+Composable-lambda внутри кнопки. Обычно содержит `Text`, иногда `Icon` и `Text` рядом.
+
+## Production-ready группа действий
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonActionRow(
+    canContinue: Boolean,
+    onContinueClick: () -> Unit,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedButton(
+            onClick = onBackClick
+        ) {
+            Text(text = "Назад")
+        }
+
+        Button(
+            onClick = onContinueClick,
+            enabled = canContinue
+        ) {
+            Text(text = "Продолжить")
+        }
+    }
+}
+```
+
+Здесь `canContinue` управляет доступностью главного действия, но причина недоступности должна быть показана выше или ниже кнопки. Кнопка не должна молча становиться disabled без объяснения в сложном workflow.
+
+## Кнопка с состоянием загрузки
+
+Кнопка часто запускает асинхронное действие. В момент загрузки нужно:
+
+- заблокировать повторный клик;
+- сохранить размер кнопки достаточно стабильным;
+- показать progress;
+- оставить понятный текст.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LoadingButton(
+    loading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        modifier = modifier.semantics {
+            contentDescription = if (loading) {
+                "Сохранение выполняется"
+            } else {
+                "Сохранить прогресс"
+            }
+        },
+        onClick = onClick,
+        enabled = !loading
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+
+            Text(
+                text = if (loading) {
+                    "Сохраняем"
+                } else {
+                    "Сохранить"
+                }
+            )
+        }
+    }
+}
+```
+
+<MouseTrap title="Мышеловка: disabled без причины выглядит как поломка">
+  Если пользователь не понимает, почему кнопка недоступна, он воспринимает UI
+  как сломанный. Disabled-состояние должно сопровождаться подсказкой, ошибкой
+  валидации, текстом требования или видимым состоянием загрузки.
+</MouseTrap>
+
+## `IconButton`
+
+`IconButton` используется для компактных действий: назад, закрыть, поиск, открыть меню, добавить в избранное. Внутри должна быть иконка с понятным `contentDescription`, если действие не продублировано текстом.
+
+`res/drawable/ic_bookmark_24.xml`:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M6,3h12c0.55,0 1,0.45 1,1v17l-7,-3l-7,3V4c0,-0.55 0.45,-1 1,-1zM8,5v12.96l4,-1.72l4,1.72V5H8z" />
+</vector>
+```
+
+Kotlin:
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import com.kotlingo.reader.R
+
+@Composable
+fun BookmarkIconButton(
+    onClick: () -> Unit
+) {
+    IconButton(onClick = onClick) {
+        Icon(
+            painter = painterResource(R.drawable.ic_bookmark_24),
+            contentDescription = "Добавить урок в закладки"
+        )
+    }
+}
+```
+
+В Material 3 есть несколько visual-вариантов:
+
+- `IconButton` — стандартная иконка-кнопка без заполненного контейнера;
+- `FilledIconButton` — иконка в заполненном контейнере;
+- `FilledTonalIconButton` — tonal-вариант средней выразительности;
+- `OutlinedIconButton` — вариант с контуром;
+- `IconToggleButton` — toggle-состояние без Material 3 filled/outlined container;
+- `FilledIconToggleButton`, `FilledTonalIconToggleButton`, `OutlinedIconToggleButton` — Material 3 toggle-варианты.
+
+## Toggle icon button
+
+```kotlin
+import androidx.compose.material3.FilledIconToggleButton
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import com.kotlingo.reader.R
+
+@Composable
+fun FavoriteToggleButton(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    FilledIconToggleButton(
+        checked = checked,
+        onCheckedChange = onCheckedChange
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_bookmark_24),
+            contentDescription = if (checked) {
+                "Удалить урок из закладок"
+            } else {
+                "Добавить урок в закладки"
+            }
+        )
+    }
+}
+```
+
+Toggle button должна менять не только цвет, но и semantics. `contentDescription` зависит от следующего действия, а не только от текущего визуального состояния.
+
+## Floating Action Button
+
+FAB предназначен для главного действия на экране, которое "плавает" поверх контента. Обычно FAB размещают через `Scaffold`.
+
+Варианты:
+
+- `FloatingActionButton` — стандартный FAB;
+- `SmallFloatingActionButton` — компактный FAB;
+- `LargeFloatingActionButton` — крупный FAB;
+- `ExtendedFloatingActionButton` — FAB с текстом и иконкой.
+
+```kotlin
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import com.kotlingo.reader.R
+
+@Composable
+fun AddLessonFab(
+    onClick: () -> Unit
+) {
+    ExtendedFloatingActionButton(
+        onClick = onClick,
+        icon = {
+            Icon(
+                painter = painterResource(R.drawable.ic_bookmark_24),
+                contentDescription = null
+            )
+        },
+        text = {
+            Text(text = "Новый урок")
+        }
+    )
+}
+```
+
+`contentDescription = null` у иконки внутри extended FAB корректен, потому что рядом есть текст `"Новый урок"`. Если бы иконка была единственным содержимым, описание было бы обязательным.
+
+## Segmented button
+
+Segmented button позволяет выбрать один или несколько вариантов в компактной строке. Он подходит для переключения режима, фильтра, периода или сортировки. Для большого числа вариантов лучше использовать chips, dropdown или отдельный экран фильтров.
+
+```kotlin
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LessonPeriodSelector(
+    selectedIndex: Int,
+    onSelectedIndexChange: (Int) -> Unit
+) {
+    val options = listOf("День", "Неделя", "Месяц")
+
+    SingleChoiceSegmentedButtonRow {
+        options.forEachIndexed { index, label ->
+            SegmentedButton(
+                selected = selectedIndex == index,
+                onClick = {
+                    onSelectedIndexChange(index)
+                },
+                shape = SegmentedButtonDefaults.itemShape(
+                    index = index,
+                    count = options.size
+                )
+            ) {
+                Text(text = label)
+            }
+        }
+    }
+}
+```
+
+Важные детали:
+
+- `SingleChoiceSegmentedButtonRow` управляет layout для группы;
+- `SegmentedButtonDefaults.itemShape` задает форму сегментов по позиции;
+- состояние выбора передается снаружи;
+- callback возвращает выбранный индекс;
+- для устойчивой доменной модели лучше хранить не индекс, а enum или id, если варианты могут менять порядок.
+
+## Полный пример: панель действий урока
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class LessonActionsState(
+    val canStart: Boolean,
+    val hasDraft: Boolean,
+    val reasonStartDisabled: String?
+)
+
+@Composable
+fun LessonActionsPanel(
+    state: LessonActionsState,
+    onStartClick: () -> Unit,
+    onResumeDraftClick: () -> Unit,
+    onDetailsClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (!state.canStart && state.reasonStartDisabled != null) {
+                Text(
+                    text = state.reasonStartDisabled,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Button(
+                    onClick = onStartClick,
+                    enabled = state.canStart
+                ) {
+                    Text(text = "Начать")
+                }
+
+                if (state.hasDraft) {
+                    FilledTonalButton(onClick = onResumeDraftClick) {
+                        Text(text = "Продолжить черновик")
+                    }
+                }
+
+                OutlinedButton(onClick = onDetailsClick) {
+                    Text(text = "Подробнее")
+                }
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- `Button` используется для главного действия;
+- `FilledTonalButton` показывает важное, но вторичное действие;
+- `OutlinedButton` уводит к деталям и не спорит с primary action;
+- disabled-состояние сопровождается объяснением;
+- callbacks переданы наружу;
+- панель не знает про navigation framework.
+
+## Типичные ошибки
+
+### Использовать `TextButton` для главного действия
+
+Пользователь может не заметить главный маршрут. Для основного CTA чаще нужен `Button`.
+
+### Делать иконку без описания
+
+Если `IconButton` содержит только иконку, `contentDescription` должен объяснять действие.
+
+### Вешать `clickable` на `Text`, когда нужна кнопка
+
+Если элемент является действием, используй кнопку. Она даст правильные semantics, focus behavior, touch target и Material interaction.
+
+### Делать слишком маленькую tap area
+
+Иконка 24 dp не равна удобной области касания. `IconButton` дает корректную интерактивную область, если не сжимать его внешними constraints.
+
+### Хранить loading только внутри кнопки
+
+Если загрузка влияет на экран, состояние должно жить выше, например в ViewModel или route state, а не теряться внутри кнопки.
+
+## Итоги
+
+Кнопки выбираются по роли действия:
+
+- `Button` — главное действие;
+- `ElevatedButton` — filled button с elevation для отделения от поверхности;
+- `FilledTonalButton` — средняя выразительность;
+- `OutlinedButton` — вторичное действие;
+- `TextButton` — низкоприоритетное действие;
+- `IconButton` — компактное действие с иконкой;
+- `IconToggleButton` и Material 3 toggle-варианты — бинарное состояние;
+- `FloatingActionButton` — главное floating-действие экрана;
+- `ExtendedFloatingActionButton` — FAB с текстом;
+- `SegmentedButton` — выбор режима или фильтра из небольшого набора.

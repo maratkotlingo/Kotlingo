@@ -1,0 +1,611 @@
+---
+title: "Pager"
+description: "Разбираем HorizontalPager и VerticalPager в Compose: rememberPagerState, PagerState, индикаторы, программная прокрутка, PageSize, contentPadding, pageSpacing, snapshotFlow и production-паттерны каруселей."
+order: 24
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое pager
+
+Pager — компонент для постраничной прокрутки. Он похож на ViewPager из старой Android View-системы, но является частью Compose foundation и работает через composable API.
+
+Основные варианты:
+
+- `HorizontalPager` — страницы перелистываются горизонтально;
+- `VerticalPager` — страницы перелистываются вертикально;
+- `PagerState` — состояние текущей страницы, offset и методы прокрутки;
+- `rememberPagerState` — создание state в Composition.
+
+Pager хорошо подходит для:
+
+- onboarding;
+- карусели featured-контента;
+- полноэкранных карточек;
+- просмотра изображений;
+- табоподобного UI, если нужен жест перелистывания;
+- шагов учебного материала.
+
+Pager не подходит для больших произвольных списков разной высоты. Для этого есть lazy lists и grids.
+
+## `rememberPagerState`
+
+Современный `rememberPagerState` принимает `pageCount` как lambda.
+
+```kotlin
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.Composable
+
+@Composable
+fun rememberLessonPagerState(pageCount: Int) =
+    rememberPagerState(
+        initialPage = 0,
+        pageCount = { pageCount }
+    )
+```
+
+`pageCount` как lambda позволяет state видеть актуальное количество страниц при recomposition.
+
+## `HorizontalPager`
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
+@Composable
+fun SimpleHorizontalPager(
+    pages: List<String>,
+    modifier: Modifier = Modifier
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { pages.size }
+    )
+
+    HorizontalPager(
+        state = pagerState,
+        modifier = modifier.fillMaxSize()
+    ) { page ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = pages[page],
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.headlineMedium
+            )
+        }
+    }
+}
+```
+
+Page lambda получает индекс страницы. Не обращайся к `pages[page]`, если список может стать короче без проверки. В обычном случае `pageCount = { pages.size }` синхронизирует диапазон индексов.
+
+## Основные параметры pager
+
+### `state`
+
+`PagerState`, который хранит текущую страницу и управляет scroll.
+
+### `modifier`
+
+Внешний layout pager.
+
+### `contentPadding`
+
+Padding вокруг всего содержимого pager. В отличие от `Modifier.padding`, content padding применяется после clipping и может показывать часть соседних страниц.
+
+### `pageSize`
+
+Размер страницы: `PageSize.Fill` или `PageSize.Fixed`.
+
+### `beyondViewportPageCount`
+
+Сколько страниц за пределами viewport нужно размещать дополнительно. Увеличивай осторожно: больше страниц рядом означает больше работы.
+
+### `pageSpacing`
+
+Расстояние между страницами.
+
+### `verticalAlignment` или `horizontalAlignment`
+
+Выравнивание страниц по поперечной оси.
+
+### `flingBehavior`
+
+Поведение fling/snap.
+
+### `userScrollEnabled`
+
+Разрешает или запрещает жестовую прокрутку пользователем.
+
+### `reverseLayout`
+
+Меняет направление layout.
+
+### `key`
+
+Стабильная идентичность страниц.
+
+### `pageNestedScrollConnection`
+
+Nested scroll connection для взаимодействия pager с родительскими/дочерними scroll containers.
+
+## Page indicator
+
+Индикатор страниц обычно строится отдельно.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun PagerDotsIndicator(
+    pageCount: Int,
+    currentPage: Int,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        repeat(pageCount) { index ->
+            val selected = index == currentPage
+
+            Box(
+                modifier = Modifier
+                    .size(
+                        width = if (selected) 24.dp else 8.dp,
+                        height = 8.dp
+                    )
+                    .clip(CircleShape)
+                    .background(
+                        if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        }
+                    )
+            )
+        }
+    }
+}
+```
+
+## Pager с индикатором
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun OnboardingPager(
+    pages: List<OnboardingPage>,
+    modifier: Modifier = Modifier
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { pages.size }
+    )
+
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            key = { page -> pages[page].id }
+        ) { page ->
+            OnboardingPageContent(
+                page = pages[page]
+            )
+        }
+
+        PagerDotsIndicator(
+            pageCount = pages.size,
+            currentPage = pagerState.currentPage,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        )
+    }
+}
+
+data class OnboardingPage(
+    val id: String,
+    val title: String,
+    val body: String
+)
+
+@Composable
+fun OnboardingPageContent(page: OnboardingPage) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = page.title,
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Text(
+            modifier = Modifier.padding(top = 16.dp),
+            text = page.body,
+            style = MaterialTheme.typography.bodyLarge
+        )
+    }
+}
+```
+
+`key = { page -> pages[page].id }` помогает сохранить идентичность страниц при изменении списка.
+
+<CatTip title="Котосовет: pager page должна быть самодостаточным экраном или карточкой">
+  Если страница зависит от случайных внешних mutable-значений и не имеет стабильного key, перелистывание может стать
+  источником странных сбросов состояния. Думай о странице как об item в lazy container.
+</CatTip>
+
+## Программная навигация
+
+`PagerState` дает suspend-функции:
+
+- `scrollToPage`;
+- `animateScrollToPage`.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun OnboardingPagerWithNextButton(
+    pages: List<OnboardingPage>,
+    onFinished: () -> Unit
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { pages.size }
+    )
+    val scope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            key = { page -> pages[page].id }
+        ) { page ->
+            OnboardingPageContent(page = pages[page])
+        }
+
+        Button(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(24.dp),
+            onClick = {
+                val nextPage = pagerState.currentPage + 1
+
+                if (nextPage < pages.size) {
+                    scope.launch {
+                        pagerState.animateScrollToPage(nextPage)
+                    }
+                } else {
+                    onFinished()
+                }
+            }
+        ) {
+            Text(
+                text = if (pagerState.currentPage == pages.lastIndex) {
+                    "Готово"
+                } else {
+                    "Дальше"
+                }
+            )
+        }
+    }
+}
+```
+
+Никогда не вызывай `animateScrollToPage` прямо из body composable-функции. Это side effect и suspend-операция, ей нужен coroutine context.
+
+## `VerticalPager`
+
+`VerticalPager` работает похожим образом, но прокручивает страницы вертикально.
+
+```kotlin
+import androidx.compose.foundation.pager.VerticalPager
+
+@Composable
+fun VerticalLessonPager(
+    lessons: List<OnboardingPage>,
+    modifier: Modifier = Modifier
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { lessons.size }
+    )
+
+    VerticalPager(
+        state = pagerState,
+        modifier = modifier.fillMaxSize(),
+        key = { page -> lessons[page].id }
+    ) { page ->
+        OnboardingPageContent(page = lessons[page])
+    }
+}
+```
+
+Vertical pager может конфликтовать с вертикальными scrollable дочерними элементами. Если внутри страницы есть длинный scroll, нужно продумать nested scroll и UX.
+
+<MouseTrap title="Мышеловка: pager внутри scroll и scroll внутри pager требуют осторожности">
+  Горизонтальный pager внутри вертикального списка обычно понятен. Вертикальный pager внутри вертикального scroll часто
+  создает конфликт жестов. Перед реализацией проверь, действительно ли нужна постраничная вертикальная навигация.
+</MouseTrap>
+
+## `PageSize`
+
+По умолчанию страница занимает весь viewport: `PageSize.Fill`. Для carousel можно использовать fixed page size и content padding.
+
+```kotlin
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.pager.PageSize
+
+@Composable
+fun LessonCarousel(
+    pages: List<OnboardingPage>
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { pages.size }
+    )
+
+    HorizontalPager(
+        state = pagerState,
+        pageSize = PageSize.Fixed(280.dp),
+        contentPadding = PaddingValues(horizontal = 32.dp),
+        pageSpacing = 12.dp,
+        key = { page -> pages[page].id }
+    ) { page ->
+        Card {
+            OnboardingPageContent(page = pages[page])
+        }
+    }
+}
+```
+
+`contentPadding` показывает "дыхание" по краям и может дать peek соседних страниц. `pageSpacing` задает расстояние между страницами.
+
+## Наблюдение за страницей
+
+Для аналитики или side effects при смене страницы используй `snapshotFlow` внутри `LaunchedEffect`.
+
+```kotlin
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+
+interface PagerAnalytics {
+    fun pageShown(pageIndex: Int)
+}
+
+@Composable
+fun AnalyticsPager(
+    pages: List<OnboardingPage>,
+    analytics: PagerAnalytics
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { pages.size }
+    )
+
+    LaunchedEffect(pagerState) {
+        snapshotFlow {
+            pagerState.currentPage
+        }
+            .distinctUntilChanged()
+            .collect { page ->
+                analytics.pageShown(page)
+            }
+    }
+
+    HorizontalPager(
+        state = pagerState,
+        key = { page -> pages[page].id }
+    ) { page ->
+        OnboardingPageContent(page = pages[page])
+    }
+}
+```
+
+Не отправляй аналитику прямо в page content body. Page composable может выполняться не так, как ты ожидаешь.
+
+## Полный пример: карточная карусель курса
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+@Immutable
+data class FeaturedLessonPage(
+    val id: String,
+    val title: String,
+    val description: String,
+    val minutes: Int
+)
+
+@Composable
+fun FeaturedLessonsPager(
+    pages: List<FeaturedLessonPage>,
+    onOpenLesson: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { pages.size }
+    )
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            pageSize = PageSize.Fixed(300.dp),
+            contentPadding = PaddingValues(horizontal = 24.dp),
+            pageSpacing = 12.dp,
+            key = { page -> pages[page].id }
+        ) { page ->
+            FeaturedLessonCard(
+                page = pages[page],
+                onOpenLesson = onOpenLesson
+            )
+        }
+
+        PagerDotsIndicator(
+            pageCount = pages.size,
+            currentPage = pagerState.currentPage,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+
+        Button(
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            onClick = {
+                val nextPage = (pagerState.currentPage + 1).coerceAtMost(pages.lastIndex)
+
+                scope.launch {
+                    pagerState.animateScrollToPage(nextPage)
+                }
+            },
+            enabled = pagerState.currentPage < pages.lastIndex
+        ) {
+            Text(text = "Следующий урок")
+        }
+    }
+}
+
+@Composable
+fun FeaturedLessonCard(
+    page: FeaturedLessonPage,
+    onOpenLesson: (String) -> Unit
+) {
+    Card {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = page.title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = page.description,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = "${page.minutes} мин.",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Button(
+                onClick = {
+                    onOpenLesson(page.id)
+                }
+            ) {
+                Text(text = "Открыть")
+            }
+        }
+    }
+}
+```
+
+## Типичные ошибки
+
+### Использовать pager для обычного списка
+
+Если пользователь должен быстро сканировать десятки элементов, lazy list лучше.
+
+### Не задавать stable key
+
+Если pages меняются, key помогает сохранить идентичность страницы.
+
+### Отправлять аналитику внутри page lambda
+
+Page content может пересоздаваться и предварительно размещаться. Для аналитики используй `snapshotFlow`.
+
+### Делать vertical pager с длинными vertical scroll страницами
+
+Жесты начинают конфликтовать. Продумай nested scroll или измени UX.
+
+### Увеличивать `beyondViewportPageCount` без причины
+
+Больше страниц за viewport — больше composition/layout работы. Оставляй default, пока нет измеренной причины.
+
+## Итоги
+
+Pager нужен для постраничного UI:
+
+- `HorizontalPager` перелистывает страницы горизонтально;
+- `VerticalPager` перелистывает вертикально;
+- `rememberPagerState(pageCount = { count })` создает состояние;
+- `PagerState.currentPage` показывает текущую страницу;
+- `animateScrollToPage` и `scrollToPage` вызываются из coroutine;
+- `PageSize.Fill` занимает viewport, `PageSize.Fixed` подходит для carousel;
+- `contentPadding` и `pageSpacing` управляют peek и промежутками;
+- page indicator лучше делать отдельным composable;
+- `snapshotFlow` подходит для аналитики смены страницы;
+- pager page должна иметь стабильную идентичность и понятный lifecycle.
+

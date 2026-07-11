@@ -1,0 +1,720 @@
+---
+title: "Canonical layouts"
+description: "Разбираем canonical layouts в Jetpack Compose: list-detail, supporting pane, feed, adaptive navigation patterns, Material 3 Adaptive scaffolds, pane state, back behavior, selection, placeholders, previews и testing."
+order: 94
+category: "Compose: Adaptive UI and form factors"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое canonical layouts
+
+Canonical layouts — это проверенные adaptive patterns для больших и изменяемых окон. Они отвечают не на вопрос "как растянуть телефонный экран?", а на вопрос "какая структура лучше поддерживает workflow на compact, medium и expanded widths?".
+
+В Android adaptive guidance чаще всего встречаются:
+
+- list-detail;
+- supporting pane;
+- feed;
+- adaptive navigation.
+
+Compose Material 3 Adaptive предоставляет готовые scaffolds для некоторых canonical layouts. Но даже если вы строите layout вручную, важно понимать поведение pattern.
+
+```kotlin
+enum class CanonicalLayoutKind {
+    ListDetail,
+    SupportingPane,
+    Feed
+}
+
+data class CanonicalLayoutDecision(
+    val kind: CanonicalLayoutKind,
+    val paneCount: Int,
+    val showNavigationRail: Boolean
+)
+```
+
+<CatTip>
+Canonical layout — это не визуальная мода для планшета. Это способ сохранить пользовательский workflow, когда окно внезапно стало шире, уже или разделилось на panes.
+</CatTip>
+
+## List-detail
+
+List-detail подходит, когда пользователь выбирает элемент из списка и смотрит самостоятельные details:
+
+- почта;
+- сообщения;
+- контакты;
+- документы;
+- настройки категории;
+- медиа-библиотека;
+- список уроков и выбранный урок.
+
+Compact behavior:
+
+- сначала виден list;
+- выбор item открывает detail вместо list;
+- back возвращает list.
+
+Expanded behavior:
+
+- list и detail видны рядом;
+- selection в list обновляет detail;
+- если selection нет, detail показывает placeholder.
+
+```kotlin
+data class LessonBrowserState(
+    val lessons: List<LessonSummary>,
+    val selectedLessonId: String?
+)
+
+data class LessonSummary(
+    val id: String,
+    val title: String,
+    val completed: Boolean
+)
+```
+
+Compact:
+
+```kotlin
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.Composable
+
+@Composable
+fun CompactLessonBrowser(
+    state: LessonBrowserState,
+    onSelectLesson: (String?) -> Unit
+) {
+    val selectedId = state.selectedLessonId
+
+    if (selectedId == null) {
+        LessonListPane(
+            lessons = state.lessons,
+            selectedLessonId = null,
+            onLessonClick = onSelectLesson
+        )
+    } else {
+        BackHandler {
+            onSelectLesson(null)
+        }
+
+        LessonDetailPane(
+            lessonId = selectedId
+        )
+    }
+}
+```
+
+Expanded:
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun ExpandedLessonBrowser(
+    state: LessonBrowserState,
+    onSelectLesson: (String) -> Unit
+) {
+    Row {
+        LessonListPane(
+            lessons = state.lessons,
+            selectedLessonId = state.selectedLessonId,
+            onLessonClick = onSelectLesson,
+            modifier = Modifier.weight(0.36f)
+        )
+
+        if (state.selectedLessonId != null) {
+            LessonDetailPane(
+                lessonId = state.selectedLessonId,
+                modifier = Modifier.weight(0.64f)
+            )
+        } else {
+            LessonDetailPlaceholder(
+                modifier = Modifier.weight(0.64f)
+            )
+        }
+    }
+}
+```
+
+Важное правило: `selectedLessonId` принадлежит state holder, а не local remember внутри layout branch.
+
+## List-detail через Material 3 Adaptive
+
+Material 3 Adaptive дает `ListDetailPaneScaffold` и navigator helpers.
+
+```kotlin
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.layout.AnimatedPane
+import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffold
+import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
+import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+fun AdaptiveLessonBrowser(
+    state: LessonBrowserState,
+    onSelectLesson: (String) -> Unit
+) {
+    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
+
+    ListDetailPaneScaffold(
+        directive = navigator.scaffoldDirective,
+        value = navigator.scaffoldValue,
+        listPane = {
+            AnimatedPane {
+                LessonListPane(
+                    lessons = state.lessons,
+                    selectedLessonId = state.selectedLessonId,
+                    onLessonClick = { id ->
+                        onSelectLesson(id)
+                        navigator.navigateTo(
+                            pane = ListDetailPaneScaffoldRole.Detail,
+                            contentKey = id
+                        )
+                    }
+                )
+            }
+        },
+        detailPane = {
+            AnimatedPane {
+                state.selectedLessonId?.let { id ->
+                    LessonDetailPane(lessonId = id)
+                } ?: LessonDetailPlaceholder()
+            }
+        }
+    )
+}
+```
+
+Смысл navigator: на compact/medium он управляет переходом между panes, а на expanded может показывать panes рядом.
+
+## Supporting pane
+
+Supporting pane отличается от list-detail. В list-detail detail может быть самостоятельным content. В supporting pane вторичная область помогает основному content:
+
+- inspector panel;
+- filters;
+- chat/info panel рядом с editor;
+- comments рядом с document;
+- playlist рядом с player;
+- properties panel рядом с canvas;
+- participants рядом с video call.
+
+```kotlin
+data class EditorState(
+    val documentTitle: String,
+    val text: String,
+    val selectedCommentId: String?,
+    val comments: List<DocumentComment>
+)
+```
+
+Expanded supporting layout:
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun ExpandedEditorWithSupportingPane(
+    state: EditorState,
+    onTextChange: (String) -> Unit,
+    onCommentClick: (String) -> Unit
+) {
+    Row {
+        DocumentEditorPane(
+            title = state.documentTitle,
+            text = state.text,
+            onTextChange = onTextChange,
+            modifier = Modifier.weight(0.68f)
+        )
+
+        CommentsSupportingPane(
+            comments = state.comments,
+            selectedCommentId = state.selectedCommentId,
+            onCommentClick = onCommentClick,
+            modifier = Modifier.weight(0.32f)
+        )
+    }
+}
+```
+
+Compact behavior:
+
+- main pane занимает экран;
+- supporting pane открывается как separate pane, bottom sheet или navigation destination;
+- back закрывает supporting pane;
+- main content state не сбрасывается.
+
+## Supporting pane scaffold
+
+Material 3 Adaptive предоставляет `SupportingPaneScaffold` и navigable варианты.
+
+```kotlin
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.layout.AnimatedPane
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
+import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+fun AdaptiveDocumentEditor(
+    state: EditorState,
+    onTextChange: (String) -> Unit,
+    onCommentClick: (String) -> Unit
+) {
+    val navigator = rememberSupportingPaneScaffoldNavigator()
+
+    SupportingPaneScaffold(
+        directive = navigator.scaffoldDirective,
+        value = navigator.scaffoldValue,
+        mainPane = {
+            AnimatedPane {
+                DocumentEditorPane(
+                    title = state.documentTitle,
+                    text = state.text,
+                    onTextChange = onTextChange
+                )
+            }
+        },
+        supportingPane = {
+            AnimatedPane {
+                CommentsSupportingPane(
+                    comments = state.comments,
+                    selectedCommentId = state.selectedCommentId,
+                    onCommentClick = onCommentClick
+                )
+            }
+        }
+    )
+}
+```
+
+Exact API может немного отличаться между версиями Material 3 Adaptive, но паттерн остается: main pane и supporting pane управляются scaffold directive/value/navigator.
+
+## Feed layout
+
+Feed layout показывает много равнозначного content:
+
+- новости;
+- каталоги;
+- галерея;
+- курсы;
+- товары;
+- карточки проектов.
+
+На compact это часто list. На expanded — grid с разными card spans или adaptive columns.
+
+```kotlin
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AdaptiveFeed(
+    windowState: AdaptiveWindowState,
+    items: List<FeedItem>,
+    onItemClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val minCellWidth = when (windowState.widthClass) {
+        WindowWidthClass.Compact -> 320.dp
+        WindowWidthClass.Medium -> 280.dp
+        WindowWidthClass.Expanded -> 260.dp
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minCellWidth),
+        contentPadding = PaddingValues(16.dp),
+        modifier = modifier
+    ) {
+        items(
+            items = items,
+            key = { item ->
+                item.id
+            },
+            contentType = {
+                "feed-card"
+            }
+        ) { item ->
+            FeedCard(
+                item = item,
+                onClick = {
+                    onItemClick(item.id)
+                }
+            )
+        }
+    }
+}
+```
+
+`GridCells.Adaptive` часто лучше, чем ручной `when(widthClass) { 2 columns, 3 columns }`, потому что desktop window может быть любой ширины.
+
+## Highlight cards в feed
+
+Expanded feed может выделять важные элементы.
+
+```kotlin
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+
+fun LazyGridScope.feedItems(
+    items: List<FeedItem>,
+    onItemClick: (String) -> Unit
+) {
+    items(
+        count = items.size,
+        key = { index ->
+            items[index].id
+        },
+        span = { index ->
+            val item = items[index]
+            if (item.featured) {
+                GridItemSpan(maxLineSpan)
+            } else {
+                GridItemSpan(1)
+            }
+        },
+        contentType = { index ->
+            if (items[index].featured) {
+                "featured-feed-card"
+            } else {
+                "feed-card"
+            }
+        }
+    ) { index ->
+        val item = items[index]
+        FeedCard(
+            item = item,
+            onClick = {
+                onItemClick(item.id)
+            }
+        )
+    }
+}
+```
+
+Не делайте featured span только потому, что экран широкий. Featured должен иметь смысл в content model.
+
+## Adaptive navigation patterns
+
+Canonical layouts обычно живут внутри adaptive navigation frame.
+
+```kotlin
+enum class NavigationSurfaceKind {
+    BottomBar,
+    NavigationRail,
+    PermanentDrawer
+}
+
+fun navigationSurfaceFor(
+    widthClass: WindowWidthClass
+): NavigationSurfaceKind {
+    return when (widthClass) {
+        WindowWidthClass.Compact -> NavigationSurfaceKind.BottomBar
+        WindowWidthClass.Medium -> NavigationSurfaceKind.NavigationRail
+        WindowWidthClass.Expanded -> NavigationSurfaceKind.PermanentDrawer
+    }
+}
+```
+
+Compose:
+
+```kotlin
+@Composable
+fun AppFrame(
+    windowState: AdaptiveWindowState,
+    currentDestination: AppDestination,
+    onDestinationClick: (AppDestination) -> Unit,
+    content: @Composable () -> Unit
+) {
+    when (navigationSurfaceFor(windowState.widthClass)) {
+        NavigationSurfaceKind.BottomBar -> {
+            BottomBarFrame(
+                currentDestination = currentDestination,
+                onDestinationClick = onDestinationClick,
+                content = content
+            )
+        }
+        NavigationSurfaceKind.NavigationRail -> {
+            NavigationRailFrame(
+                currentDestination = currentDestination,
+                onDestinationClick = onDestinationClick,
+                content = content
+            )
+        }
+        NavigationSurfaceKind.PermanentDrawer -> {
+            PermanentDrawerFrame(
+                currentDestination = currentDestination,
+                onDestinationClick = onDestinationClick,
+                content = content
+            )
+        }
+    }
+}
+```
+
+Navigation state должен быть один. Меняется только navigation surface.
+
+## Back behavior
+
+Back behavior зависит от pane visibility.
+
+Compact list-detail:
+
+- если открыт detail, back возвращает list;
+- если открыт list, back выходит из screen.
+
+Expanded list-detail:
+
+- back обычно выходит из screen или navigation stack;
+- selection не всегда должен очищаться;
+- detail и list видны одновременно.
+
+```kotlin
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ListDetailBackHandler(
+    windowState: AdaptiveWindowState,
+    selectedId: String?,
+    onClearSelection: () -> Unit
+) {
+    val shouldHandleBack =
+        windowState.widthClass == WindowWidthClass.Compact &&
+            selectedId != null
+
+    BackHandler(enabled = shouldHandleBack) {
+        onClearSelection()
+    }
+}
+```
+
+Не делайте одинаковый back behavior для всех window sizes.
+
+## Placeholders
+
+Expanded list-detail нуждается в placeholder, если item не выбран.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
+@Composable
+fun LessonDetailPlaceholder(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "Выберите урок",
+            style = MaterialTheme.typography.titleMedium
+        )
+    }
+}
+```
+
+Placeholder должен быть полезным, а не пустой белой областью. Можно показать подсказку, recent items, summary или keyboard shortcuts.
+
+## State hoisting
+
+Canonical layout state:
+
+- selected item;
+- active pane;
+- visible supporting panel;
+- current destination;
+- search/filter query;
+- scroll state keys.
+
+Должен жить выше layout rendering.
+
+```kotlin
+class LessonBrowserViewModel : ViewModel() {
+
+    private val _state = MutableStateFlow(
+        LessonBrowserState(
+            lessons = emptyList(),
+            selectedLessonId = null
+        )
+    )
+    val state: StateFlow<LessonBrowserState> = _state
+
+    fun selectLesson(id: String?) {
+        _state.update { state ->
+            state.copy(selectedLessonId = id)
+        }
+    }
+}
+```
+
+Layout branch не должен владеть selected state.
+
+<MouseTrap>
+Если selected item хранится внутри compact detail composable, expanded layout не сможет показать тот же detail рядом со списком после resize.
+</MouseTrap>
+
+## Previews
+
+Canonical layout нужно preview-ить в нескольких window states и content states:
+
+- compact без selection;
+- compact с detail;
+- expanded без selection;
+- expanded с selection;
+- empty list;
+- loading;
+- error;
+- large font.
+
+```kotlin
+@AdaptivePreviews
+@Composable
+fun LessonBrowserPreview() {
+    AppTheme {
+        LessonBrowserScreen(
+            windowState = AdaptiveWindowState(
+                widthClass = WindowWidthClass.Expanded,
+                heightClass = WindowHeightClass.Medium
+            ),
+            state = LessonBrowserState(
+                lessons = LessonSummary.previewList(),
+                selectedLessonId = "compose-91"
+            ),
+            onSelectLesson = {}
+        )
+    }
+}
+```
+
+Preview state должен быть явным. Не создавайте ViewModel в preview.
+
+## Testing canonical layouts
+
+Проверяйте layout behavior как state machine:
+
+```kotlin
+import com.google.common.truth.Truth.assertThat
+import org.junit.Test
+
+class ListDetailBehaviorTest {
+
+    @Test
+    fun compactBackFromDetail_clearsSelection() {
+        val state = LessonBrowserState(
+            lessons = LessonSummary.previewList(),
+            selectedLessonId = "compose-91"
+        )
+
+        val next = reduceListDetailBack(
+            windowClass = WindowWidthClass.Compact,
+            state = state
+        )
+
+        assertThat(next.selectedLessonId).isNull()
+    }
+}
+```
+
+Compose UI tests:
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import org.junit.Rule
+import org.junit.Test
+
+class LessonBrowserUiTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun expanded_showsListAndDetail() {
+        composeRule.setContent {
+            LessonBrowserScreen(
+                windowState = AdaptiveWindowState(
+                    widthClass = WindowWidthClass.Expanded,
+                    heightClass = WindowHeightClass.Medium
+                ),
+                state = LessonBrowserState(
+                    lessons = LessonSummary.previewList(),
+                    selectedLessonId = "compose-91"
+                ),
+                onSelectLesson = {}
+            )
+        }
+
+        composeRule
+            .onNodeWithText("Window, insets and system UI")
+            .assertExists()
+
+        composeRule
+            .onNodeWithText("Выберите урок")
+            .assertDoesNotExist()
+    }
+}
+```
+
+Для real adaptive behavior нужны также screenshot tests на разных widths.
+
+## Типичные ошибки
+
+### Растянуть phone UI
+
+Большой экран не должен быть просто широкой колонкой с длинными строками.
+
+### Делать detail обязательным на expanded без placeholder
+
+Пустая область выглядит как сломанный экран.
+
+### Сбрасывать selection при resize
+
+Пользователь теряет context при смене window size.
+
+### Использовать один back behavior везде
+
+Compact panes и expanded panes требуют разной логики.
+
+### Считать supporting pane detail pane
+
+Supporting pane зависит от main content и не всегда должен становиться самостоятельным route.
+
+### Перегружать feed разными card sizes
+
+Визуальное разнообразие должно помогать scanning, а не ломать rhythm.
+
+## Итоги
+
+Canonical layouts дают устойчивые adaptive patterns:
+
+- list-detail показывает list и выбранный detail;
+- compact list-detail требует pane navigation и back-to-list behavior;
+- expanded list-detail показывает panes рядом и нуждается в placeholder;
+- supporting pane помогает main content, но не является самостоятельным detail;
+- feed адаптирует количество columns и spans к доступной ширине;
+- adaptive navigation меняет surface, но не navigation state;
+- Material 3 Adaptive scaffolds помогают управлять panes и transitions;
+- selected item, pane state и filters нужно hoist-ить;
+- previews и tests должны покрывать compact/expanded, empty/selected и font scale states.

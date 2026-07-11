@@ -1,0 +1,639 @@
+---
+title: "Ментальная модель Compose"
+description: "Глубоко разбираем, как Compose мыслит UI: Composition, Recomposition, Slot Table, positional identity, snapshot state, skipping, keys и почему composable-функции должны быть быстрыми и свободными от побочных эффектов."
+order: 04
+category: "Compose: Вход и рабочая среда"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## UI как функция состояния
+
+Главная модель Compose звучит коротко: UI является функцией состояния.
+
+```kotlin
+@Composable
+fun Greeting(name: String) {
+    Text(text = "Привет, $name")
+}
+```
+
+Если `name` равен `"Анна"`, UI показывает `"Привет, Анна"`. Если `name` стал `"Илья"`, Compose вызывает нужную часть composable-кода снова и приводит UI к новому результату. Ты не вызываешь `textView.setText("Привет, Илья")`; ты описываешь, какой UI соответствует новому состоянию.
+
+Но за этой простотой скрывается runtime-механика. Чтобы писать уверенно, нужно понимать не только "Compose сам обновит UI", но и как он понимает, что именно обновлять.
+
+## Три важных процесса
+
+Compose rendering удобно объяснять через три процесса:
+
+- Composition: выполнение composable-функций и построение описания UI;
+- Recomposition: повторное выполнение частей composition после изменения state;
+- Apply Changes: применение вычисленных изменений к реальному UI-дереву.
+
+Эта модель упрощенная, но практичная. Она помогает понять, почему нельзя делать побочные эффекты прямо в body composable-функции и почему чтение state в разных фазах влияет на производительность.
+
+## Initial composition
+
+Initial composition — первое выполнение composable-дерева.
+
+```kotlin
+setContent {
+    KotlingoTheme {
+        CounterScreen()
+    }
+}
+```
+
+Когда `setContent` запускается впервые:
+
+- Compose входит в корневой composable;
+- вызывает `KotlingoTheme`;
+- вызывает `CounterScreen`;
+- встречает `remember`;
+- создает remembered value;
+- встречает `Text`, `Button`, layout-компоненты;
+- записывает структуру вызовов и remembered values в свои внутренние структуры;
+- применяет результат к UI.
+
+Initial composition не является "разовым созданием View". Это первый проход, после которого runtime уже знает, где в дереве находятся группы, state reads и remembered values.
+
+## Recomposition
+
+Recomposition — повторное выполнение части composable-кода, когда state, прочитанный этой частью, изменился.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CounterScreen() {
+    var count by remember { mutableIntStateOf(0) }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(text = "Нажатий: $count")
+
+        Button(
+            onClick = {
+                // Изменение MutableState сообщает Compose, что места,
+                // где этот state читался, нужно пересчитать.
+                count += 1
+            }
+        ) {
+            Text(text = "Увеличить")
+        }
+    }
+}
+```
+
+Что происходит при клике:
+
+- `count += 1` меняет snapshot state;
+- Compose помечает scope, где `count` был прочитан, как invalidated;
+- в ближайший подходящий момент запускается recomposition;
+- `CounterScreen` или его часть выполняется снова;
+- `Text(text = "Нажатий: $count")` получает новую строку;
+- Compose применяет изменения.
+
+Обычная mutable-переменная не даст такого эффекта:
+
+```kotlin
+@Composable
+fun BrokenCounterScreen() {
+    var count = 0
+
+    Button(
+        onClick = {
+            // Эта переменная не является observable state.
+            // Значение изменится внутри текущей lambda, но Compose не узнает,
+            // что экран нужно пересчитать.
+            count += 1
+        }
+    ) {
+        Text(text = "Нажатий: $count")
+    }
+}
+```
+
+Этот пример показывает важную границу: Compose реагирует не на любые изменения памяти, а на изменения observable state, которые интегрированы со snapshot system или адаптированы в `State<T>`.
+
+<MouseTrap title="Мышеловка: var внутри composable не является состоянием экрана">
+  Локальная `var` пересоздается при новом выполнении функции и не уведомляет
+  Compose об изменениях. Для UI-состояния используй `remember`,
+  `rememberSaveable`, state holder, `StateFlow` через lifecycle-aware collection
+  или другой observable источник, который Compose умеет читать.
+</MouseTrap>
+
+## Snapshot state
+
+Snapshot state — система наблюдаемого состояния Compose. Когда composable читает `State<T>`, runtime запоминает это чтение. Когда значение меняется, runtime знает, какие участки могут зависеть от него.
+
+Частые state holders:
+
+- `mutableStateOf(value)` — generic state holder;
+- `mutableIntStateOf(value)` — primitive-specialized state holder для `Int`;
+- `mutableLongStateOf(value)` — specialized state holder для `Long`;
+- `mutableFloatStateOf(value)` — specialized state holder для `Float`;
+- `mutableDoubleStateOf(value)` — specialized state holder для `Double`;
+- `mutableStateListOf()` — observable список;
+- `mutableStateMapOf()` — observable map;
+- `derivedStateOf { listState.firstVisibleItemIndex > 0 }` — derived value, пересчитываемый на основе других state reads.
+
+Пример с generic state:
+
+```kotlin
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun NotificationsToggle() {
+    var enabled by remember { mutableStateOf(false) }
+
+    Switch(
+        checked = enabled,
+        onCheckedChange = { newValue ->
+            // newValue приходит от компонента Switch.
+            // Присваивание обновляет MutableState<Boolean>.
+            enabled = newValue
+        }
+    )
+
+    Text(
+        text = if (enabled) {
+            "Уведомления включены"
+        } else {
+            "Уведомления выключены"
+        }
+    )
+}
+```
+
+## `remember` и позиционная память
+
+`remember` хранит значение между recomposition, пока соответствующий вызов остается в Composition.
+
+```kotlin
+@Composable
+fun SearchBox() {
+    var query by remember { mutableStateOf("") }
+
+    TextField(
+        value = query,
+        onValueChange = { newQuery ->
+            query = newQuery
+        },
+        label = {
+            Text(text = "Поиск")
+        }
+    )
+}
+```
+
+Важно: `remember` привязан не к имени переменной и не к объекту функции. Он привязан к позиции вызова в Composition. Если позиция логически меняется, remembered state может оказаться связанным не с тем элементом.
+
+Проблемный пример:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+data class LessonRowState(
+    val id: String,
+    val title: String
+)
+
+@Composable
+fun LessonListWithoutKeys(lessons: List<LessonRowState>) {
+    Column {
+        lessons.forEach { lesson ->
+            var checked by remember { mutableStateOf(false) }
+
+            Checkbox(
+                checked = checked,
+                onCheckedChange = { checked = it }
+            )
+
+            Text(text = lesson.title)
+        }
+    }
+}
+```
+
+Если новый элемент вставить в начало списка, позиции вызовов сместятся. Checkbox state может визуально "переехать" к другой строке. Runtime не знает, что строка определяется `lesson.id`, если ты не дал ключ.
+
+Исправление:
+
+```kotlin
+import androidx.compose.runtime.key
+
+@Composable
+fun LessonListWithKeys(lessons: List<LessonRowState>) {
+    Column {
+        lessons.forEach { lesson ->
+            key(lesson.id) {
+                var checked by remember { mutableStateOf(false) }
+
+                Checkbox(
+                    checked = checked,
+                    onCheckedChange = { checked = it }
+                )
+
+                Text(text = lesson.title)
+            }
+        }
+    }
+}
+```
+
+`key(lesson.id)` говорит Compose: эта группа определяется не только позицией, но и стабильным ключом. В lazy lists для этого обычно используется параметр `key` в `items`.
+
+<CatTip title="Котосовет: ключ — это идентичность, а не индекс">
+  Хороший key должен переживать сортировку, фильтрацию и вставку элементов.
+  Индекс списка почти никогда не является хорошим key для состояния строки.
+  Используй id доменной модели: lesson id, message id, user id, database primary
+  key.
+</CatTip>
+
+## Slot Table простыми словами
+
+Slot Table — внутренняя структура Compose Runtime, где хранится информация о Composition. В нее попадают группы вызовов, remembered values, ключи и служебная информация, которая помогает runtime быстро понять, что можно переиспользовать.
+
+Упрощенно можно представить такой composable:
+
+```kotlin
+@Composable
+fun ProfileHeader(name: String, premium: Boolean) {
+    Text(text = name)
+
+    if (premium) {
+        Text(text = "Premium")
+    }
+}
+```
+
+Во время composition runtime записывает не просто "два текста". Он записывает группы:
+
+- группа `ProfileHeader`;
+- группа первого `Text`;
+- условная группа для `if`;
+- группа второго `Text`, если `premium == true`;
+- remembered values, если они есть;
+- ключи, если они заданы.
+
+Если при следующей recomposition `premium` изменится, структура групп изменится. Runtime использует позиции, ключи и compiler-generated metadata, чтобы обновить Composition. Именно поэтому порядок вызовов и стабильная идентичность важны.
+
+Ты не работаешь со Slot Table напрямую. Но из него следуют практические правила:
+
+- не меняй порядок remembered-вызовов случайно;
+- используй keys для динамических списков;
+- не храни состояние в локальных обычных переменных;
+- не рассчитывай, что composable-вызов является объектом с постоянной identity;
+- не делай side effects в body composable-функции.
+
+## Skipping
+
+Compose может пропустить выполнение composable-функции, если считает, что ее результат не изменится. Для этого важны:
+
+- функция должна быть skippable;
+- параметры должны быть стабильными или совместимыми с текущим режимом skipping;
+- значения параметров не должны измениться значимым образом;
+- внутри функции не должно быть invalidated state reads, которые требуют recomposition.
+
+Пример хорошего параметра:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class CourseBadgeState(
+    val title: String,
+    val completed: Boolean
+)
+```
+
+`@Immutable` сообщает Compose compiler: публичное состояние объекта не меняется после создания. Это обещание автора API. Если объект на самом деле содержит mutable-коллекцию, аннотация станет ложью и может привести к устаревшему UI.
+
+Плохой вариант:
+
+```kotlin
+data class MutableCourseBadgeState(
+    val title: String,
+    val tags: MutableList<String>
+)
+```
+
+`MutableList` можно изменить без создания нового объекта. Compose сложнее понять, изменился ли UI. В production UI-state лучше использовать immutable lists:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class CourseBadgeStateWithTags(
+    val title: String,
+    val tags: List<String>
+)
+```
+
+Даже `List<String>` в Kotlin является read-only интерфейсом, а не строгой immutable-структурой. Для максимальной строгости в больших проектах применяют immutable collections из отдельной библиотеки и фиксируют правила в stability configuration, но базовое правило остается тем же: не мутируй UI-state втайне от Compose.
+
+## Recomposition is optimistic
+
+Recomposition оптимистична: Compose ожидает, что сможет закончить пересчет до следующего изменения. Если состояние меняется снова до завершения пересчета, текущая recomposition может быть отменена и начата заново с новыми данными.
+
+Следствие: body composable-функции не является надежным местом для необратимых действий.
+
+Плохо:
+
+```kotlin
+@Composable
+fun AnalyticsOnScreenOpen(userId: String, analytics: AnalyticsClient) {
+    // Нельзя отправлять событие прямо в body.
+    // Функция может выполниться больше одного раза.
+    analytics.trackScreenOpened(userId)
+
+    Text(text = "Профиль")
+}
+
+interface AnalyticsClient {
+    fun trackScreenOpened(userId: String)
+}
+```
+
+Лучше:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun AnalyticsOnScreenOpen(userId: String, analytics: AnalyticsClient) {
+    LaunchedEffect(userId) {
+        // Effect запускается после успешной composition и перезапускается,
+        // только если изменился ключ userId.
+        analytics.trackScreenOpened(userId)
+    }
+
+    Text(text = "Профиль")
+}
+```
+
+`LaunchedEffect` будет подробно разобран в модуле side effects. Сейчас важно понять принцип: side effects должны жить в effect API, а не в обычном теле composable.
+
+## Быстрые composable-функции
+
+Composable-функции могут выполняться часто. Во время анимации некоторые части UI могут пересчитываться каждый кадр. Поэтому body composable-функции должен быть быстрым.
+
+Не делай внутри composition:
+
+- чтение файлов;
+- сетевые запросы;
+- синхронные database-запросы;
+- тяжелую сортировку большого списка без memoization;
+- создание тяжелых объектов на каждом проходе;
+- регистрацию listeners;
+- отправку аналитики;
+- навигацию как прямой side effect.
+
+Можно делать внутри composition:
+
+- дешевые вычисления строк;
+- выбор веток UI;
+- чтение state;
+- создание небольших immutable values;
+- вызовы composable-функций;
+- декларативное описание layout;
+- `remember` для объектов, которые должны пережить recomposition.
+
+Пример с дорогой сортировкой:
+
+```kotlin
+data class LessonSummary(
+    val title: String,
+    val progressPercent: Int
+)
+
+@Composable
+fun SortedLessons(lessons: List<LessonSummary>) {
+    val sortedLessons = remember(lessons) {
+        // Сортировка выполняется только когда изменилась ссылка lessons.
+        // Для immutable UI-state это обычно означает реальное изменение списка.
+        lessons.sortedWith(
+            compareByDescending<LessonSummary> { it.progressPercent }
+                .thenBy { it.title }
+        )
+    }
+
+    Column {
+        sortedLessons.forEach { lesson ->
+            Text(text = "${lesson.title}: ${lesson.progressPercent}%")
+        }
+    }
+}
+```
+
+`remember(lessons)` не делает алгоритм бесплатным, но не позволяет сортировать список на каждом recomposition, если входной список не изменился.
+
+## Фазы: Composition, Layout, Draw
+
+Frame в Compose можно рассматривать через фазы:
+
+- Composition решает, какие UI-элементы существуют;
+- Layout измеряет и размещает элементы;
+- Draw рисует пиксели.
+
+State можно читать в разных фазах. Чем позже читается state, тем меньше работы может потребоваться при изменении. Например, изменение цвета в draw-фазе может не требовать полной recomposition, если оно организовано через drawing APIs. Это продвинутая тема performance-модуля, но уже сейчас полезно знать: не каждое изменение обязано проходить через весь pipeline.
+
+## API-карта ментальной модели
+
+### `@Composable`
+
+Объявляет функцию, которая участвует в Composition. Ее можно вызвать только из composable-контекста.
+
+### `remember`
+
+Сохраняет значение между recomposition, пока вызов остается в Composition с той же идентичностью.
+
+### `key`
+
+Добавляет явную идентичность группе composition. Особенно полезен в динамических списках вне lazy containers.
+
+### `mutableStateOf`
+
+Создает observable state. Чтения отслеживаются, изменения вызывают invalidation.
+
+### `derivedStateOf`
+
+Создает derived value на основе других state reads. Полезен, когда исходное состояние меняется чаще, чем должен обновляться UI-результат.
+
+### `rememberUpdatedState`
+
+Позволяет long-lived effect видеть свежую lambda или значение без перезапуска самого effect.
+
+### `LaunchedEffect`
+
+Запускает coroutine после успешной composition и отменяет ее при выходе из Composition или изменении key.
+
+### `DisposableEffect`
+
+Регистрирует внешний ресурс и гарантирует cleanup через `onDispose`.
+
+### `SideEffect`
+
+Публикует данные во внешний объект после успешной composition.
+
+### `CompositionLocal`
+
+Передает значения вниз по дереву без явного параметра в каждой функции. Используется для темы, density, context, layout direction и аккуратных cross-cutting dependencies.
+
+### `@Stable`
+
+Аннотация-контракт: объект сообщает Compose, что изменения его публичных свойств наблюдаемы или что равные значения ведут себя стабильно.
+
+### `@Immutable`
+
+Аннотация-контракт: объект после создания не меняет публичное состояние. Нельзя ставить на mutable-модель ради "ускорения".
+
+## Практический пример: правильная модель экрана
+
+Ниже экран, который показывает список уроков и выбранный урок. Он демонстрирует несколько правил одновременно: immutable state, keys, hoisted selection и отсутствие side effects в body.
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.key
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class LessonPickerState(
+    val selectedLessonId: String,
+    val lessons: List<LessonPickerItem>
+)
+
+@Immutable
+data class LessonPickerItem(
+    val id: String,
+    val title: String,
+    val minutes: Int
+)
+
+@Composable
+fun LessonPicker(
+    state: LessonPickerState,
+    onLessonSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        state.lessons.forEach { lesson ->
+            key(lesson.id) {
+                LessonPickerRow(
+                    item = lesson,
+                    selected = lesson.id == state.selectedLessonId,
+                    onClick = {
+                        onLessonSelected(lesson.id)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LessonPickerRow(
+    item: LessonPickerItem,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = item.title,
+                fontWeight = if (selected) {
+                    FontWeight.Bold
+                } else {
+                    FontWeight.Normal
+                }
+            )
+
+            Text(
+                text = "${item.minutes} мин.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+```
+
+Что здесь важно:
+
+- `LessonPickerState` immutable и полностью описывает UI;
+- `selectedLessonId` хранится у вызывающего кода, а не внутри строки;
+- `onLessonSelected` сообщает событие наружу;
+- `key(lesson.id)` защищает positional identity при перестановке списка;
+- `LessonPickerRow` не знает про весь список и получает только нужные данные;
+- цвет выбранной строки является функцией `selected`;
+- в body composable нет аналитики, навигации, запросов и регистрации listeners.
+
+## Итоги
+
+Ментальная модель Compose держится на нескольких опорах:
+
+- composable-функции описывают UI для текущего состояния;
+- initial composition создает структуру Composition;
+- recomposition повторно выполняет только потенциально изменившиеся части;
+- snapshot state связывает чтения state с invalidation;
+- `remember` хранит значения по позиции в Composition;
+- Slot Table делает positional identity важной;
+- keys нужны для динамических групп;
+- skipping помогает пропускать стабильные части UI;
+- side effects должны быть вынесены в effect API;
+- быстрые, идемпотентные, side-effect free composable-функции дают Compose максимум пространства для оптимизации.

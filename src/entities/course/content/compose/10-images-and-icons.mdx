@@ -1,0 +1,545 @@
+---
+title: "Изображения и иконки"
+description: "Разбираем Image и Icon в Compose: painterResource, ImageBitmap, ImageVector, ContentScale, alignment, alpha, colorFilter, contentDescription, clipping, shape, ресурсы и production-подход к визуальным ассетам."
+order: 10
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Изображение — это не просто пиксели
+
+В Compose визуальные ассеты делятся по смыслу:
+
+- `Image` показывает изображение: иллюстрацию, аватар, обложку, фотографию, preview, диаграмму;
+- `Icon` показывает небольшую одноцветную или tintable иконку действия, статуса или навигации;
+- `Canvas` рисует custom-графику;
+- `Painter` инкапсулирует стратегию рисования;
+- `ImageBitmap` представляет raster-изображение;
+- `ImageVector` представляет vector-графику.
+
+Главный вопрос при добавлении ассета: он несет смысл или является декоративным? От ответа зависит `contentDescription` и accessibility.
+
+```kotlin
+Image(
+    painter = painterResource(R.drawable.compose_cover),
+    contentDescription = "Обложка урока о Jetpack Compose"
+)
+```
+
+Если картинка декоративная и не добавляет информации:
+
+```kotlin
+Image(
+    painter = painterResource(R.drawable.card_background_pattern),
+    contentDescription = null
+)
+```
+
+`null` здесь не ошибка. Это честный сигнал accessibility-сервисам: картинку не нужно озвучивать.
+
+## `Image`
+
+`Image` — composable для отображения изображения. Его основные параметры:
+
+### `painter`
+
+Источник отрисовки. Чаще всего создается через `painterResource`, но может быть custom `Painter`.
+
+### `contentDescription`
+
+Текст для accessibility. Если изображение смысловое, описание должно передавать смысл. Если декоративное, используй `null`.
+
+### `modifier`
+
+Размер, clipping, border, semantics, padding и layout-поведение.
+
+### `alignment`
+
+Как изображение выравнивается внутри доступного контейнера, если размеры не совпадают.
+
+### `contentScale`
+
+Как изображение масштабируется: crop, fit, fill bounds, inside, none.
+
+### `alpha`
+
+Прозрачность.
+
+### `colorFilter`
+
+Цветовая трансформация. Используется для tint, grayscale и других эффектов.
+
+## Ресурсное изображение
+
+Создадим полноценный vector drawable, чтобы пример был самодостаточным.
+
+`res/drawable/compose_cover.xml`:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path
+        android:fillColor="#FFEEF2FF"
+        android:pathData="M0,0h320v180h-320z" />
+    <path
+        android:fillColor="#FF386AEE"
+        android:pathData="M40,42h96c12,0 22,10 22,22v52c0,12 -10,22 -22,22h-96c-12,0 -22,-10 -22,-22v-52c0,-12 10,-22 22,-22z" />
+    <path
+        android:fillColor="#FF19A974"
+        android:pathData="M180,42h100c12,0 22,10 22,22v52c0,12 -10,22 -22,22h-100c-12,0 -22,-10 -22,-22v-52c0,-12 10,-22 22,-22z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M69,74h58v10h-58zM69,94h42v10h-42zM202,74h58v10h-58zM202,94h36v10h-36z" />
+</vector>
+```
+
+Kotlin:
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.kotlingo.reader.R
+
+@Composable
+fun LessonCoverImage(
+    modifier: Modifier = Modifier
+) {
+    Image(
+        painter = painterResource(R.drawable.compose_cover),
+        contentDescription = "Обложка урока с карточками интерфейса",
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f),
+        contentScale = ContentScale.Crop
+    )
+}
+```
+
+`aspectRatio(16f / 9f)` фиксирует формат контейнера. `ContentScale.Crop` заполняет контейнер и обрезает лишнее, если пропорции ресурса отличаются.
+
+## `ContentScale`
+
+`ContentScale` решает, как source image вписывается в destination bounds.
+
+### `ContentScale.Fit`
+
+Сохраняет пропорции и помещает изображение целиком. Может оставить пустое место по краям.
+
+### `ContentScale.Crop`
+
+Сохраняет пропорции и заполняет контейнер. Лишняя часть обрезается. Часто подходит для обложек и аватаров.
+
+### `ContentScale.FillBounds`
+
+Растягивает изображение по ширине и высоте без сохранения пропорций. Используй осторожно: фотографии и логотипы будут искажены.
+
+### `ContentScale.FillWidth`
+
+Заполняет ширину, сохраняя пропорции.
+
+### `ContentScale.FillHeight`
+
+Заполняет высоту, сохраняя пропорции.
+
+### `ContentScale.Inside`
+
+Помещает изображение внутрь bounds, не увеличивая маленькое изображение сверх исходного размера.
+
+### `ContentScale.None`
+
+Не масштабирует изображение.
+
+## `alignment`
+
+Если изображение после scaling не совпадает с размером контейнера, `alignment` решает, какую часть показывать.
+
+```kotlin
+Image(
+    painter = painterResource(R.drawable.compose_cover),
+    contentDescription = "Обложка урока",
+    modifier = Modifier
+        .fillMaxWidth()
+        .aspectRatio(4f / 3f),
+    contentScale = ContentScale.Crop,
+    alignment = Alignment.TopCenter
+)
+```
+
+Для аватаров обычно подходит `Alignment.Center`. Для обложек с важной верхней частью иногда нужен `Alignment.TopCenter`.
+
+## Обрезка по форме
+
+Для clipping используй `Modifier.clip`.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import com.kotlingo.reader.R
+
+@Composable
+fun MentorAvatar() {
+    Image(
+        painter = painterResource(R.drawable.compose_cover),
+        contentDescription = "Аватар наставника курса",
+        modifier = Modifier
+            .size(72.dp)
+            .clip(CircleShape),
+        contentScale = ContentScale.Crop
+    )
+}
+```
+
+Для rounded corners:
+
+```kotlin
+Image(
+    painter = painterResource(R.drawable.compose_cover),
+    contentDescription = "Обложка урока",
+    modifier = Modifier
+        .fillMaxWidth()
+        .aspectRatio(16f / 9f)
+        .clip(MaterialTheme.shapes.large),
+    contentScale = ContentScale.Crop
+)
+```
+
+<MouseTrap title="Мышеловка: порядок border и clip имеет значение">
+  `Modifier.border(BorderStroke(2.dp, Color.Blue),
+  CircleShape).clip(CircleShape)` и
+  `Modifier.clip(CircleShape).border(BorderStroke(2.dp, Color.Blue),
+  CircleShape)` дают разные результаты. Modifier-цепочка применяет операции по
+  порядку. Для аватара с рамкой часто нужен border по форме, затем padding
+  толщины рамки, затем clip внутреннего изображения.
+</MouseTrap>
+
+## Рамка вокруг изображения
+
+```kotlin
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import com.kotlingo.reader.R
+
+@Composable
+fun MentorAvatarWithBorder() {
+    val borderWidth = 3.dp
+
+    Image(
+        painter = painterResource(R.drawable.compose_cover),
+        contentDescription = "Аватар наставника курса",
+        modifier = Modifier
+            .size(80.dp)
+            .border(
+                border = BorderStroke(
+                    width = borderWidth,
+                    color = MaterialTheme.colorScheme.primary
+                ),
+                shape = CircleShape
+            )
+            .padding(borderWidth)
+            .clip(CircleShape),
+        contentScale = ContentScale.Crop
+    )
+}
+```
+
+## `Icon`
+
+`Icon` — Material-компонент для маленьких иконок. По умолчанию он:
+
+- tint-ится через `LocalContentColor`;
+- имеет типичный размер 24 dp;
+- подходит для action/status/navigation glyph;
+- принимает `painter`, `imageVector` или `bitmap` в разных overload;
+- не заменяет `Image` для фотографий, обложек и сложных иллюстраций.
+
+`res/drawable/ic_play_lesson_24.xml`:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M8,5.14v13.72c0,0.79 0.87,1.27 1.54,0.84l10.78,-6.86c0.62,-0.4 0.62,-1.29 0,-1.69L9.54,4.3C8.87,3.87 8,4.35 8,5.14z" />
+</vector>
+```
+
+Kotlin:
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import com.kotlingo.reader.R
+
+@Composable
+fun PlayLessonIcon() {
+    Icon(
+        painter = painterResource(R.drawable.ic_play_lesson_24),
+        contentDescription = "Начать урок"
+    )
+}
+```
+
+Если иконка находится внутри кнопки с текстом, описание на самой иконке обычно не нужно:
+
+```kotlin
+Button(onClick = onStartClick) {
+    Icon(
+        painter = painterResource(R.drawable.ic_play_lesson_24),
+        contentDescription = null
+    )
+
+    Text(text = "Начать")
+}
+```
+
+Screen reader прочитает кнопку по тексту `"Начать"`. Если у иконки тоже будет описание, пользователь может услышать дублирование.
+
+## Tint и `ColorFilter`
+
+Для `Icon` обычно используй параметр `tint`.
+
+```kotlin
+Icon(
+    painter = painterResource(R.drawable.ic_play_lesson_24),
+    contentDescription = "Начать урок",
+    tint = MaterialTheme.colorScheme.primary
+)
+```
+
+Для `Image` tint делается через `colorFilter`, но используй его только если смысл изображения допускает перекраску.
+
+```kotlin
+Image(
+    painter = painterResource(R.drawable.compose_cover),
+    contentDescription = "Декоративная иллюстрация курса",
+    colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
+    alpha = 0.18f
+)
+```
+
+Фотографии людей, продуктов и мест обычно нельзя tint-ить без потери смысла.
+
+## `painterResource`, `ImageBitmap`, `ImageVector`
+
+### `painterResource`
+
+Удобный способ загрузить drawable resource как `Painter`. Подходит для bitmap и vector drawable из resources.
+
+### `ImageBitmap`
+
+Представляет bitmap в Compose. Используется, когда изображение уже декодировано или создано программно.
+
+### `ImageVector`
+
+Представляет vector image в Compose. Может быть создан из vector drawable или описан кодом.
+
+### `rememberVectorPainter`
+
+Создает `Painter` из `ImageVector`. Полезно, когда API принимает `Painter`, а у тебя есть vector.
+
+### `vectorResource`
+
+Загружает vector drawable как `ImageVector`.
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import com.kotlingo.reader.R
+
+@Composable
+fun VectorResourceIcon() {
+    val imageVector = ImageVector.vectorResource(R.drawable.ic_play_lesson_24)
+
+    Icon(
+        imageVector = imageVector,
+        contentDescription = "Начать урок"
+    )
+}
+```
+
+## Полный пример: карточка урока с обложкой и иконкой
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.kotlingo.reader.R
+
+@Immutable
+data class VisualLessonCardState(
+    val title: String,
+    val description: String,
+    val coverDescription: String
+)
+
+@Composable
+fun VisualLessonCard(
+    state: VisualLessonCardState,
+    onStartClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column {
+            Image(
+                painter = painterResource(R.drawable.compose_cover),
+                contentDescription = state.coverDescription,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(MaterialTheme.shapes.medium),
+                contentScale = ContentScale.Crop
+            )
+
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = state.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = state.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Button(onClick = onStartClick) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_play_lesson_24),
+                            contentDescription = null
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Text(text = "Начать")
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- обложка является смысловой, поэтому получает `coverDescription`;
+- `aspectRatio` защищает layout от скачков высоты;
+- `ContentScale.Crop` делает обложку визуально плотной;
+- иконка внутри кнопки декоративна относительно текста кнопки, поэтому `contentDescription = null`;
+- текст защищен `maxLines` и `TextOverflow.Ellipsis`;
+- внешний `modifier` применен к корневому `Card`.
+
+## Производительность изображений
+
+Визуальные ассеты могут стать дорогими:
+
+- большие bitmap занимают память;
+- декодирование на main thread вызывает jank;
+- частое создание painter или bitmap в composition создает лишние аллокации;
+- неподходящий размер ресурса тратит память и bandwidth;
+- анимированные изображения требуют отдельного контроля lifecycle.
+
+Для remote image loading в Android-приложениях обычно используют специализированную библиотеку с Compose-интеграцией. В этом уроке мы не подключаем сторонние зависимости, потому что сначала важно понять базовые primitives: `Image`, `Icon`, `Painter`, `ContentScale`, `contentDescription`.
+
+## Типичные ошибки
+
+### Использовать `Icon` для фотографии
+
+`Icon` предназначен для маленьких tintable glyph. Для фото и обложек используй `Image`.
+
+### Описывать декоративную картинку
+
+Если фоновой узор не несет смысла, `contentDescription` должен быть `null`, иначе screen reader будет озвучивать визуальный шум.
+
+### Делать `contentDescription = "картинка"`
+
+Описание должно передавать смысл: "Аватар наставника Анны", "Обложка урока о состояниях", "Начать урок". Слово "картинка" редко помогает.
+
+### Растягивать фото через `FillBounds`
+
+`FillBounds` искажает пропорции. Для фото обычно подходят `Crop` или `Fit`.
+
+### Не задавать размер изображения
+
+Если изображение не имеет стабильных constraints, layout может вести себя неожиданно. Используй `size`, `aspectRatio`, `fillMaxWidth` или constraints родителя.
+
+## Итоги
+
+Для изображений и иконок держи карту:
+
+- `Image` — фото, обложки, иллюстрации, preview;
+- `Icon` — маленькие Material-style glyph;
+- `painterResource` — загрузка drawable resource как painter;
+- `ImageVector.vectorResource` — vector drawable как `ImageVector`;
+- `ContentScale.Crop` — заполнить и обрезать;
+- `ContentScale.Fit` — показать целиком;
+- `Modifier.clip` — обрезка по форме;
+- `contentDescription` описывает смысл или равен `null` для декоративного ассета;
+- `tint` подходит для `Icon`, `colorFilter` — для специальных случаев с `Image`;
+- стабильные размеры и aspect ratio защищают layout от скачков.

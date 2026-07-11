@@ -1,0 +1,826 @@
+---
+title: "Type-safe navigation"
+description: "Разбираем type-safe navigation в Navigation Compose: @Serializable routes, composable<T>, navigate(route), toRoute, SavedStateHandle.toRoute, typeMap, custom NavType, deep links и безопасную миграцию со строковых routes."
+order: 55
+category: "Compose: Navigation and architecture"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужна type-safe navigation
+
+В предыдущей теме мы использовали строковые routes: `"home"`, `"article/{articleId}"`, `"article/$articleId"`. Такой подход понятен, но у него есть слабое место: компилятор не видит навигационный контракт. Если в одном месте написать `"article/{id}"`, а в другом `"articles/$id"`, ошибка обнаружится только во время выполнения. Если аргумент должен быть `Long`, а экран прочитал его как `String`, это тоже runtime-проблема.
+
+Type-safe navigation в Navigation Compose решает эту проблему через serializable Kotlin-типы. Вместо строкового route мы создаем `@Serializable` object или data class:
+
+- экран без аргументов описывается object или data object;
+- экран с аргументами описывается data class;
+- `composable<T>` регистрирует destination по типу;
+- `navController.navigate(T)` принимает экземпляр route;
+- `backStackEntry.toRoute<T>()` восстанавливает route с аргументами;
+- `savedStateHandle.toRoute<T>()` позволяет читать аргументы во ViewModel.
+
+```kotlin
+import kotlinx.serialization.Serializable
+
+@Serializable
+data object FeedRoute
+
+@Serializable
+data class ArticleDetailsRoute(
+    val articleId: String
+)
+```
+
+Теперь `ArticleDetailsRoute` сам является контрактом экрана деталей. Компилятор знает, что экран требует `articleId`, и не даст вызвать `ArticleDetailsRoute()` без обязательного аргумента.
+
+<CatTip>
+Type-safe routes не отменяют архитектурное правило: в route передаем минимальный идентификатор, а не большую модель. Типобезопасность защищает форму аргументов, но не делает передачу тяжелых объектов хорошей идеей.
+</CatTip>
+
+## Зависимости и Kotlin Serialization
+
+Type-safe routes используют Kotlin Serialization. Для проекта нужны Navigation Compose и serialization plugin.
+
+```toml
+[versions]
+navigation = "2.9.8"
+kotlinxSerializationJson = "1.11.0"
+
+[libraries]
+androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+
+[plugins]
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+```
+
+```kotlin
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
+}
+
+dependencies {
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.kotlinx.serialization.json)
+}
+```
+
+Плагин Kotlin Serialization генерирует код сериализации для классов, помеченных `@Serializable`. Navigation использует этот код, чтобы превратить route object в навигационные аргументы и восстановить его обратно.
+
+<MouseTrap>
+Если вы добавили `@Serializable`, но забыли подключить serialization plugin, проект может собраться не так, как ожидается, или упасть при попытке сериализовать route. Аннотация сама по себе не заменяет Gradle plugin.
+</MouseTrap>
+
+## Как выбирать тип route
+
+Правило простое:
+
+- `data object`: destination без аргументов;
+- `data class`: destination с обязательными или опциональными аргументами;
+- class с default values: route, где все параметры имеют значения по умолчанию;
+- sealed interface или sealed class: удобная группировка routes, но конкретные destinations все равно регистрируются отдельными типами.
+
+```kotlin
+import kotlinx.serialization.Serializable
+
+@Serializable
+sealed interface NewsRoute
+
+@Serializable
+data object NewsFeedRoute : NewsRoute
+
+@Serializable
+data object BookmarksRoute : NewsRoute
+
+@Serializable
+data class ArticleRoute(
+    val articleId: String,
+    val openedFrom: String = "feed"
+) : NewsRoute
+
+@Serializable
+data class SearchRoute(
+    val initialQuery: String? = null
+) : NewsRoute
+```
+
+`NewsFeedRoute` и `BookmarksRoute` не несут данных. `ArticleRoute` требует `articleId`, но имеет default value для `openedFrom`. `SearchRoute` допускает `null`, если экран поиска открывается без начального запроса.
+
+## NavHost с composable<T>
+
+В type-safe API `NavHost` получает route object как `startDestination`, а destination регистрируется через generic `composable<T>`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
+
+@Composable
+fun TypeSafeNewsNavHost() {
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = NewsFeedRoute
+    ) {
+        composable<NewsFeedRoute> {
+            NewsFeedScreen(
+                onArticleClick = { articleId ->
+                    navController.navigate(
+                        ArticleRoute(
+                            articleId = articleId,
+                            openedFrom = "feed"
+                        )
+                    )
+                },
+                onSearchClick = {
+                    navController.navigate(SearchRoute())
+                }
+            )
+        }
+
+        composable<ArticleRoute> { backStackEntry ->
+            val route = backStackEntry.toRoute<ArticleRoute>()
+
+            ArticleDetailsScreen(
+                articleId = route.articleId,
+                openedFrom = route.openedFrom,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable<SearchRoute> { backStackEntry ->
+            val route = backStackEntry.toRoute<SearchRoute>()
+
+            SearchScreen(
+                initialQuery = route.initialQuery,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun NewsFeedScreen(
+    onArticleClick: (String) -> Unit,
+    onSearchClick: () -> Unit
+) {
+    Text(text = "Лента новостей")
+}
+
+@Composable
+fun ArticleDetailsScreen(
+    articleId: String,
+    openedFrom: String,
+    onNavigateBack: () -> Unit
+) {
+    Text(text = "Статья $articleId открыта из раздела $openedFrom")
+}
+
+@Composable
+fun SearchScreen(
+    initialQuery: String?,
+    onNavigateBack: () -> Unit
+) {
+    Text(text = "Начальный запрос: ${initialQuery.orEmpty()}")
+}
+```
+
+Обратите внимание на три вещи:
+
+- `NewsFeedScreen` не получает `NavController`;
+- `ArticleRoute` создается как обычный Kotlin object;
+- `toRoute<ArticleRoute>()` возвращает типизированный route, а не сырую строку или `Bundle`.
+
+## navigate(route)
+
+Для type-safe routes навигация выглядит как создание data class:
+
+```kotlin
+navController.navigate(
+    ArticleRoute(
+        articleId = "compose-navigation",
+        openedFrom = "bookmarks"
+    )
+)
+```
+
+Преимущества:
+
+- нельзя забыть обязательный аргумент;
+- нельзя передать `Int`, если route ожидает `String`;
+- default values остаются частью Kotlin API;
+- IDE подсказывает имена параметров;
+- refactoring переименует property во всех местах;
+- route можно тестировать как обычную модель.
+
+Для destination без аргументов передается object:
+
+```kotlin
+navController.navigate(BookmarksRoute)
+```
+
+Если пользователь может нажать кнопку несколько раз подряд, добавьте navigation options:
+
+```kotlin
+import androidx.navigation.NavController
+
+fun NavController.navigateToBookmarks() {
+    navigate(BookmarksRoute) {
+        // Не добавляем вторую копию BookmarksRoute, если она уже сверху back stack.
+        launchSingleTop = true
+    }
+}
+```
+
+## toRoute в destination
+
+`NavBackStackEntry.toRoute<T>()` нужен, когда destination должен прочитать аргументы внутри composable destination lambda.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.toRoute
+
+@Composable
+fun ArticleRouteContent(
+    backStackEntry: NavBackStackEntry,
+    onNavigateBack: () -> Unit
+) {
+    val route = backStackEntry.toRoute<ArticleRoute>()
+
+    ArticleDetailsScreen(
+        articleId = route.articleId,
+        openedFrom = route.openedFrom,
+        onNavigateBack = onNavigateBack
+    )
+}
+```
+
+Такой вариант хорош, если аргументы нужны только для передачи в screen. Если аргументы нужны ViewModel, лучше читать их через `SavedStateHandle.toRoute`.
+
+## SavedStateHandle.toRoute во ViewModel
+
+Когда ViewModel отвечает за загрузку данных, она должна получить идентификатор из `SavedStateHandle`, а не от screen composable. Это переживает пересоздание Activity и соответствует Navigation lifecycle.
+
+```kotlin
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+
+data class ArticleDetailsUiState(
+    val articleId: String,
+    val title: String,
+    val body: String,
+    val loading: Boolean
+)
+
+interface ArticlesRepository {
+    fun observeArticle(articleId: String): kotlinx.coroutines.flow.Flow<Article>
+}
+
+data class Article(
+    val id: String,
+    val title: String,
+    val body: String
+)
+
+class ArticleDetailsViewModel(
+    savedStateHandle: SavedStateHandle,
+    repository: ArticlesRepository
+) : ViewModel() {
+
+    private val route = savedStateHandle.toRoute<ArticleRoute>()
+
+    val uiState: StateFlow<ArticleDetailsUiState> = repository
+        .observeArticle(route.articleId)
+        .map { article ->
+            ArticleDetailsUiState(
+                articleId = article.id,
+                title = article.title,
+                body = article.body,
+                loading = false
+            )
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = ArticleDetailsUiState(
+                articleId = route.articleId,
+                title = "",
+                body = "",
+                loading = true
+            )
+        )
+}
+```
+
+Здесь ViewModel сама знает, какой article загружать. UI не обязан передавать `articleId` в ViewModel вручную, а route остается единственным источником навигационного аргумента.
+
+## Encapsulated navigation events
+
+Даже с type-safe routes не стоит разбрасывать вызовы `navController.navigate` с созданием `ArticleRoute` по всему приложению. Удобнее создать extension functions рядом с route definitions.
+
+```kotlin
+import androidx.navigation.NavController
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
+
+fun NavController.navigateToArticle(
+    articleId: String,
+    openedFrom: String
+) {
+    navigate(
+        ArticleRoute(
+            articleId = articleId,
+            openedFrom = openedFrom
+        )
+    )
+}
+
+fun NavGraphBuilder.articleDestination(
+    onNavigateBack: () -> Unit
+) {
+    composable<ArticleRoute> { backStackEntry ->
+        val route = backStackEntry.toRoute<ArticleRoute>()
+
+        ArticleDetailsScreen(
+            articleId = route.articleId,
+            openedFrom = route.openedFrom,
+            onNavigateBack = onNavigateBack
+        )
+    }
+}
+```
+
+Теперь app graph становится чище:
+
+```kotlin
+NavHost(
+    navController = navController,
+    startDestination = NewsFeedRoute
+) {
+    composable<NewsFeedRoute> {
+        NewsFeedScreen(
+            onArticleClick = { articleId ->
+                navController.navigateToArticle(
+                    articleId = articleId,
+                    openedFrom = "feed"
+                )
+            },
+            onSearchClick = {
+                navController.navigate(SearchRoute())
+            }
+        )
+    }
+
+    articleDestination(
+        onNavigateBack = {
+            navController.popBackStack()
+        }
+    )
+}
+```
+
+<CatTip>
+В больших проектах route type, `navigateToFeature` и `featureDestination` часто живут рядом. Это делает feature-модуль похожим на маленький публичный API: наружу отдается только то, что нужно app graph.
+</CatTip>
+
+## Проверка текущего destination
+
+Для bottom bar и navigation rail часто нужно понять, выбран ли текущий destination. В type-safe navigation для этого можно использовать `hasRoute<T>()`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.navigation.NavDestination
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.hasRoute
+
+@Composable
+fun TypeSafeCurrentDestinationExample() {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = backStackEntry?.destination
+
+    val feedSelected = currentDestination.matchesRoute<NewsFeedRoute>()
+    val bookmarksSelected = currentDestination.matchesRoute<BookmarksRoute>()
+
+    NavigationSelectionDebugText(
+        feedSelected = feedSelected,
+        bookmarksSelected = bookmarksSelected
+    )
+}
+
+private inline fun <reified T : Any> NavDestination?.matchesRoute(): Boolean {
+    return this?.hasRoute<T>() == true
+}
+
+@Composable
+fun NavigationSelectionDebugText(
+    feedSelected: Boolean,
+    bookmarksSelected: Boolean
+) {
+    androidx.compose.material3.Text(
+        text = "Feed: $feedSelected, Bookmarks: $bookmarksSelected"
+    )
+}
+```
+
+Helper нужен только для удобной обработки nullable `NavDestination`. Сам `hasRoute<T>()` проверяет, соответствует ли destination заданному route type.
+
+## Optional arguments и default values
+
+Type-safe route может иметь nullable аргументы и default values.
+
+```kotlin
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class CatalogRoute(
+    val categoryId: String? = null,
+    val sort: CatalogSort = CatalogSort.Popular,
+    val showOnlyAvailable: Boolean = false
+)
+
+@Serializable
+enum class CatalogSort {
+    Popular,
+    PriceAscending,
+    PriceDescending,
+    Rating
+}
+```
+
+```kotlin
+navController.navigate(
+    CatalogRoute(
+        categoryId = "phones",
+        sort = CatalogSort.Rating,
+        showOnlyAvailable = true
+    )
+)
+```
+
+Такой route хорошо читается, но важно не переусердствовать. Если route начинает содержать десять фильтров, диапазоны цен, сложные сортировки и пользовательский search object, подумайте о сохранении фильтра в state holder или repository. Route должен описывать способ попасть на экран, а не становиться переносной базой данных.
+
+## Custom NavType для сложных типов
+
+Navigation лучше всего работает с простыми аргументами: `String`, `Int`, `Long`, `Boolean`, enum и nullable/default values. Но иногда нужно передать небольшой serializable object. Тогда можно зарегистрировать custom `NavType` через `typeMap`.
+
+```kotlin
+import android.net.Uri
+import android.os.Bundle
+import androidx.navigation.NavType
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+@Serializable
+data class SearchFilter(
+    val categoryId: String?,
+    val onlyAvailable: Boolean,
+    val minRating: Int
+)
+
+@Serializable
+data class AdvancedSearchRoute(
+    val query: String,
+    val filter: SearchFilter
+)
+
+val SearchFilterNavType = object : NavType<SearchFilter>(
+    isNullableAllowed = false
+) {
+    override fun get(
+        bundle: Bundle,
+        key: String
+    ): SearchFilter? {
+        return bundle.getString(key)?.let { rawValue ->
+            Json.decodeFromString<SearchFilter>(rawValue)
+        }
+    }
+
+    override fun parseValue(value: String): SearchFilter {
+        // Navigation хранит аргумент в route, поэтому сначала декодируем URI-строку.
+        return Json.decodeFromString(Uri.decode(value))
+    }
+
+    override fun serializeAsValue(value: SearchFilter): String {
+        // Кодируем JSON, чтобы спецсимволы не ломали route.
+        return Uri.encode(Json.encodeToString(value))
+    }
+
+    override fun put(
+        bundle: Bundle,
+        key: String,
+        value: SearchFilter
+    ) {
+        bundle.putString(
+            key,
+            Json.encodeToString(value)
+        )
+    }
+}
+```
+
+```kotlin
+import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
+import kotlin.reflect.typeOf
+
+composable<AdvancedSearchRoute>(
+    typeMap = mapOf(
+        typeOf<SearchFilter>() to SearchFilterNavType
+    )
+) { backStackEntry ->
+    val route = backStackEntry.toRoute<AdvancedSearchRoute>()
+
+    AdvancedSearchScreen(
+        query = route.query,
+        filter = route.filter
+    )
+}
+```
+
+Custom `NavType` — инструмент для редких случаев. Если object большой, чувствительный или часто меняется, лучше передать ID и загрузить данные из repository.
+
+## Deep links с type-safe routes
+
+Deep link связывает внешний URI с destination. В type-safe navigation destination все равно описывается типом, а deep link добавляется к `composable<T>`.
+
+```kotlin
+import androidx.navigation.navDeepLink
+import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
+
+const val AppDeepLinkBase = "https://example.com"
+
+composable<ArticleRoute>(
+    deepLinks = listOf(
+        navDeepLink<ArticleRoute>(
+            basePath = "$AppDeepLinkBase/article"
+        )
+    )
+) { backStackEntry ->
+    val route = backStackEntry.toRoute<ArticleRoute>()
+
+    ArticleDetailsScreen(
+        articleId = route.articleId,
+        openedFrom = route.openedFrom,
+        onNavigateBack = {
+            // Реальный callback обычно приходит из app graph.
+        }
+    )
+}
+```
+
+При проектировании deep links соблюдайте те же правила: не кладите в URI большие данные, не раскрывайте sensitive information и не рассчитывайте, что у пользователя уже есть нужный back stack.
+
+## Миграция со строковых routes
+
+Переходить на type-safe navigation лучше постепенно.
+
+Шаг 1. Создайте route types рядом со старыми constants.
+
+```kotlin
+import kotlinx.serialization.Serializable
+
+object LegacyRoutes {
+    const val PROFILE_PATTERN = "profile/{userId}"
+
+    fun profile(userId: String): String {
+        return "profile/$userId"
+    }
+}
+
+@Serializable
+data class ProfileRoute(
+    val userId: String
+)
+```
+
+Шаг 2. Добавьте новый destination в graph и переведите один переход.
+
+```kotlin
+NavHost(
+    navController = navController,
+    startDestination = NewsFeedRoute
+) {
+    composable<ProfileRoute> { backStackEntry ->
+        val route = backStackEntry.toRoute<ProfileRoute>()
+        ProfileScreen(userId = route.userId)
+    }
+}
+```
+
+Шаг 3. Замените строковую навигацию на type-safe вызов.
+
+```kotlin
+navController.navigate(
+    ProfileRoute(userId = "user-42")
+)
+```
+
+Шаг 4. Удалите legacy constants, когда на них больше никто не ссылается.
+
+## Production-пример: feature API
+
+В production-коде удобно отделить публичную навигацию feature от внутреннего UI.
+
+```kotlin
+package feature.profile.api
+
+import androidx.navigation.NavController
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class ProfileRoute(
+    val userId: String,
+    val source: ProfileOpenSource = ProfileOpenSource.Unknown
+)
+
+@Serializable
+enum class ProfileOpenSource {
+    Feed,
+    Search,
+    Comments,
+    Unknown
+}
+
+fun NavController.navigateToProfile(
+    userId: String,
+    source: ProfileOpenSource
+) {
+    navigate(
+        ProfileRoute(
+            userId = userId,
+            source = source
+        )
+    )
+}
+```
+
+```kotlin
+package feature.profile.impl
+
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
+import feature.profile.api.ProfileRoute
+
+fun NavGraphBuilder.profileDestination(
+    onNavigateBack: () -> Unit
+) {
+    composable<ProfileRoute> { backStackEntry ->
+        val route = backStackEntry.toRoute<ProfileRoute>()
+
+        ProfileRouteContent(
+            userId = route.userId,
+            source = route.source,
+            onNavigateBack = onNavigateBack
+        )
+    }
+}
+```
+
+```kotlin
+package feature.profile.impl
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Immutable
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+@Immutable
+internal data class ProfileUiState(
+    val displayName: String,
+    val sourceLabel: String,
+    val following: Boolean
+)
+
+internal class ProfileViewModel(
+    userId: String,
+    source: feature.profile.api.ProfileOpenSource
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(
+        ProfileUiState(
+            displayName = "Пользователь $userId",
+            sourceLabel = "Открыто из ${source.name}",
+            following = false
+        )
+    )
+    val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
+
+    fun follow() {
+        _uiState.value = _uiState.value.copy(following = true)
+    }
+
+    companion object {
+        fun factory(
+            userId: String,
+            source: feature.profile.api.ProfileOpenSource
+        ) = viewModelFactory {
+            initializer {
+                ProfileViewModel(
+                    userId = userId,
+                    source = source
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ProfileRouteContent(
+    userId: String,
+    source: feature.profile.api.ProfileOpenSource,
+    onNavigateBack: () -> Unit
+) {
+    val viewModel: ProfileViewModel = viewModel(
+        factory = ProfileViewModel.factory(
+            userId = userId,
+            source = source
+        )
+    )
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    ProfileScreen(
+        state = state,
+        onNavigateBack = onNavigateBack,
+        onFollowClick = viewModel::follow
+    )
+}
+```
+
+Здесь `feature.profile.api` содержит только route и navigation extension. Реальная реализация экрана остается internal для feature module.
+
+## Типичные ошибки
+
+### Считать type-safe navigation заменой архитектуры
+
+Type-safe route делает аргументы безопаснее, но не решает state management, loading, error handling и ownership ViewModel. Это все еще задачи архитектуры.
+
+### Передавать доменную модель целиком
+
+Не передавайте `Article`, `User`, `Order` и другие большие модели через route. Передавайте ID, а данные загружайте из repository.
+
+### Забывать default values
+
+Если аргумент действительно необязательный, задайте default value. Это делает route проще и помогает миграции.
+
+### Смешивать route и screen
+
+`ProfileRoute` как navigation model и `ProfileScreen` как UI-функция должны иметь разные роли. Не превращайте route data class в UI state.
+
+### Дублировать navigation calls
+
+Если одна и та же feature открывается из многих мест, создайте `navigateToFeature`. Иначе параметры начнут расходиться.
+
+### Использовать custom NavType без необходимости
+
+Custom `NavType` полезен, но увеличивает сложность сериализации, совместимости и тестирования. Сначала проверьте, нельзя ли передать простой ID.
+
+## Итоги
+
+Type-safe navigation делает Navigation Compose надежнее:
+
+- route описывается `@Serializable` Kotlin-типом;
+- destination без аргументов удобно делать `data object`;
+- destination с аргументами делается `data class`;
+- `NavHost` получает typed `startDestination`;
+- `composable<T>` регистрирует typed destination;
+- `navController.navigate(route)` принимает route object;
+- `backStackEntry.toRoute<T>()` восстанавливает аргументы в destination;
+- `SavedStateHandle.toRoute<T>()` читает аргументы во ViewModel;
+- `typeMap` и custom `NavType` нужны только для специальных сложных типов;
+- навигацию лучше инкапсулировать через `navigateToFeature` и `featureDestination`;
+- через route передают минимальные данные, обычно идентификаторы и небольшие flags.

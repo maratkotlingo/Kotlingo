@@ -1,0 +1,562 @@
+---
+title: "DisposableEffect"
+description: "Подробно разбираем DisposableEffect в Jetpack Compose: подписки, LifecycleObserver, register/unregister, cleanup через onDispose, правильные ключи, rememberUpdatedState и production-интеграции с внешними listener API."
+order: 40
+category: "Compose: Side Effects, coroutines и CompositionLocal"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что делает DisposableEffect
+
+`DisposableEffect` нужен для side effects, у которых есть setup и cleanup.
+
+Он подходит, когда нужно:
+
+- зарегистрировать listener;
+- подписаться на внешний источник;
+- добавить `LifecycleObserver`;
+- открыть session во внешнем SDK;
+- подключить callback API;
+- выполнить cleanup, когда composable ушел из composition;
+- выполнить cleanup и заново setup при смене ключей.
+
+Типовая форма:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+
+@Composable
+fun ExampleDisposableEffect(
+    key: String
+) {
+    DisposableEffect(key) {
+        // Здесь выполняется setup.
+
+        onDispose {
+            // Здесь выполняется cleanup.
+        }
+    }
+}
+```
+
+`onDispose` обязателен и должен быть последним выражением в блоке.
+
+<CatTip>
+Если вы можете сформулировать работу как "подписаться сейчас и отписаться потом", почти наверняка вам нужен `DisposableEffect`.
+</CatTip>
+
+## Lifecycle DisposableEffect
+
+Классический пример — подписка на `Lifecycle`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
+@Composable
+fun LifecycleAnalyticsEffect(
+    lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    val latestOnStart by rememberUpdatedState(onStart)
+    val latestOnStop by rememberUpdatedState(onStop)
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    latestOnStart()
+                }
+
+                Lifecycle.Event.ON_STOP -> {
+                    latestOnStop()
+                }
+
+                else -> {
+                    // Остальные события жизненного цикла здесь не нужны.
+                }
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+}
+```
+
+Разбор:
+
+- `lifecycleOwner` является ключом, потому что listener зарегистрирован именно на нем;
+- если owner изменится, старый observer будет удален;
+- `rememberUpdatedState` дает observer актуальные callbacks без перерегистрации;
+- `onDispose` снимает observer.
+
+<MouseTrap>
+Если забыть `lifecycleOwner` в ключах, observer может остаться на старом owner. Это особенно неприятно в Navigation, Preview, dialogs и nested lifecycle-сценариях.
+</MouseTrap>
+
+## Когда ключи меняются
+
+`DisposableEffect(key)` работает так:
+
+1. Effect входит в composition.
+2. Выполняется setup.
+3. Key остается тем же при recomposition: setup не повторяется.
+4. Key изменился: вызывается `onDispose` старого effect.
+5. Выполняется setup нового effect.
+6. Effect вышел из composition: вызывается `onDispose`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+
+interface ChatConnection {
+    fun connect(roomId: String)
+    fun disconnect(roomId: String)
+}
+
+@Composable
+fun ChatRoomConnectionEffect(
+    roomId: String,
+    connection: ChatConnection
+) {
+    DisposableEffect(roomId, connection) {
+        connection.connect(roomId)
+
+        onDispose {
+            connection.disconnect(roomId)
+        }
+    }
+}
+```
+
+Если пользователь перейдет из комнаты `general` в `android`, старый connection cleanup выполнится до setup нового.
+
+## rememberUpdatedState внутри DisposableEffect
+
+Callbacks часто не должны быть ключами, если смена callback не требует перерегистрации listener.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+
+interface ConnectivityMonitor {
+    fun addListener(listener: ConnectivityListener)
+    fun removeListener(listener: ConnectivityListener)
+}
+
+fun interface ConnectivityListener {
+    fun onConnectivityChanged(connected: Boolean)
+}
+
+@Composable
+fun ConnectivityEffect(
+    monitor: ConnectivityMonitor,
+    onConnectivityChanged: (Boolean) -> Unit
+) {
+    val latestOnConnectivityChanged by rememberUpdatedState(onConnectivityChanged)
+
+    DisposableEffect(monitor) {
+        val listener = ConnectivityListener { connected ->
+            latestOnConnectivityChanged(connected)
+        }
+
+        monitor.addListener(listener)
+
+        onDispose {
+            monitor.removeListener(listener)
+        }
+    }
+}
+```
+
+Почему callback не ключ:
+
+- listener registration зависит от `monitor`;
+- смена lambda не требует remove/add listener;
+- listener должен вызывать свежую lambda;
+- `rememberUpdatedState` решает это без restart.
+
+## External SDK session
+
+Допустим, внешний SDK требует явно начинать и завершать screen session.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+
+interface ScreenSessionTracker {
+    fun startSession(screenName: String)
+    fun stopSession(screenName: String)
+}
+
+@Composable
+fun ScreenSessionEffect(
+    screenName: String,
+    tracker: ScreenSessionTracker
+) {
+    DisposableEffect(screenName, tracker) {
+        tracker.startSession(screenName)
+
+        onDispose {
+            tracker.stopSession(screenName)
+        }
+    }
+}
+```
+
+Если screenName изменится, old session будет остановлена, new session начнется.
+
+## Callback-based source
+
+Если внешний источник не coroutine и не Flow, `DisposableEffect` может адаптировать подписку к callback.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+
+interface BatteryLevelSource {
+    fun register(listener: BatteryLevelListener)
+    fun unregister(listener: BatteryLevelListener)
+}
+
+fun interface BatteryLevelListener {
+    fun onBatteryLevelChanged(level: Int)
+}
+
+@Composable
+fun BatteryLevelLabel(
+    source: BatteryLevelSource,
+    formatLevel: (Int) -> String
+) {
+    var level by remember(source) {
+        mutableStateOf<Int?>(null)
+    }
+    val latestFormatLevel by rememberUpdatedState(formatLevel)
+
+    DisposableEffect(source) {
+        val listener = BatteryLevelListener { nextLevel ->
+            level = nextLevel
+        }
+
+        source.register(listener)
+
+        onDispose {
+            source.unregister(listener)
+        }
+    }
+
+    androidx.compose.material3.Text(
+        text = level?.let { currentLevel ->
+            latestFormatLevel(currentLevel)
+        } ?: "Уровень батареи неизвестен"
+    )
+}
+```
+
+Для более переиспользуемого adapter часто лучше `produceState`, потому что он возвращает `State<T>`. Но `DisposableEffect` хорошо показывает lifecycle подписки.
+
+## DisposableEffect или LaunchedEffect
+
+Выбирайте `LaunchedEffect`, если:
+
+- работа suspend;
+- нужна coroutine;
+- cleanup — это cancellation coroutine;
+- используется `delay`, `collect`, `animateScrollToItem`, `showSnackbar`.
+
+Выбирайте `DisposableEffect`, если:
+
+- работа не suspend;
+- есть явный register/unregister;
+- listener API требует cleanup;
+- нужно удалить observer;
+- `onDispose` несет реальную работу.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+
+interface WindowFlagController {
+    fun addKeepScreenOn()
+    fun clearKeepScreenOn()
+}
+
+@Composable
+fun KeepScreenOnEffect(
+    enabled: Boolean,
+    controller: WindowFlagController
+) {
+    if (enabled) {
+        DisposableEffect(controller) {
+            controller.addKeepScreenOn()
+
+            onDispose {
+                controller.clearKeepScreenOn()
+            }
+        }
+    }
+}
+```
+
+Если `enabled` станет `false`, ветка исчезнет из composition, и флаг будет очищен.
+
+## Пустой onDispose
+
+Плохо:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+
+@Composable
+fun EmptyDisposeWrong(
+    onEntered: () -> Unit
+) {
+    DisposableEffect(Unit) {
+        onEntered()
+
+        onDispose {
+            // Очистка не требуется.
+        }
+    }
+}
+```
+
+Если cleanup не нужен, скорее всего нужен другой API:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun EmptyDisposeFixed(
+    onEntered: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        onEntered()
+    }
+}
+```
+
+<MouseTrap>
+Пустой `onDispose` почти всегда означает, что `DisposableEffect` выбран не по назначению. Исключения редки и должны быть явно объяснены в коде.
+</MouseTrap>
+
+## Production-пример: lifecycle-aware analytics
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
+interface AnalyticsService {
+    fun trackScreenVisible(screenName: String)
+    fun trackScreenHidden(screenName: String)
+}
+
+@Composable
+fun ScreenVisibilityAnalytics(
+    screenName: String,
+    analyticsService: AnalyticsService,
+    lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current
+) {
+    val latestScreenName by rememberUpdatedState(screenName)
+
+    DisposableEffect(lifecycleOwner, analyticsService) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    analyticsService.trackScreenVisible(latestScreenName)
+                }
+
+                Lifecycle.Event.ON_STOP -> {
+                    analyticsService.trackScreenHidden(latestScreenName)
+                }
+
+                else -> {
+                    // Для этой аналитики остальные события не используются.
+                }
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+}
+```
+
+Здесь `screenName` не является ключом, потому что мы не хотим перерегистрировать observer при смене имени. Но observer должен видеть актуальное имя, поэтому используется `rememberUpdatedState`.
+
+Если смена `screenName` должна закрывать старую session и открывать новую, тогда `screenName` должен стать ключом.
+
+## Production-пример: listener с domain id
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+
+interface DocumentChangeSource {
+    fun subscribe(
+        documentId: String,
+        listener: DocumentChangeListener
+    )
+
+    fun unsubscribe(
+        documentId: String,
+        listener: DocumentChangeListener
+    )
+}
+
+fun interface DocumentChangeListener {
+    fun onDocumentChanged(version: Long)
+}
+
+@Composable
+fun DocumentChangeEffect(
+    documentId: String,
+    source: DocumentChangeSource,
+    onDocumentVersionChanged: (Long) -> Unit
+) {
+    val latestOnDocumentVersionChanged by rememberUpdatedState(onDocumentVersionChanged)
+
+    DisposableEffect(documentId, source) {
+        val listener = DocumentChangeListener { version ->
+            latestOnDocumentVersionChanged(version)
+        }
+
+        source.subscribe(
+            documentId = documentId,
+            listener = listener
+        )
+
+        onDispose {
+            source.unsubscribe(
+                documentId = documentId,
+                listener = listener
+            )
+        }
+    }
+}
+```
+
+Ключи:
+
+- `documentId`, потому что подписка относится к конкретному документу;
+- `source`, потому что подписка зарегистрирована на этом объекте;
+- callback не ключ, потому что используется `rememberUpdatedState`.
+
+## DisposableEffect и состояние
+
+Можно менять Compose state из listener, но нужно помнить о snapshot и threading. Если callback приходит не на main thread, лучше привести событие к main-safe архитектурному слою или использовать Flow/ViewModel adapter.
+
+Простой main-thread пример:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+interface SelectionSource {
+    fun addListener(listener: SelectionListener)
+    fun removeListener(listener: SelectionListener)
+}
+
+fun interface SelectionListener {
+    fun onSelectionChanged(count: Int)
+}
+
+@Composable
+fun ExternalSelectionCounter(
+    source: SelectionSource
+) {
+    var count by remember(source) {
+        mutableStateOf(0)
+    }
+
+    DisposableEffect(source) {
+        val listener = SelectionListener { nextCount ->
+            count = nextCount
+        }
+
+        source.addListener(listener)
+
+        onDispose {
+            source.removeListener(listener)
+        }
+    }
+
+    Text(text = "Выбрано: $count")
+}
+```
+
+## Типичные ошибки
+
+### Не указать правильный ключ
+
+Если listener зарегистрирован на `source`, `source` должен быть ключом. Если подписка относится к `userId`, `userId` должен быть ключом.
+
+### Сделать callback ключом без необходимости
+
+Это может заставить listener удаляться и добавляться при каждой смене lambda. Часто лучше `rememberUpdatedState`.
+
+### Оставить пустой onDispose
+
+Если cleanup не нужен, используйте другой effect.
+
+### Забыть cleanup
+
+Без cleanup остаются утечки, двойные listener callbacks и неверные lifecycle-события.
+
+### Выполнять suspend cleanup
+
+`onDispose` не является suspend. Если cleanup suspend, архитектуру нужно пересмотреть: возможно, нужна coroutine cancellation, ViewModel или внешняя lifecycle-aware обертка.
+
+## Итоги
+
+`DisposableEffect` управляет lifecycle внешней подписки:
+
+- выполняет setup при входе в composition;
+- требует `onDispose`;
+- вызывает cleanup при выходе из composition;
+- вызывает cleanup и повторный setup при смене ключей;
+- подходит для listener, observer, register/unregister API;
+- ключи должны описывать объект, на котором выполнена регистрация;
+- `rememberUpdatedState` помогает listener видеть свежие callbacks;
+- пустой `onDispose` почти всегда является ошибкой выбора API;
+- для suspend-работы чаще подходит `LaunchedEffect`.

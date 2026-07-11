@@ -1,0 +1,620 @@
+---
+title: "Views in Compose"
+description: "Разбираем View внутри Jetpack Compose: AndroidView, AndroidViewBinding, factory, update, onReset, onRelease, pooling and reuse, View-to-Compose callbacks, LocalContext, lifecycle, XML fragments миграции и performance."
+order: 88
+category: "Compose: Interoperability and migration"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем вставлять Views в Compose
+
+Даже в Compose-first приложении иногда нужен обычный Android `View`:
+
+- SDK не имеет Compose component;
+- рекламный баннер предоставлен как View;
+- карта, camera preview или video player уже существуют как View;
+- legacy custom view слишком дорогой для немедленной переписи;
+- XML layout мигрируется частями;
+- сторонняя библиотека еще не поддерживает Compose.
+
+Для этого есть `AndroidView` и `AndroidViewBinding`. Они позволяют включить View hierarchy в Compose UI.
+
+```kotlin
+import android.widget.TextView
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+
+@Composable
+fun LegacyTextView(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            TextView(context)
+        },
+        update = { textView ->
+            textView.text = text
+        }
+    )
+}
+```
+
+`factory` создает View. `update` синхронизирует View с Compose state.
+
+<CatTip>
+`AndroidView` — это escape hatch, а не новый базовый layout primitive. Если компонент уже удобно пишется на Compose, переписывайте его на Compose.
+</CatTip>
+
+## `factory` и `update`
+
+Главное правило: создавайте View в `factory`, а все изменяемые параметры применяйте в `update`.
+
+```kotlin
+import android.widget.ProgressBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+
+@Composable
+fun LegacyProgressBar(
+    progress: Int,
+    max: Int,
+    modifier: Modifier = Modifier
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            ProgressBar(
+                context,
+                null,
+                android.R.attr.progressBarStyleHorizontal
+            ).apply {
+                this.max = max
+            }
+        },
+        update = { progressBar ->
+            progressBar.max = max
+            progressBar.progress = progress
+        }
+    )
+}
+```
+
+Плохо:
+
+```kotlin
+AndroidView(
+    factory = { context ->
+        ProgressBar(context).apply {
+            progress = currentProgress
+        }
+    }
+)
+```
+
+Если `currentProgress` изменится, `factory` не обязан вызываться заново. View останется со старым значением.
+
+## Callbacks из View в Compose
+
+View events должны подниматься наружу через callbacks, как обычные Compose events.
+
+```kotlin
+import android.widget.SeekBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+
+@Composable
+fun LegacySeekBar(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            SeekBar(context).apply {
+                setOnSeekBarChangeListener(
+                    object : SeekBar.OnSeekBarChangeListener {
+                        override fun onProgressChanged(
+                            seekBar: SeekBar,
+                            progress: Int,
+                            fromUser: Boolean
+                        ) {
+                            if (fromUser) {
+                                onValueChange(progress)
+                            }
+                        }
+
+                        override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+
+                        override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+                    }
+                )
+            }
+        },
+        update = { seekBar ->
+            if (seekBar.progress != value) {
+                seekBar.progress = value
+            }
+        }
+    )
+}
+```
+
+Важна проверка `fromUser` и `seekBar.progress != value`: без нее можно получить feedback loop, где Compose state обновляет View, View callback снова обновляет state, и UI дергается.
+
+## Актуальные callbacks без пересоздания View
+
+Если callback может меняться, используйте `rememberUpdatedState`, чтобы listener видел актуальную lambda.
+
+```kotlin
+import android.view.View
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+
+@Composable
+fun LegacyClickableView(
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val currentOnClick by rememberUpdatedState(onClick)
+
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            View(context).apply {
+                setOnClickListener {
+                    currentOnClick()
+                }
+            }
+        },
+        update = { view ->
+            view.isEnabled = enabled
+        }
+    )
+}
+```
+
+Это похоже на `rememberUpdatedState` в effects: объект создается один раз, но callback внутри него должен оставаться свежим.
+
+## `AndroidViewBinding`
+
+Если нужно встроить существующий XML layout с ViewBinding, используйте `AndroidViewBinding`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidViewBinding
+import com.example.databinding.LegacyProfileHeaderBinding
+
+@Composable
+fun LegacyProfileHeader(
+    name: String,
+    onAvatarClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AndroidViewBinding(
+        factory = LegacyProfileHeaderBinding::inflate,
+        modifier = modifier
+    ) {
+        title.text = name
+        avatar.setOnClickListener {
+            onAvatarClick()
+        }
+    }
+}
+```
+
+`AndroidViewBinding` хорош для маленького legacy layout. Если вы вставляете целый screen-level XML внутрь Compose, миграция скорее всего идет слишком крупным куском.
+
+<MouseTrap>
+`AndroidViewBinding` не должен становиться способом продолжать писать новые экраны в XML внутри Compose. Используйте его как временный адаптер для существующих layout.
+</MouseTrap>
+
+## View в lazy lists
+
+`AndroidView` внутри `LazyColumn` требует reuse. Новые версии API поддерживают `onReset` и `onRelease`, чтобы View можно было переиспользовать безопаснее.
+
+```kotlin
+import android.widget.TextView
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+
+@Composable
+fun LegacyRowsList(
+    rows: List<String>,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(modifier = modifier) {
+        items(
+            items = rows,
+            key = { row ->
+                row
+            },
+            contentType = {
+                "legacy-text-row"
+            }
+        ) { row ->
+            AndroidView(
+                factory = { context ->
+                    TextView(context)
+                },
+                update = { textView ->
+                    textView.text = row
+                },
+                onReset = { textView ->
+                    textView.text = null
+                    textView.setOnClickListener(null)
+                },
+                onRelease = { textView ->
+                    textView.setOnClickListener(null)
+                }
+            )
+        }
+    }
+}
+```
+
+`onReset` очищает View перед reuse. `onRelease` освобождает ресурсы, когда View больше не нужна.
+
+## Pooling и тяжелые Views
+
+Для тяжелых Views важно думать о lifecycle явно:
+
+- player view должен отпускать player;
+- map view должен получать lifecycle events;
+- camera preview должен закрывать camera;
+- ad view должен уничтожаться согласно SDK;
+- listeners должны сниматься;
+- background jobs должны отменяться.
+
+Пример с условным player:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+
+@Composable
+fun LegacyPlayerContainer(
+    mediaUrl: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val player = remember {
+        LegacyPlayer(context)
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            player.release()
+        }
+    }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { viewContext ->
+            LegacyPlayerView(viewContext).apply {
+                this.player = player
+            }
+        },
+        update = {
+            player.setMediaUrl(mediaUrl)
+        },
+        onRelease = { view ->
+            view.player = null
+        }
+    )
+}
+```
+
+Это не универсальный код для конкретного video SDK, а форма интеграции: ресурс создается и освобождается через Compose lifecycle, View только отображает его.
+
+## `LocalContext`
+
+В Compose нет `requireContext()`. Если нужен Android context, используйте `LocalContext.current`.
+
+```kotlin
+import android.content.Intent
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+@Composable
+fun ShareButton(
+    text: String
+) {
+    val context = LocalContext.current
+
+    Button(
+        onClick = {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            context.startActivity(
+                Intent.createChooser(intent, "Поделиться")
+            )
+        }
+    ) {
+        Text(text = "Поделиться")
+    }
+}
+```
+
+Не храните `Context` в long-lived singleton или ViewModel. Если нужно выполнить platform action, лучше передать event наружу или использовать слой, который явно получает application context.
+
+## Lifecycle interop
+
+Иногда View требует lifecycle callbacks. Compose может получить lifecycle owner через `LocalLifecycleOwner`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+
+@Composable
+fun LifecycleAwareLegacyView(
+    modifier: Modifier = Modifier
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            LegacyLifecycleView(context)
+        },
+        update = { legacyView ->
+            DisposableEffect(lifecycleOwner, legacyView) {
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_START -> legacyView.onStart()
+                        Lifecycle.Event.ON_STOP -> legacyView.onStop()
+                        else -> Unit
+                    }
+                }
+
+                lifecycleOwner.lifecycle.addObserver(observer)
+
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                    legacyView.onStop()
+                }
+            }
+        }
+    )
+}
+```
+
+Этот пример показывает идею, но `DisposableEffect` нельзя вызывать внутри `update`, потому что `update` не является composable scope. Правильный вариант — вынести View instance в state или использовать отдельный composable wrapper.
+
+Правильнее:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+
+@Composable
+fun LifecycleAwareLegacyViewCorrect(
+    modifier: Modifier = Modifier
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var legacyView by remember {
+        mutableStateOf<LegacyLifecycleView?>(null)
+    }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            LegacyLifecycleView(context).also {
+                legacyView = it
+            }
+        },
+        onRelease = {
+            legacyView = null
+        }
+    )
+
+    DisposableEffect(lifecycleOwner, legacyView) {
+        val view = legacyView
+
+        if (view == null) {
+            onDispose {}
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> view.onStart()
+                    Lifecycle.Event.ON_STOP -> view.onStop()
+                    else -> Unit
+                }
+            }
+
+            lifecycleOwner.lifecycle.addObserver(observer)
+
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+                view.onStop()
+            }
+        }
+    }
+}
+```
+
+Interop-код часто выглядит менее красиво, чем pure Compose. Это нормально: он обслуживает boundary.
+
+## Focus, input и nested scroll
+
+View внутри Compose участвует в Android focus system. Возможные конфликты:
+
+- `EditText` перехватывает focus у Compose fields;
+- nested scrolling между `RecyclerView` и Compose parent работает неожиданно;
+- keyboard shortcuts не доходят до Compose;
+- accessibility traversal перескакивает между деревьями;
+- IME insets учитываются дважды или не учитываются.
+
+Проверяйте такие экраны на:
+
+- touch;
+- keyboard;
+- TalkBack;
+- large screen;
+- landscape;
+- font scale;
+- split-screen.
+
+## XML fragments внутри Compose
+
+Иногда нужно встроить Fragment-based legacy component. Это возможно через `AndroidViewBinding` и `FragmentContainerView`, но это один из самых тяжелых interop paths.
+
+```xml
+<androidx.fragment.app.FragmentContainerView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/legacy_fragment_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent" />
+```
+
+Compose wrapper должен аккуратно управлять Fragment transaction через host FragmentManager. Если есть возможность заменить Fragment на View или Compose component, это обычно проще.
+
+## Performance
+
+`AndroidView` вставляет старую View measure/layout/draw модель в Compose tree. Это нормально для одного SDK widget, но может быть проблемой для сложного nested UI.
+
+Следите за:
+
+- лишними `requestLayout`;
+- тяжелым `update`;
+- созданием View при каждой смене key;
+- listener leaks;
+- bitmap allocations;
+- nested scrolling;
+- invalidation storms;
+- main-thread SDK calls.
+
+`update` должен быть idempotent: если state не изменился, повторный вызов не должен перезапускать expensive работу.
+
+```kotlin
+update = { chartView ->
+    if (chartView.currentDataId != state.dataId) {
+        chartView.submitData(state.points)
+    }
+    chartView.highlightedPoint = state.highlightedPoint
+}
+```
+
+## Testing
+
+Compose tests видят Compose semantics, но не всегда удобно проверяют внутренности legacy View. Для View внутри Compose часто нужны:
+
+- Compose test для wrapper behavior;
+- Espresso для View-specific assertions;
+- fake View wrapper для unit tests;
+- screenshot/golden для visual regressions;
+- manual lifecycle tests для SDK widgets.
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import com.google.common.truth.Truth.assertThat
+import org.junit.Rule
+import org.junit.Test
+
+class LegacySeekBarWrapperTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun wrapper_showsCurrentValueLabel() {
+        var value = 40
+
+        composeRule.setContent {
+            VolumeControl(
+                value = value,
+                onValueChange = {
+                    value = it
+                }
+            )
+        }
+
+        composeRule
+            .onNodeWithText("Громкость: 40")
+            .assertExists()
+    }
+}
+```
+
+Если критичен сам `SeekBar`, добавьте instrumented тест с Espresso или вынесите mapping logic в чистую функцию.
+
+## Типичные ошибки
+
+### Менять state только в `factory`
+
+`factory` создает View. Изменяемые параметры должны идти в `update`.
+
+### Пересоздавать тяжелую View через key
+
+Если key меняется слишком часто, View будет постоянно уничтожаться и создаваться заново.
+
+### Не очищать listeners
+
+View может удержать старую lambda, Fragment или Context.
+
+### Игнорировать `onReset` в lazy lists
+
+Переиспользуемая View приносит старые данные в новый item.
+
+### Вызывать composable API внутри `update`
+
+`update` не является composable lambda. Effects должны жить рядом, а не внутри View callback.
+
+### Встраивать целый XML screen
+
+Так миграция превращается в слой Compose вокруг старого приложения, а не в реальное упрощение UI.
+
+## Итоги
+
+Views in Compose — полезный, но острый interop-инструмент:
+
+- `AndroidView` создает View в `factory` и синхронизирует ее в `update`;
+- callbacks должны поднимать events в Compose state;
+- `rememberUpdatedState` помогает listener-ам видеть свежие lambda;
+- `AndroidViewBinding` подходит для маленьких legacy XML blocks;
+- в lazy lists используйте keys, contentType, `onReset` и `onRelease`;
+- heavy View resources освобождаются через lifecycle/effects;
+- `LocalContext` нужен для framework APIs, но Context нельзя тащить в long-lived state;
+- focus, IME, accessibility и nested scroll нужно проверять вручную;
+- interop wrapper должен быть тонким и временным;
+- если View можно переписать на Compose без потери смысла, это обычно лучший end state.

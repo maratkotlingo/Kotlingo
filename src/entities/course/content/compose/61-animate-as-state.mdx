@@ -1,0 +1,917 @@
+---
+title: "animate*AsState"
+description: "Разбираем семейство animate*AsState в Jetpack Compose: animateFloatAsState, animateDpAsState, animateColorAsState, animateIntAsState, animateValueAsState, targetValue, AnimationSpec, visibilityThreshold, finishedListener и production-паттерны."
+order: 61
+category: "Compose: Animation and motion"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `animate*AsState`
+
+`animate*AsState` — это семейство высокоуровневых animation API для анимации одного значения. Вы передаете `targetValue`, а Compose сам создает animation state, запоминает его в call site, запускает анимацию при изменении target и возвращает текущее промежуточное значение как `State<T>`.
+
+Главная идея: UI описывает не кадры, а целевое состояние. Например, карточка выбрана, значит ее alpha должна стать `1f`; карточка не выбрана, значит alpha должна стать `0.65f`. Compose плавно проведет значение между старым и новым target.
+
+```kotlin
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SelectableThumbnail(
+    selected: Boolean
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (selected) {
+            1f
+        } else {
+            0.55f
+        },
+        label = "thumbnail alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .size(72.dp)
+            .alpha(alpha)
+    ) {
+        androidx.compose.material3.Text(
+            text = if (selected) {
+                "Выбрано"
+            } else {
+                "Обычное"
+            },
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+```
+
+В этом коде нет coroutine scope, таймера и ручного подсчета progress. `selected` меняется, `targetValue` меняется, animation API плавно обновляет `alpha`.
+
+<CatTip>
+Думайте о `animate*AsState` как о маленьком адаптере между обычным state и движущимся UI-значением. State говорит, куда прийти, а animation API решает, как плавно туда добраться.
+</CatTip>
+
+## Когда использовать `animate*AsState`
+
+Используйте этот API, когда:
+
+- анимируется одно значение;
+- значение полностью выводится из текущего state;
+- анимация не должна запускаться вручную из coroutine;
+- не нужна последовательность из нескольких шагов;
+- не нужно останавливать, `snapTo` или `animateDecay`;
+- не нужно синхронизировать много значений одной transition state machine;
+- допустимо, что анимация живет вместе с composition.
+
+Подходящие примеры:
+
+- alpha selected/unselected item;
+- цвет кнопки при изменении важности действия;
+- размер карточки при раскрытии;
+- padding при compact/expanded режиме;
+- elevation на focused/pressed state;
+- progress indicator value;
+- offset panel при простом открытии/закрытии;
+- угол поворота стрелки в раскрывающемся блоке.
+
+Не лучший выбор:
+
+- fling после drag gesture;
+- sequence "сжаться, подпрыгнуть, вернуться";
+- animation, которая должна стартовать из event handler независимо от target state;
+- несколько значений, которые должны быть частью одной state machine;
+- бесконечный shimmer;
+- сложный custom type без понятной vector representation.
+
+## Под капотом
+
+`animate*AsState` является composable-функцией. Она запоминает внутренний animation object в той позиции composition, где была вызвана. На первой composition начальное animated value обычно совпадает с первым `targetValue`. Когда при recomposition приходит другой `targetValue`, текущая анимация продолжает движение от текущего значения к новому target.
+
+Если target меняется до завершения анимации, Compose не начинает с исходного значения заново. Новая анимация стартует из текущего animated value. Для многих specs также учитывается текущая velocity, поэтому interruption выглядит непрерывно.
+
+Это важное поведение:
+
+- быстрое переключение state не должно давать резкий скачок;
+- API не требует вручную отменять предыдущую анимацию;
+- current value всегда можно использовать в UI как обычное значение;
+- при выходе composable из composition animation state удаляется.
+
+<MouseTrap>
+Не создавайте `Animatable` только потому, что target меняется часто. `animate*AsState` уже умеет корректно обрабатывать interruption для обычной target-based анимации.
+</MouseTrap>
+
+## Общая форма API
+
+У разных функций немного отличаются типы, но общий смысл параметров одинаковый:
+
+- `targetValue`: целевое значение;
+- `animationSpec`: правило движения;
+- `visibilityThreshold`: порог, при котором значение считается достаточно близким к target;
+- `label`: имя анимации для tooling;
+- `finishedListener`: callback, который вызывается после завершения анимации.
+
+```kotlin
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ExpandingBox(
+    expanded: Boolean,
+    onExpandAnimationFinished: () -> Unit
+) {
+    val size by animateDpAsState(
+        targetValue = if (expanded) {
+            160.dp
+        } else {
+            72.dp
+        },
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        visibilityThreshold = 0.5.dp,
+        label = "expanding box size",
+        finishedListener = { finalValue ->
+            // Callback получает финальное значение, к которому пришла анимация.
+            if (finalValue == 160.dp) {
+                onExpandAnimationFinished()
+            }
+        }
+    )
+
+    Box(
+        modifier = Modifier.size(size)
+    )
+}
+```
+
+`finishedListener` не должен менять target так, чтобы запустить бесконечную цепочку без явного правила. Для сложных сценариев лучше использовать `Animatable` или state machine.
+
+## `animateFloatAsState`
+
+`animateFloatAsState` подходит для alpha, scale, rotation, progress, blur radius, custom drawing progress и других float-значений.
+
+```kotlin
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun RotatingChevron(
+    expanded: Boolean
+) {
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) {
+            180f
+        } else {
+            0f
+        },
+        animationSpec = tween(
+            durationMillis = 180,
+            easing = FastOutSlowInEasing
+        ),
+        label = "chevron rotation"
+    )
+
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .graphicsLayer {
+                // Rotation применяем на graphics layer, не заставляя layout пересчитывать размер.
+                rotationZ = rotation
+            }
+    ) {
+        androidx.compose.material3.Text(text = "⌄")
+    }
+}
+```
+
+Для scale, rotation и translation чаще используйте `graphicsLayer`, потому что такие изменения могут выполняться дешевле, чем изменение layout constraints.
+
+## `animateDpAsState`
+
+`animateDpAsState` используется для размеров, отступов, elevation, border width и других density-aware величин.
+
+```kotlin
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun FocusAwareCard(
+    focused: Boolean,
+    title: String
+) {
+    val outerPadding by animateDpAsState(
+        targetValue = if (focused) {
+            6.dp
+        } else {
+            14.dp
+        },
+        animationSpec = tween(durationMillis = 200),
+        label = "focus card padding"
+    )
+
+    val elevation by animateDpAsState(
+        targetValue = if (focused) {
+            6.dp
+        } else {
+            1.dp
+        },
+        animationSpec = tween(durationMillis = 200),
+        label = "focus card elevation"
+    )
+
+    Card(
+        modifier = Modifier.padding(outerPadding),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = elevation
+        )
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+```
+
+Этот пример анимирует два значения отдельно. Для маленького компонента это нормально. Если таких значений становится много и они зависят от одного state, лучше перейти на `updateTransition`.
+
+## `animateColorAsState`
+
+`animateColorAsState` плавно меняет цвет. Он полезен для selected state, validation state, background highlight и мягкой реакции на изменение темы.
+
+```kotlin
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ValidationMessage(
+    valid: Boolean,
+    message: String
+) {
+    val backgroundColor by animateColorAsState(
+        targetValue = if (valid) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.errorContainer
+        },
+        animationSpec = tween(durationMillis = 250),
+        label = "validation background"
+    )
+
+    val contentColor by animateColorAsState(
+        targetValue = if (valid) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onErrorContainer
+        },
+        animationSpec = tween(durationMillis = 250),
+        label = "validation content"
+    )
+
+    Row(
+        modifier = Modifier
+            .background(backgroundColor)
+            .padding(12.dp)
+    ) {
+        Text(
+            text = message,
+            color = contentColor
+        )
+    }
+}
+```
+
+Следите за контрастом во всех промежуточных состояниях. Если цвет фона и цвет текста анимируются одновременно, на части пути контраст может стать хуже.
+
+## `animateIntAsState`
+
+`animateIntAsState` полезен, когда значение является целым числом: счетчик, процент, badge count, rounded progress.
+
+```kotlin
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun AnimatedScore(
+    score: Int
+) {
+    val animatedScore by animateIntAsState(
+        targetValue = score,
+        animationSpec = tween(durationMillis = 500),
+        label = "score"
+    )
+
+    Text(text = "$animatedScore баллов")
+}
+```
+
+Такой счетчик удобен для dashboard и game-like UI. Но не используйте его для денежных значений, если промежуточные числа могут выглядеть как настоящие суммы операции.
+
+## `animateOffsetAsState` и `animateIntOffsetAsState`
+
+`Offset` и `IntOffset` применяются для позиционирования, drawing и translation. `Offset` хранит `Float`, `IntOffset` хранит `Int`.
+
+```kotlin
+import androidx.compose.animation.core.animateIntOffsetAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.remember
+
+@Composable
+fun SlidingBadge(
+    moved: Boolean
+) {
+    val targetOffset = if (moved) {
+        IntOffset(
+            x = 80,
+            y = 0
+        )
+    } else {
+        IntOffset.Zero
+    }
+
+    val offset by animateIntOffsetAsState(
+        targetValue = targetOffset,
+        label = "badge offset"
+    )
+
+    Box(
+        modifier = Modifier.size(140.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .background(Color.Red)
+                .drawBehind {
+                    // Здесь offset используется как пример значения для drawing logic.
+                    drawCircle(
+                        color = Color.Red,
+                        radius = size.minDimension / 2f,
+                        center = center.copy(
+                            x = center.x + offset.x
+                        )
+                    )
+                }
+        )
+    }
+}
+```
+
+Для перемещения composable чаще используйте `Modifier.offset` или `graphicsLayer.translationX`. Для рисования внутри `Canvas` или `drawBehind` удобен `Offset`.
+
+## `animateSizeAsState` и `animateRectAsState`
+
+`animateSizeAsState` подходит для анимации `Size` в drawing logic. `animateRectAsState` полезен, когда нужно анимировать область: например, highlight вокруг item или custom selection frame.
+
+```kotlin
+import androidx.compose.animation.core.animateRectAsState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AnimatedSelectionFrame(
+    selectedRect: Rect
+) {
+    val rect by animateRectAsState(
+        targetValue = selectedRect,
+        label = "selection frame"
+    )
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+    ) {
+        drawRect(
+            color = Color.Blue,
+            topLeft = rect.topLeft,
+            size = rect.size,
+            alpha = 0.18f
+        )
+    }
+}
+```
+
+Эти APIs чаще встречаются в custom drawing, чем в обычных Material-компонентах.
+
+## `animateValueAsState`
+
+`animateValueAsState` позволяет анимировать собственный тип через `TwoWayConverter`. Тип должен быть представлен как animation vector.
+
+```kotlin
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.TwoWayConverter
+import androidx.compose.animation.core.animateValueAsState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+data class BubblePosition(
+    val x: Float,
+    val y: Float
+)
+
+val BubblePositionConverter = TwoWayConverter<BubblePosition, AnimationVector2D>(
+    convertToVector = { position ->
+        AnimationVector2D(
+            v1 = position.x,
+            v2 = position.y
+        )
+    },
+    convertFromVector = { vector ->
+        BubblePosition(
+            x = vector.v1,
+            y = vector.v2
+        )
+    }
+)
+
+@Composable
+fun AnimatedBubble(
+    targetPosition: BubblePosition
+) {
+    val position by animateValueAsState(
+        targetValue = targetPosition,
+        typeConverter = BubblePositionConverter,
+        label = "bubble position"
+    )
+
+    Canvas(
+        modifier = Modifier.size(180.dp)
+    ) {
+        drawCircle(
+            color = Color.Cyan,
+            radius = 16.dp.toPx(),
+            center = Offset(
+                x = position.x,
+                y = position.y
+            )
+        )
+    }
+}
+```
+
+Собственный converter должен быть обратимым: значение превращается в vector, а vector обратно в значение без потери смысла. Если тип содержит строку, список или сложный object graph, он обычно плохо подходит для value animation.
+
+## `AnimationSpec`
+
+Большинство `animate*AsState` функций принимает `animationSpec`. Самые частые варианты:
+
+- `tween`: фиксированная длительность и easing;
+- `spring`: физическая пружина;
+- `keyframes`: ключевые кадры;
+- `snap`: мгновенное изменение;
+- `repeatable`: конечное повторение;
+- `infiniteRepeatable`: бесконечное повторение, но для бесконечных циклов чаще удобнее `rememberInfiniteTransition`.
+
+```kotlin
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberPanelProgress(
+    expanded: Boolean,
+    playful: Boolean
+): Float {
+    val progress by animateFloatAsState(
+        targetValue = if (expanded) {
+            1f
+        } else {
+            0f
+        },
+        animationSpec = if (playful) {
+            spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium
+            )
+        } else {
+            tween(
+                durationMillis = 220,
+                easing = FastOutSlowInEasing
+            )
+        },
+        label = "panel progress"
+    )
+
+    return progress
+}
+```
+
+`spring` не имеет фиксированной длительности в том же смысле, что `tween`. Он завершает движение, когда значение достаточно близко к target с учетом threshold.
+
+## `visibilityThreshold`
+
+`visibilityThreshold` определяет, насколько близко значение должно подойти к target, чтобы анимация считалась завершенной. Для `Dp`, `Float`, `IntOffset` и других типов это помогает избежать бесконечного стремления к микроскопической разнице.
+
+```kotlin
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun rememberRoundedProgress(
+    targetProgress: Float
+): Float {
+    val progress by animateFloatAsState(
+        targetValue = targetProgress.coerceIn(0f, 1f),
+        animationSpec = spring(),
+        visibilityThreshold = 0.001f,
+        label = "rounded progress"
+    )
+
+    return progress
+}
+```
+
+Не ставьте threshold слишком большим: анимация может завершаться заметно раньше target. Не ставьте слишком маленьким без причины: это может делать завершение менее практичным.
+
+## `finishedListener`
+
+`finishedListener` вызывается после завершения анимации. Он подходит для несложной реакции: сообщить владельцу, что раскрытие завершилось, включить следующий UI-флаг, отправить analytics event.
+
+```kotlin
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+
+@Composable
+fun DismissibleScrim(
+    visible: Boolean,
+    onHidden: () -> Unit
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) {
+            0.45f
+        } else {
+            0f
+        },
+        label = "scrim alpha",
+        finishedListener = { finalAlpha ->
+            // Когда scrim полностью прозрачен, можно удалить связанную overlay-модель.
+            if (finalAlpha == 0f) {
+                onHidden()
+            }
+        }
+    )
+
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.alpha(alpha)
+    )
+}
+```
+
+Если listener меняет state, который меняет target, внимательно проверьте, не создается ли loop.
+
+## Production-пример: интерактивная карточка тарифа
+
+Соберем компонент, где `animate*AsState` управляет цветом, elevation, scale и alpha. Это realistic UI: карточка тарифа может быть selected и recommended.
+
+```kotlin
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
+
+data class PlanUi(
+    val id: String,
+    val title: String,
+    val price: String,
+    val recommended: Boolean
+)
+
+@Composable
+fun PlanCard(
+    plan: PlanUi,
+    selected: Boolean,
+    onClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        animationSpec = tween(durationMillis = 180),
+        label = "plan container"
+    )
+
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = tween(durationMillis = 180),
+        label = "plan content"
+    )
+
+    val elevation by animateDpAsState(
+        targetValue = if (selected) {
+            8.dp
+        } else {
+            1.dp
+        },
+        animationSpec = tween(durationMillis = 180),
+        label = "plan elevation"
+    )
+
+    val scale by animateFloatAsState(
+        targetValue = if (selected) {
+            1.02f
+        } else {
+            1f
+        },
+        animationSpec = tween(durationMillis = 180),
+        label = "plan scale"
+    )
+
+    val badgeAlpha by animateFloatAsState(
+        targetValue = if (plan.recommended) {
+            1f
+        } else {
+            0f
+        },
+        animationSpec = tween(durationMillis = 160),
+        label = "recommended badge alpha"
+    )
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable {
+                onClick(plan.id)
+            },
+        colors = CardDefaults.cardColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = elevation
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = plan.title,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "Рекомендуем",
+                    modifier = Modifier.graphicsLayer {
+                        // Badge не удаляется из layout, чтобы карточка не прыгала по ширине.
+                        alpha = badgeAlpha
+                    },
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+
+            Text(
+                text = plan.price,
+                style = MaterialTheme.typography.headlineSmall
+            )
+        }
+    }
+}
+```
+
+Здесь пять independent animations. Это допустимо, потому что компонент маленький, а все значения очевидно зависят от `selected` или `recommended`. Если бы у карточки было много состояний и десяток animated values, `updateTransition` сделал бы код выразительнее.
+
+## Производительность
+
+`animate*AsState` сам по себе не делает UI медленным. Медленным становится то, что вы меняете на каждом кадре.
+
+Более дешевые варианты:
+
+- `alpha` через `graphicsLayer` или `Modifier.alpha`;
+- `scaleX`, `scaleY`, `translationX`, `translationY` через `graphicsLayer`;
+- цвет простого фона;
+- progress в простом draw.
+
+Более дорогие варианты:
+
+- изменение layout size большого дерева;
+- анимация `padding`, если это вызывает repeated measurement дорогого content;
+- сложный `Canvas` без caching;
+- создание больших объектов в composable на каждый кадр;
+- пересчет списков или фильтров на основе animated value.
+
+```kotlin
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+
+@Composable
+fun Modifier.selectedScale(
+    selected: Boolean
+): Modifier {
+    val scale by animateFloatAsState(
+        targetValue = if (selected) {
+            1.04f
+        } else {
+            1f
+        },
+        label = "selected scale modifier"
+    )
+
+    return graphicsLayer {
+        // Меняем только layer transform, а не размеры layout.
+        scaleX = scale
+        scaleY = scale
+    }
+}
+```
+
+## Тестирование
+
+В UI-тестах анимации можно контролировать через test clock. Главная идея: тест не должен ждать реальное время.
+
+```kotlin
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
+
+@Composable
+fun TestableFadingBox(
+    visible: Boolean
+) {
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) {
+            1f
+        } else {
+            0f
+        },
+        label = "testable alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .testTag("fading-box")
+            .alpha(alpha)
+    )
+}
+```
+
+```kotlin
+@org.junit.Test
+fun fadingBoxReachesTargetAlpha() {
+    composeTestRule.mainClock.autoAdvance = false
+
+    composeTestRule.setContent {
+        TestableFadingBox(visible = true)
+    }
+
+    composeTestRule.mainClock.advanceTimeBy(1_000)
+
+    composeTestRule
+        .onNodeWithTag("fading-box")
+        .assertExists()
+}
+```
+
+Чаще тестируют не каждый промежуточный кадр, а то, что UI остается доступным и приходит к ожидаемому состоянию.
+
+## Типичные ошибки
+
+### Использовать анимированное значение как source of truth
+
+Animated value — это производное значение. Истиной остается обычный state: `selected`, `expanded`, `progress`. Не сохраняйте `alpha` как бизнес-состояние.
+
+### Анимировать слишком много layout-параметров
+
+Если каждый кадр меняет constraints большого дерева, performance может просесть. Для визуального выделения часто достаточно `graphicsLayer`.
+
+### Забывать `label`
+
+`label` помогает tooling и debugging. Это маленький параметр, который окупается при поиске проблем.
+
+### Запускать side effects из тела composable на основе animated value
+
+Если нужно отреагировать на завершение, используйте `finishedListener` или эффект с аккуратными keys. Не отправляйте analytics прямо в body при каждом intermediate value.
+
+### Использовать `animate*AsState` для sequence
+
+Если нужна последовательность шагов, `Animatable` или `LaunchedEffect` с несколькими `animateTo` будут честнее.
+
+### Терять state при условном вызове
+
+Если анимационный call site исчезает из composition, его internal state удаляется. Если state нужно сохранить, hoist target и surrounding state выше.
+
+## Итоги
+
+`animate*AsState` — главный API для одиночных target-based анимаций:
+
+- принимает `targetValue`;
+- возвращает animated value как `State<T>`;
+- сам запускает анимацию при изменении target;
+- корректно обрабатывает interruption;
+- живет в composition;
+- имеет `animationSpec`, `visibilityThreshold`, `label` и `finishedListener`;
+- подходит для alpha, color, size, padding, progress, rotation, elevation;
+- не подходит для сложных sequences, gestures, decay и нескольких синхронизированных значений;
+- должен использовать обычный state как source of truth.

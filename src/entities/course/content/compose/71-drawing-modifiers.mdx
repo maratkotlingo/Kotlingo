@@ -1,0 +1,733 @@
+---
+title: "Drawing modifiers"
+description: "Разбираем drawing modifiers в Compose: drawBehind, drawWithContent, drawWithCache, DrawScope, порядок рисования, drawContent, cache invalidation, Brush, Path, BlendMode, graphicsLayer и performance-паттерны."
+order: 71
+category: "Compose: Graphics, Canvas and drawing"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое drawing modifiers
+
+Drawing modifiers — это modifiers, которые позволяют рисовать custom graphics вокруг любого composable. В Compose не обязательно создавать отдельный `Canvas`, чтобы нарисовать фон, overlay, highlight, progress, scrim или custom border. Часто достаточно добавить modifier к уже существующему UI.
+
+Основные drawing modifiers:
+
+- `Modifier.drawBehind`: рисует позади content;
+- `Modifier.drawWithContent`: дает полный контроль над порядком рисования content и custom drawing;
+- `Modifier.drawWithCache`: кеширует объекты, созданные для drawing, и затем рисует через `onDrawBehind` или `onDrawWithContent`.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun HighlightedLabel(
+    text: String
+) {
+    Box(
+        modifier = Modifier
+            .drawBehind {
+                // drawBehind выполняется до рисования content.
+                drawRoundRect(
+                    color = Color(0xFFFFF3CD),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                        x = 8.dp.toPx(),
+                        y = 8.dp.toPx()
+                    )
+                )
+            }
+            .padding(
+                horizontal = 12.dp,
+                vertical = 6.dp
+            )
+    ) {
+        Text(text = text)
+    }
+}
+```
+
+Здесь background рисуется behind content, но layout size задается обычным `padding`.
+
+<CatTip>
+Drawing modifier не меняет layout сам по себе. Он рисует внутри уже выделенной области. Если рисунку нужно больше места, задайте размер и отступы layout modifiers.
+</CatTip>
+
+## `DrawScope`
+
+Все drawing modifiers дают `DrawScope`. Внутри него доступны:
+
+- `size`: размер области рисования;
+- `center`: центр области;
+- `density`: density для `dp.toPx()`;
+- `layoutDirection`;
+- draw-функции: `drawRect`, `drawCircle`, `drawLine`, `drawRoundRect`, `drawPath`, `drawArc`, `drawImage`;
+- transformations: `translate`, `rotate`, `scale`, `inset`, `withTransform`;
+- `drawContext`, если нужен lower-level доступ.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CenterDot() {
+    Box(
+        modifier = Modifier
+            .size(80.dp)
+            .drawBehind {
+                drawCircle(
+                    color = Color.Red,
+                    radius = size.minDimension / 6f,
+                    center = center
+                )
+            }
+    )
+}
+```
+
+Координаты в `DrawScope` измеряются в пикселях, не в dp. Для dp используйте `toPx()`.
+
+## `drawBehind`
+
+`drawBehind` — самый простой drawing modifier. Он выполняет drawing operations до рисования content.
+
+Подходит для:
+
+- custom background;
+- декоративного highlight;
+- simple custom border;
+- progress behind text;
+- chart background;
+- separators;
+- selection background.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun BottomDividerContainer(
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .drawBehind {
+                val strokeWidth = 1.dp.toPx()
+                drawLine(
+                    color = Color(0xFFE0E0E0),
+                    start = Offset(
+                        x = 0f,
+                        y = size.height - strokeWidth / 2f
+                    ),
+                    end = Offset(
+                        x = size.width,
+                        y = size.height - strokeWidth / 2f
+                    ),
+                    strokeWidth = strokeWidth
+                )
+            }
+    ) {
+        content()
+    }
+}
+```
+
+Линия рисуется внизу выделенной области. Половина stroke находится выше координаты, половина ниже, поэтому мы учитываем `strokeWidth / 2f`.
+
+## `drawWithContent`
+
+`drawWithContent` дает полный контроль над порядком рисования. Внутри него нужно вызвать `drawContent()`, если вы хотите, чтобы оригинальный composable был нарисован.
+
+Варианты:
+
+- drawing before content: сначала custom drawing, затем `drawContent()`;
+- drawing after content: сначала `drawContent()`, затем overlay;
+- не вызвать `drawContent()`: полностью заменить drawing content.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SpotlightText(
+    text: String
+) {
+    Box(
+        modifier = Modifier
+            .size(
+                width = 220.dp,
+                height = 80.dp
+            )
+            .drawWithContent {
+                drawContent()
+
+                // Overlay рисуется поверх content.
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.35f)
+                        ),
+                        center = Offset(
+                            x = size.width * 0.5f,
+                            y = size.height * 0.5f
+                        ),
+                        radius = size.minDimension
+                    )
+                )
+            }
+    ) {
+        Text(text = text)
+    }
+}
+```
+
+Если забыть `drawContent()`, `Text` не будет нарисован.
+
+<MouseTrap>
+В `drawWithContent` почти всегда нужен явный `drawContent()`. Если content исчез, проверьте этот вызов первым делом.
+</MouseTrap>
+
+## Рисование перед content через `drawWithContent`
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun UnderlinedText(
+    text: String
+) {
+    Box(
+        modifier = Modifier
+            .drawWithContent {
+                // Сначала рисуем фон/подчеркивание.
+                drawRoundRect(
+                    color = Color.Yellow.copy(alpha = 0.35f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                        x = 4.dp.toPx(),
+                        y = 4.dp.toPx()
+                    )
+                )
+
+                // Затем рисуем сам Text.
+                drawContent()
+            }
+            .padding(4.dp)
+    ) {
+        Text(text = text)
+    }
+}
+```
+
+Для drawing behind content проще использовать `drawBehind`, но `drawWithContent` удобен, если в одном modifier нужно явно контролировать весь порядок.
+
+## `drawWithCache`
+
+`drawWithCache` кеширует объекты, созданные в cache block. Он полезен, когда drawing требует создания дорогих объектов:
+
+- `Brush`;
+- `Path`;
+- `Shader`;
+- precomputed geometry;
+- text layout helper;
+- complex gradients.
+
+Cache invalidates, когда:
+
+- меняется размер drawing area;
+- меняется state, прочитанный внутри cache block;
+- меняются параметры modifier, от которых зависит block;
+- composable выходит из composition.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CachedGradientBackground() {
+    Box(
+        modifier = Modifier
+            .size(160.dp)
+            .drawWithCache {
+                val gradient = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF42A5F5),
+                        Color(0xFFAB47BC)
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(
+                        x = size.width,
+                        y = size.height
+                    )
+                )
+
+                onDrawBehind {
+                    drawRect(brush = gradient)
+                }
+            }
+    )
+}
+```
+
+`Brush` создается в cache block и переиспользуется, пока `size` не изменилась.
+
+## `onDrawBehind` и `onDrawWithContent`
+
+Внутри `drawWithCache` нужно вернуть один из drawing callbacks:
+
+- `onDrawBehind`: рисовать behind content;
+- `onDrawWithContent`: управлять content и overlay.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CachedOverlayLabel(
+    text: String
+) {
+    Box(
+        modifier = Modifier
+            .size(180.dp)
+            .drawWithCache {
+                val overlayColor = Color.Black.copy(alpha = 0.18f)
+
+                onDrawWithContent {
+                    drawContent()
+                    drawRect(color = overlayColor)
+                }
+            }
+    ) {
+        Text(text = text)
+    }
+}
+```
+
+Если overlay color зависит только от параметра, `drawWithCache` может быть избыточным. Он полезен, когда есть дорогая подготовка.
+
+## Cache invalidation
+
+Кеш в `drawWithCache` держится, пока не изменились зависимости. Важно понимать, где вы читаете state.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CachedStateColorBox(
+    selected: Boolean
+) {
+    Box(
+        modifier = Modifier
+            .size(80.dp)
+            .drawWithCache {
+                // selected читается в cache block, значит cache пересоздастся при смене selected.
+                val color = if (selected) {
+                    Color.Blue
+                } else {
+                    Color.Gray
+                }
+
+                onDrawBehind {
+                    drawRect(color = color)
+                }
+            }
+    )
+}
+```
+
+Если state меняется каждый кадр animation, чтение его в cache block может invalid-ить cache каждый кадр. Тогда cache теряет смысл.
+
+```kotlin
+@Composable
+fun AnimatedProgressDraw(
+    progress: Float
+) {
+    Box(
+        modifier = Modifier
+            .size(120.dp)
+            .drawWithCache {
+                val staticColor = Color.Blue
+
+                onDrawBehind {
+                    // progress читается в draw lambda, а не в cache block.
+                    drawRect(
+                        color = staticColor,
+                        size = androidx.compose.ui.geometry.Size(
+                            width = size.width * progress,
+                            height = size.height
+                        )
+                    )
+                }
+            }
+    )
+}
+```
+
+В этом примере cache block не создает тяжелый объект на каждый progress update.
+
+## Path caching
+
+`Path` часто стоит создавать в `drawWithCache`.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CachedTriangle() {
+    Box(
+        modifier = Modifier
+            .size(120.dp)
+            .drawWithCache {
+                val triangle = Path().apply {
+                    moveTo(
+                        x = size.width / 2f,
+                        y = 0f
+                    )
+                    lineTo(
+                        x = size.width,
+                        y = size.height
+                    )
+                    lineTo(
+                        x = 0f,
+                        y = size.height
+                    )
+                    close()
+                }
+
+                onDrawBehind {
+                    drawPath(
+                        path = triangle,
+                        color = Color(0xFF66BB6A)
+                    )
+                }
+            }
+    )
+}
+```
+
+Path зависит от `size`, поэтому он пересоздастся при изменении размера drawing area.
+
+## BlendMode и layer
+
+Некоторые blend modes требуют offscreen layer, иначе результат может применяться к уже нарисованному экрану шире, чем ожидалось. Для таких случаев используют `graphicsLayer` с compositing strategy.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+
+@Composable
+fun ImageWithCutout(
+    imageResId: Int
+) {
+    Image(
+        painter = painterResource(id = imageResId),
+        contentDescription = null,
+        modifier = Modifier
+            .graphicsLayer {
+                // Offscreen layer ограничивает BlendMode.Clear областью этого composable.
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .drawWithContent {
+                drawContent()
+                drawCircle(
+                    color = Color.Transparent,
+                    radius = size.minDimension / 4f,
+                    center = center,
+                    blendMode = BlendMode.Clear
+                )
+            }
+    )
+}
+```
+
+Offscreen layer может быть дороже. Используйте его только там, где blend behavior действительно требует изоляции.
+
+## Drawing modifiers и pointer input
+
+Drawing modifier можно сочетать с pointer input, например для spotlight.
+
+```kotlin
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+
+@Composable
+fun SpotlightContainer(
+    content: @Composable () -> Unit
+) {
+    var pointerOffset by remember {
+        mutableStateOf(Offset.Zero)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    pointerOffset += dragAmount
+                }
+            }
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.65f)
+                        ),
+                        center = pointerOffset,
+                        radius = size.minDimension / 4f
+                    )
+                )
+            }
+    ) {
+        content()
+    }
+}
+```
+
+Pointer coordinates и drawing coordinates находятся в пикселях относительно composable area.
+
+## Production-пример: progress background behind text
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ProgressLabel(
+    progress: Float,
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    val clampedProgress = progress.coerceIn(0f, 1f)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .drawBehind {
+                drawRoundRect(
+                    color = Color(0xFFE3F2FD),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                        x = 10.dp.toPx(),
+                        y = 10.dp.toPx()
+                    )
+                )
+                drawRoundRect(
+                    color = Color(0xFF90CAF9),
+                    size = androidx.compose.ui.geometry.Size(
+                        width = size.width * clampedProgress,
+                        height = size.height
+                    ),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                        x = 10.dp.toPx(),
+                        y = 10.dp.toPx()
+                    )
+                )
+            }
+            .padding(12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text)
+    }
+}
+```
+
+Здесь progress рисуется behind text. Layout остается обычным: `Box`, `padding`, `Text`.
+
+## Production-пример: cached chart grid
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ChartGridBackground(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .drawWithCache {
+                val gridPath = Path()
+                val rows = 4
+                val columns = 6
+
+                repeat(rows + 1) { row ->
+                    val y = size.height * row / rows
+                    gridPath.moveTo(0f, y)
+                    gridPath.lineTo(size.width, y)
+                }
+
+                repeat(columns + 1) { column ->
+                    val x = size.width * column / columns
+                    gridPath.moveTo(x, 0f)
+                    gridPath.lineTo(x, size.height)
+                }
+
+                onDrawBehind {
+                    drawPath(
+                        path = gridPath,
+                        color = Color(0xFFE0E0E0),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 1.dp.toPx()
+                        )
+                    )
+                }
+            }
+    )
+}
+```
+
+Grid path зависит от size и не должен пересоздаваться на каждый draw frame.
+
+## Performance checklist
+
+Для drawing modifiers:
+
+- используйте `drawBehind` для простого background;
+- используйте `drawWithContent`, если нужен overlay или custom ordering;
+- используйте `drawWithCache`, если создаются `Brush`, `Path`, `Shader` или сложная geometry;
+- не читайте animated state в cache block, если это invalidates cache каждый кадр;
+- помните, что drawing не меняет layout size;
+- используйте `graphicsLayer` для layer transforms и некоторых blend scenarios;
+- проверяйте overdraw и jank, если рисуете большие overlays;
+- не создавайте allocation-heavy objects в draw lambda.
+
+## Типичные ошибки
+
+### Забыть `drawContent`
+
+В `drawWithContent` original content не рисуется автоматически. Нужно вызвать `drawContent()`.
+
+### Ожидать, что drawing modifier изменит размер
+
+Drawing modifier рисует в выделенной области. Размер задают layout modifiers.
+
+### Создавать `Path` в draw lambda каждый кадр
+
+Если path зависит только от size, создайте его в `drawWithCache`.
+
+### Читать быстро меняющийся state в cache block
+
+Если state меняется каждый frame, cache будет invalidated каждый frame. Читайте такой state внутри `onDrawBehind` или `onDrawWithContent`, если тяжелые объекты не зависят от него.
+
+### Использовать BlendMode без layer изоляции
+
+Некоторые blend modes требуют offscreen layer, чтобы результат не затрагивал соседний UI.
+
+### Рисовать важный UI без semantics
+
+Custom drawing не создает accessibility semantics. Если рисунок несет смысл, добавьте semantics отдельно.
+
+## Итоги
+
+Drawing modifiers позволяют рисовать custom graphics вокруг любого composable:
+
+- `drawBehind` рисует позади content;
+- `drawWithContent` управляет порядком custom drawing и `drawContent`;
+- `drawWithCache` кеширует дорогие drawing objects;
+- `DrawScope` работает в пикселях и предоставляет `size`, `center`, draw functions и transformations;
+- drawing не меняет layout constraints;
+- cache invalidation зависит от size и прочитанных state;
+- `Brush`, `Path` и сложную geometry лучше кешировать;
+- для overlay, blend и special effects важны order, layer и performance.

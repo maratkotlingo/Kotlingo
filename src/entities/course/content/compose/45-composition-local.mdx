@@ -1,0 +1,670 @@
+---
+title: "CompositionLocal"
+description: "Глубоко разбираем CompositionLocal в Jetpack Compose: compositionLocalOf, staticCompositionLocalOf, CompositionLocalProvider, Theme, Density, LayoutDirection, LocalInspectionMode, hidden dependencies и безопасные паттерны design system."
+order: 45
+category: "Compose: Side Effects, coroutines и CompositionLocal"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое CompositionLocal
+
+`CompositionLocal` — это механизм неявной передачи данных вниз по composition tree.
+
+Обычно данные в Compose передаются явно через параметры:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ProfileHeader(
+    title: String,
+    subtitle: String
+) {
+    Text(text = title)
+    Text(text = subtitle)
+}
+```
+
+Это хорошо, потому что зависимости видны в сигнатуре. Но есть данные, которые нужны очень многим компонентам глубоко в дереве:
+
+- colors;
+- typography;
+- density;
+- layout direction;
+- accessibility settings;
+- image loader;
+- analytics context;
+- design system tokens;
+- preview mode;
+- current user-facing formatting rules.
+
+Прокидывать такие значения через десятки параметров неудобно. Для этого используется `CompositionLocal`.
+
+```kotlin
+import androidx.compose.runtime.compositionLocalOf
+
+val LocalContentLanguage = compositionLocalOf {
+    "ru"
+}
+```
+
+Чтение:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LanguageLabel() {
+    val language = LocalContentLanguage.current
+
+    Text(text = "Язык контента: $language")
+}
+```
+
+Предоставление значения:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+
+@Composable
+fun RussianContent(
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalContentLanguage provides "ru"
+    ) {
+        content()
+    }
+}
+```
+
+<CatTip>
+CompositionLocal стоит использовать для значений, которые являются контекстом UI-дерева. Если значение нужно одному компоненту, параметр почти всегда лучше.
+</CatTip>
+
+## Как работает область действия
+
+Значение `CompositionLocal` действует только для descendants внутри `CompositionLocalProvider`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+
+@Composable
+fun CompositionLocalScopeDemo() {
+    Column {
+        Text(text = "Снаружи: ${LocalContentLanguage.current}")
+
+        CompositionLocalProvider(
+            LocalContentLanguage provides "en"
+        ) {
+            Text(text = "Внутри: ${LocalContentLanguage.current}")
+        }
+
+        Text(text = "Снова снаружи: ${LocalContentLanguage.current}")
+    }
+}
+```
+
+Если default value равен `"ru"`, результат будет:
+
+- снаружи: `ru`;
+- внутри provider: `en`;
+- после provider: снова `ru`.
+
+## compositionLocalOf
+
+`compositionLocalOf` создает tracked CompositionLocal. Compose отслеживает, какие места читали `.current`.
+
+```kotlin
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.unit.dp
+
+data class SpacingTokens(
+    val small: androidx.compose.ui.unit.Dp,
+    val medium: androidx.compose.ui.unit.Dp,
+    val large: androidx.compose.ui.unit.Dp
+)
+
+val LocalSpacing = compositionLocalOf {
+    SpacingTokens(
+        small = 4.dp,
+        medium = 8.dp,
+        large = 16.dp
+    )
+}
+```
+
+Если provider даст новое значение, Compose может invalidate только те участки, которые читали `LocalSpacing.current`.
+
+Используйте `compositionLocalOf`, если:
+
+- значение может меняться;
+- важно точнее invalidation;
+- значение читается не всеми descendants;
+- изменение должно обновить только читателей.
+
+## staticCompositionLocalOf
+
+`staticCompositionLocalOf` создает CompositionLocal без отслеживания отдельных чтений. При изменении provided value invalidation шире: затрагивается content provider.
+
+```kotlin
+import androidx.compose.runtime.staticCompositionLocalOf
+
+interface ImageLoader {
+    fun load(url: String): Any
+}
+
+val LocalImageLoader = staticCompositionLocalOf<ImageLoader> {
+    error("ImageLoader не предоставлен")
+}
+```
+
+Используйте `staticCompositionLocalOf`, если:
+
+- значение почти никогда не меняется;
+- это service-like dependency;
+- изменение provider должно пересобрать большой subtree;
+- точное отслеживание чтений не нужно;
+- value задается на уровне application theme/root.
+
+<MouseTrap>
+Не выбирайте `staticCompositionLocalOf` просто потому, что значение "часто одинаковое". Важный критерий — нужен ли Compose точный tracking чтений и как вы хотите invalidation при смене provider value.
+</MouseTrap>
+
+## Default value
+
+У `CompositionLocal` должен быть default factory.
+
+Безопасный default:
+
+```kotlin
+import androidx.compose.runtime.compositionLocalOf
+
+val LocalFeatureFlags = compositionLocalOf {
+    FeatureFlags(
+        newProfileEnabled = false,
+        compactCardsEnabled = false
+    )
+}
+
+data class FeatureFlags(
+    val newProfileEnabled: Boolean,
+    val compactCardsEnabled: Boolean
+)
+```
+
+Fail-fast default:
+
+```kotlin
+import androidx.compose.runtime.staticCompositionLocalOf
+
+interface PaymentFormatter {
+    fun formatCents(cents: Long): String
+}
+
+val LocalPaymentFormatter = staticCompositionLocalOf<PaymentFormatter> {
+    error("PaymentFormatter должен быть предоставлен на уровне приложения")
+}
+```
+
+Когда использовать безопасный default:
+
+- значение имеет разумное fallback-поведение;
+- Preview должен работать без root provider;
+- компонент может быть автономным.
+
+Когда использовать fail-fast:
+
+- отсутствие значения является ошибкой конфигурации;
+- сервис обязателен;
+- silent fallback приведет к неверному UX.
+
+## CompositionLocalProvider
+
+`CompositionLocalProvider` может предоставить несколько значений сразу.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AppDesignSystem(
+    imageLoader: ImageLoader,
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalImageLoader provides imageLoader,
+        LocalSpacing provides SpacingTokens(
+            small = 4.dp,
+            medium = 8.dp,
+            large = 20.dp
+        ),
+        LocalContentLanguage provides "ru"
+    ) {
+        content()
+    }
+}
+```
+
+Порядок provider-значений в одном вызове не должен использоваться как логика. Если одно значение вычисляется из другого, вычислите его заранее.
+
+## Стандартные CompositionLocal
+
+Compose и Material уже используют CompositionLocal.
+
+Часто встречающиеся:
+
+- `LocalContext`: Android `Context`;
+- `LocalConfiguration`: текущая `Configuration`;
+- `LocalDensity`: density и fontScale;
+- `LocalLayoutDirection`: LTR или RTL;
+- `LocalLifecycleOwner`: текущий lifecycle owner;
+- `LocalView`: Android View, в котором размещен Compose;
+- `LocalInspectionMode`: находится ли UI в preview/inspection;
+- `LocalFocusManager`: управление focus;
+- `LocalSoftwareKeyboardController`: управление IME;
+- `LocalHapticFeedback`: haptic feedback;
+- `LocalClipboard`: clipboard abstraction в новых API;
+- `LocalUriHandler`: открытие URI;
+- `LocalTextStyle`: текущий text style;
+- `LocalContentColor`: текущий content color;
+- `LocalAbsoluteTonalElevation`: Material elevation context.
+
+Пример:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalDensity
+
+@Composable
+fun DensityLabel() {
+    val density = LocalDensity.current
+
+    Text(text = "Density: ${density.density}")
+}
+```
+
+## LocalInspectionMode
+
+`LocalInspectionMode` полезен для Preview и tooling.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalInspectionMode
+
+@Composable
+fun AvatarImageLabel(
+    avatarUrl: String
+) {
+    val inPreview = LocalInspectionMode.current
+
+    if (inPreview) {
+        Text(text = "Preview avatar")
+    } else {
+        Text(text = "Avatar url: $avatarUrl")
+    }
+}
+```
+
+Этот API помогает не запускать тяжелые или runtime-only зависимости в Preview. Но лучше не использовать его как основную бизнес-ветку приложения.
+
+## Design system tokens
+
+CompositionLocal отлично подходит для design system.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class AppSpacing(
+    val xSmall: Dp,
+    val small: Dp,
+    val medium: Dp,
+    val large: Dp,
+    val xLarge: Dp
+)
+
+val LocalAppSpacing = compositionLocalOf {
+    AppSpacing(
+        xSmall = 2.dp,
+        small = 4.dp,
+        medium = 8.dp,
+        large = 16.dp,
+        xLarge = 24.dp
+    )
+}
+
+@Composable
+fun AppTheme(
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalAppSpacing provides AppSpacing(
+            xSmall = 2.dp,
+            small = 6.dp,
+            medium = 10.dp,
+            large = 18.dp,
+            xLarge = 28.dp
+        )
+    ) {
+        content()
+    }
+}
+```
+
+Использование:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun ProfileCardContent(
+    name: String,
+    subtitle: String
+) {
+    val spacing = LocalAppSpacing.current
+
+    Column(
+        modifier = Modifier.padding(spacing.large)
+    ) {
+        Text(text = name)
+        Text(
+            text = subtitle,
+            modifier = Modifier.padding(top = spacing.small)
+        )
+    }
+}
+```
+
+## Analytics context
+
+CompositionLocal может хранить контекст аналитики, но не должен скрывать events.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+
+data class AnalyticsContext(
+    val screenName: String,
+    val sectionName: String
+)
+
+val LocalAnalyticsContext = staticCompositionLocalOf {
+    AnalyticsContext(
+        screenName = "unknown",
+        sectionName = "unknown"
+    )
+}
+
+@Composable
+fun AnalyticsContextProvider(
+    screenName: String,
+    sectionName: String,
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalAnalyticsContext provides AnalyticsContext(
+            screenName = screenName,
+            sectionName = sectionName
+        )
+    ) {
+        content()
+    }
+}
+```
+
+Чтение:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun TrackedButton(
+    label: String,
+    onClick: (AnalyticsContext) -> Unit
+) {
+    val analyticsContext = LocalAnalyticsContext.current
+
+    Button(
+        onClick = {
+            onClick(analyticsContext)
+        }
+    ) {
+        Text(text = label)
+    }
+}
+```
+
+Здесь event все равно идет явно через `onClick`. CompositionLocal только дает контекст.
+
+<MouseTrap>
+Не прячьте важные действия внутри CompositionLocal. Если компонент отправляет event, это должно быть видно через callback или effect на route boundary.
+</MouseTrap>
+
+## Почему это не dependency injection
+
+CompositionLocal похож на DI тем, что dependency можно получить без параметра. Но это UI-tree scoped mechanism, а не универсальный DI container.
+
+Не стоит класть в CompositionLocal:
+
+- ViewModel для всего дерева;
+- mutable business repository без ясной границы;
+- navigation controller для каждого маленького компонента;
+- текущего пользователя как источник истины;
+- случайные dependencies, чтобы не писать параметры.
+
+Лучше использовать параметры для:
+
+- данных конкретного компонента;
+- callbacks;
+- user actions;
+- state;
+- domain values, нужных одному месту;
+- dependencies, которые важны для тестируемого API.
+
+## Hidden dependencies
+
+Плохо:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+
+interface OrdersRepository {
+    suspend fun submitOrder(orderId: String)
+}
+
+val LocalOrdersRepository = staticCompositionLocalOf<OrdersRepository> {
+    error("OrdersRepository не предоставлен")
+}
+
+@Composable
+fun SubmitOrderButtonWrong(
+    orderId: String
+) {
+    val repository = LocalOrdersRepository.current
+
+    Button(
+        onClick = {
+            // Repository требует coroutine и business policy, поэтому такой UI API скрывает слишком много.
+        }
+    ) {
+        Text(text = "Оформить")
+    }
+}
+```
+
+Лучше:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun SubmitOrderButton(
+    onSubmitOrder: () -> Unit
+) {
+    Button(onClick = onSubmitOrder) {
+        Text(text = "Оформить")
+    }
+}
+```
+
+Компонент показывает действие явно, а ViewModel/repository остаются выше.
+
+## Тестирование
+
+CompositionLocal удобно переопределять в тесте или preview.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+
+class FakeImageLoader : ImageLoader {
+    override fun load(url: String): Any {
+        return "fake-image:$url"
+    }
+}
+
+@Composable
+fun ImageLoaderPreviewContent(
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalImageLoader provides FakeImageLoader()
+    ) {
+        content()
+    }
+}
+```
+
+Но если компонент можно легко сделать параметризованным, параметр все равно часто проще.
+
+## Производственный пример: форматирование денег
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import java.text.NumberFormat
+import java.util.Currency
+import java.util.Locale
+
+interface MoneyFormatter {
+    fun formatCents(cents: Long): String
+}
+
+class LocaleMoneyFormatter(
+    private val locale: Locale,
+    private val currency: Currency
+) : MoneyFormatter {
+
+    private val numberFormat = NumberFormat.getCurrencyInstance(locale).apply {
+        this.currency = this@LocaleMoneyFormatter.currency
+    }
+
+    override fun formatCents(cents: Long): String {
+        return numberFormat.format(cents / 100.0)
+    }
+}
+
+val LocalMoneyFormatter = staticCompositionLocalOf<MoneyFormatter> {
+    error("MoneyFormatter должен быть предоставлен")
+}
+
+@Composable
+fun MoneyFormattingProvider(
+    locale: Locale,
+    currency: Currency,
+    content: @Composable () -> Unit
+) {
+    val formatter = remember(locale, currency) {
+        LocaleMoneyFormatter(
+            locale = locale,
+            currency = currency
+        )
+    }
+
+    CompositionLocalProvider(
+        LocalMoneyFormatter provides formatter
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun PriceText(
+    cents: Long
+) {
+    val formatter = LocalMoneyFormatter.current
+
+    Text(text = formatter.formatCents(cents))
+}
+```
+
+Это уместно, если форматтер нужен во многих местах UI и задается на уровне приложения или feature subtree.
+
+## Типичные ошибки
+
+### Использовать вместо параметра
+
+Если значение нужно одному composable, передайте параметр.
+
+### Прятать ViewModel
+
+ViewModel лучше получать на route boundary и передавать state/callbacks вниз.
+
+### Делать default, который маскирует ошибку
+
+Если dependency обязательна, fail-fast default безопаснее silent fallback.
+
+### Мутировать объект внутри Local без observable state
+
+Если объект меняется внутри, Compose может не увидеть изменение. Используйте immutable values или observable state.
+
+### Создавать новый тяжелый объект при каждой recomposition
+
+Если provider создает тяжелую dependency, используйте `remember` с корректными ключами.
+
+## Итоги
+
+`CompositionLocal` передает значения вниз по composition tree:
+
+- подходит для UI context и design system tokens;
+- `compositionLocalOf` отслеживает чтения;
+- `staticCompositionLocalOf` не отслеживает отдельные чтения и подходит для редко меняющихся service-like значений;
+- `CompositionLocalProvider` задает значение для descendants;
+- стандартные Local APIs дают context, density, lifecycle, layout direction и другие окружения;
+- CompositionLocal не заменяет параметры и callbacks;
+- скрытые dependencies ухудшают тестируемость;
+- обязательные значения лучше падать fail-fast default;
+- для reusable UI сначала думайте о явном API, а уже потом о CompositionLocal.

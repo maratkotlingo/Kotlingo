@@ -1,0 +1,542 @@
+---
+title: "Box"
+description: "Подробно разбираем Box в Jetpack Compose: stack layout, contentAlignment, Modifier.align, matchParentSize, overlay, scrim, badges, loading layers и правильное разделение слоев."
+order: 19
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `Box`
+
+`Box` — базовый layout, который размещает дочерние элементы друг поверх друга. Его удобно воспринимать как stack: первый ребенок рисуется ниже, следующий поверх него, последний оказывается самым верхним визуальным слоем.
+
+`Box` решает три частые задачи:
+
+- положить один элемент в конкретное место внутри контейнера;
+- наложить элементы друг на друга: изображение, scrim, текст, badge;
+- создать слой загрузки, ошибки или блокировки поверх контента.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CenteredBoxExample() {
+    Box(
+        modifier = Modifier.size(160.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = "В центре")
+    }
+}
+```
+
+Если в `Box` один ребенок, `Box` часто используется для выравнивания. Если детей несколько, он становится overlay-контейнером.
+
+## Главные параметры `Box`
+
+### `modifier`
+
+Управляет размером, фоном, кликами, semantics и внешним размещением самого `Box`.
+
+### `contentAlignment`
+
+Задает выравнивание по умолчанию для всех детей, у которых нет собственного `Modifier.align`.
+
+### `propagateMinConstraints`
+
+Если `true`, минимальные constraints родителя передаются детям. По умолчанию `false`, и это почти всегда правильно. Включай только когда действительно нужно, чтобы дети уважали min constraints `Box`.
+
+### `content`
+
+`BoxScope.() -> Unit`. Благодаря `BoxScope` внутри доступны `Modifier.align` и `Modifier.matchParentSize`.
+
+## `contentAlignment`
+
+`contentAlignment` применяет одно выравнивание ко всем детям.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun EmptyStateBanner() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.large
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "Пока нет доступных уроков",
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+```
+
+Здесь `Text` получает центрирование без собственного modifier.
+
+## `Modifier.align`
+
+`Modifier.align` переопределяет выравнивание конкретного ребенка внутри `Box`.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonCoverWithBadge() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .background(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = MaterialTheme.shapes.large
+            )
+    ) {
+        Text(
+            modifier = Modifier.align(Alignment.Center),
+            text = "Обложка урока",
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp),
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+        ) {
+            Text(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                text = "Новый"
+            )
+        }
+    }
+}
+```
+
+В `BoxScope` каждый ребенок может иметь собственную позицию: центр, верхний конец, нижний центр и так далее.
+
+<CatTip title="Котосовет: Box хорош для слоев, а не для любых раскладок">
+  Если элементы идут в строку, бери `Row`. Если идут колонкой, бери `Column`. Если элементы накладываются друг на друга
+  или один элемент нужно прижать к углу контейнера, `Box` подходит идеально.
+</CatTip>
+
+## Порядок отрисовки
+
+В `Box` порядок детей важен: поздний ребенок рисуется поверх раннего.
+
+```kotlin
+@Composable
+fun LayerOrderExample() {
+    Box(
+        modifier = Modifier.size(160.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(MaterialTheme.colorScheme.primaryContainer)
+        )
+
+        Text(
+            modifier = Modifier.align(Alignment.Center),
+            text = "Поверх фона"
+        )
+    }
+}
+```
+
+Фоновый `Box` идет первым, текст идет вторым и оказывается выше. Если поменять порядок, фон закроет текст.
+
+## `matchParentSize`
+
+`Modifier.matchParentSize` доступен только в `BoxScope`. Он просит ребенка занять размер родительского `Box`, но не влияет на размер самого `Box`.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun DisabledCardOverlay(
+    disabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+    ) {
+        Box {
+            Text(
+                modifier = Modifier.padding(24.dp),
+                text = "Урок временно недоступен"
+            )
+
+            if (disabled) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.32f))
+                )
+            }
+        }
+    }
+}
+```
+
+`matchParentSize` отличается от `fillMaxSize`: он не заставляет родителя расти. Он только подгоняет ребенка под уже измеренный размер `Box`.
+
+## Overlay loading layer
+
+Частый production-паттерн: показывать контент и полупрозрачный loading layer поверх него.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonContentWithLoadingOverlay(
+    loading: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(
+                text = "Содержимое урока",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Text(
+                text = "Здесь пользователь читает материал, пока фоновое сохранение может продолжаться."
+            )
+        }
+
+        if (loading) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+    }
+}
+```
+
+Если overlay блокирует действия, добавь semantics и корректное enabled-состояние интерактивных элементов. Визуального затемнения недостаточно для accessibility.
+
+## Scrim под текстом
+
+Scrim — полупрозрачный слой, который улучшает читаемость текста поверх изображения.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import com.kotlingo.reader.R
+
+@Composable
+fun ImageHeaderWithScrim(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+    ) {
+        Image(
+            painter = painterResource(R.drawable.compose_cover),
+            contentDescription = "Обложка урока",
+            modifier = Modifier.matchParentSize(),
+            contentScale = ContentScale.Crop
+        )
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.62f)
+                        )
+                    )
+                )
+        )
+
+        Text(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(16.dp),
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = Color.White
+        )
+    }
+}
+```
+
+Здесь порядок слоев критичен: изображение, scrim, текст.
+
+<MouseTrap title="Мышеловка: scrim не исправляет плохую обложку">
+  Если изображение слишком шумное, темное или содержит важный текст, поверх него трудно сделать читаемый UI. Scrim помогает
+  контрасту, но не заменяет выбор подходящего изображения и проверку на разных экранах.
+</MouseTrap>
+
+## Badge через `Box`
+
+Для простого бейджа на иконке можно использовать `BadgedBox`, но `Box` полезен для кастомных overlay.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import com.kotlingo.reader.R
+
+@Composable
+fun CustomNotificationBadge(
+    count: Int
+) {
+    Box {
+        Icon(
+            painter = painterResource(R.drawable.ic_notifications_24),
+            contentDescription = "Уведомления"
+        )
+
+        if (count > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 6.dp, y = (-6).dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = count.coerceAtMost(99).toString(),
+                    color = MaterialTheme.colorScheme.onError,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
+}
+```
+
+Для стандартного Material badge предпочитай `BadgedBox`. Кастомный `Box` уместен, если форма, offset или содержимое сильно отличаются от Material default.
+
+## Полный пример: карточка с overlay-состояниями
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.kotlingo.reader.R
+
+@Immutable
+data class BoxLessonCardState(
+    val title: String,
+    val description: String,
+    val locked: Boolean,
+    val loading: Boolean
+)
+
+@Composable
+fun BoxLessonCard(
+    state: BoxLessonCardState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Box {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.compose_cover),
+                    contentDescription = "Обложка урока",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f),
+                    contentScale = ContentScale.Crop
+                )
+
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = state.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = state.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            if (state.locked) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                ) {
+                    Text(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        text = "Закрыт"
+                    )
+                }
+            }
+
+            if (state.loading) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.24f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- основной контент идет первым;
+- badge закрытого урока рисуется поверх;
+- loading overlay рисуется последним, поэтому перекрывает весь контент;
+- `matchParentSize` подгоняет overlay под карточку;
+- `align(Alignment.TopEnd)` ставит badge в верхний конец;
+- карточка сохраняет один корневой `modifier`.
+
+## Итоги
+
+`Box` — layout для слоев:
+
+- дети рисуются в порядке объявления;
+- `contentAlignment` задает общее выравнивание;
+- `Modifier.align` задает позицию конкретного ребенка;
+- `matchParentSize` растягивает ребенка до размера `Box`, не увеличивая сам `Box`;
+- `Box` идеально подходит для overlay, scrim, loading layer и badges;
+- для обычных вертикальных и горизонтальных списков лучше использовать `Column`, `Row` и lazy containers;
+- overlay должен быть не только визуальным, но и семантически честным.
+

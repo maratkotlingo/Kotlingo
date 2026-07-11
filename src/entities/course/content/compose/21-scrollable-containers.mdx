@@ -1,0 +1,520 @@
+---
+title: "Scrollable containers"
+description: "Разбираем прокрутку в Compose: verticalScroll, horizontalScroll, rememberScrollState, scrollable, nested scroll, состояние скролла, программная прокрутка и выбор между Column+scroll и LazyColumn."
+order: 21
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Прокрутка — это часть layout-контракта
+
+`Column` сам по себе не прокручивается. Если контент не помещается, он может выйти за границы или быть обрезан родителем. В Compose прокрутку нужно задавать явно:
+
+- `verticalScroll` для небольшого вертикального контента;
+- `horizontalScroll` для небольшого горизонтального контента;
+- `LazyColumn` и `LazyRow` для больших списков;
+- `scrollable` для low-level gesture-driven сценариев;
+- nested scroll для координации нескольких прокручиваемых областей.
+
+Главное правило: если у тебя много элементов или количество элементов неизвестно, не используй `Column` с `verticalScroll`. Используй lazy container.
+
+## `rememberScrollState`
+
+`rememberScrollState` хранит состояние прокрутки:
+
+- текущий `value`;
+- максимальное значение `maxValue`;
+- состояние прокрутки `isScrollInProgress`;
+- методы `scrollTo` и `animateScrollTo`.
+
+```kotlin
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.Composable
+
+@Composable
+fun rememberReaderScrollState(): ScrollState {
+    return rememberScrollState()
+}
+```
+
+Обычно state создается прямо в компоненте или поднимается выше, если нужно программно управлять прокруткой снаружи.
+
+## `verticalScroll`
+
+`verticalScroll` делает контейнер вертикально прокручиваемым.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ArticleScreen(
+    paragraphs: List<String>,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Ментальная модель Compose",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        paragraphs.forEach { paragraph ->
+            Text(
+                text = paragraph,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+```
+
+Этот подход хорош для статьи, настроек или формы с небольшим числом заранее известных блоков. Он плох для тысяч строк, потому что `Column` создаст всех детей сразу.
+
+<MouseTrap title="Мышеловка: verticalScroll не делает Column ленивой">
+  `Column.verticalScroll` измеряет и создает весь контент. Если список может быть большим, используй `LazyColumn`.
+  Scroll modifier добавляет прокрутку, но не добавляет ленивую загрузку элементов.
+</MouseTrap>
+
+## `horizontalScroll`
+
+`horizontalScroll` делает контейнер горизонтально прокручиваемым.
+
+```kotlin
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun DifficultyChipStrip(
+    difficulties: List<String>,
+    selected: String,
+    onSelectedChange: (String) -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Row(
+        modifier = Modifier
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        difficulties.forEach { difficulty ->
+            FilterChip(
+                selected = difficulty == selected,
+                onClick = {
+                    onSelectedChange(difficulty)
+                },
+                label = {
+                    Text(text = difficulty)
+                }
+            )
+        }
+    }
+}
+```
+
+Для большого количества элементов используй `LazyRow`. Для небольшого набора chips `Row.horizontalScroll` проще.
+
+## Программная прокрутка
+
+`ScrollState` дает suspend-функции `scrollTo` и `animateScrollTo`. Их нужно вызывать из coroutine.
+
+```kotlin
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
+@Composable
+fun ScrollToTopExample(
+    paragraphs: List<String>
+) {
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+
+    Column {
+        Button(
+            onClick = {
+                scope.launch {
+                    scrollState.animateScrollTo(0)
+                }
+            }
+        ) {
+            Text(text = "В начало")
+        }
+
+        Column(
+            modifier = Modifier.verticalScroll(scrollState)
+        ) {
+            paragraphs.forEach { paragraph ->
+                Text(text = paragraph)
+            }
+        }
+    }
+}
+```
+
+Если кнопка находится внутри той же scrollable области, подумай, не исчезнет ли она с экрана. Часто action button лучше закрепить снаружи через `Scaffold`.
+
+## Индикатор позиции скролла
+
+Можно читать `scrollState.value`, но не делай тяжелую работу при каждом пикселе. Для пороговых значений используй `derivedStateOf`.
+
+```kotlin
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+
+@Composable
+fun ReaderWithTopShadow(
+    paragraphs: List<String>
+) {
+    val scrollState = rememberScrollState()
+    val showTopShadow by remember {
+        derivedStateOf {
+            scrollState.value > 0
+        }
+    }
+
+    Box {
+        ArticleScreen(
+            paragraphs = paragraphs,
+            modifier = Modifier.verticalScroll(scrollState)
+        )
+
+        if (showTopShadow) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            )
+        }
+    }
+}
+```
+
+Этот пример показывает идею, но важно не навесить `verticalScroll` дважды. Если `ArticleScreen` уже добавляет scroll modifier внутри, передавай туда `scrollState` параметром или делай scroll на одном уровне.
+
+## Исправленный reusable вариант
+
+```kotlin
+@Composable
+fun ScrollableArticleContent(
+    paragraphs: List<String>,
+    scrollState: ScrollState,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .verticalScroll(scrollState)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        paragraphs.forEach { paragraph ->
+            Text(
+                text = paragraph,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+
+@Composable
+fun ReaderWithTopShadowCorrect(
+    paragraphs: List<String>
+) {
+    val scrollState = rememberScrollState()
+    val showTopShadow by remember {
+        derivedStateOf {
+            scrollState.value > 0
+        }
+    }
+
+    Box {
+        ScrollableArticleContent(
+            paragraphs = paragraphs,
+            scrollState = scrollState,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (showTopShadow) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            )
+        }
+    }
+}
+```
+
+Теперь scroll modifier находится ровно в одном месте.
+
+## `scrollable`
+
+`scrollable` — low-level modifier. Он обрабатывает scroll gestures и отдает delta тебе, но сам не смещает содержимое. Для обычного контента используй `verticalScroll`, `horizontalScroll` или lazy containers.
+
+```kotlin
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+
+@Composable
+fun ManualScrollableBox() {
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    val scrollableState = rememberScrollableState { delta ->
+        offsetY = (offsetY + delta).coerceIn(-300f, 300f)
+        delta
+    }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(x = 0, y = offsetY.roundToInt())
+            }
+            .scrollable(
+                state = scrollableState,
+                orientation = Orientation.Vertical
+            )
+            .size(160.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+    )
+}
+```
+
+Это ручной сценарий. Он полезен для custom gesture components, но не для обычной статьи или списка.
+
+## Nested scroll
+
+Nested scroll нужен, когда несколько scrollable компонентов должны координировать движение. Например, collapsing toolbar и список: часть delta забирает toolbar, остальное идет списку.
+
+```kotlin
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+
+@Composable
+fun NestedScrollLoggingExample(
+    paragraphs: List<String>
+) {
+    val scrollState = rememberScrollState()
+
+    val connection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                // В production здесь можно уменьшать высоту toolbar.
+                // Возвращаем Offset.Zero, потому что этот пример только наблюдает scroll.
+                return Offset.Zero
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .nestedScroll(connection)
+            .verticalScroll(scrollState)
+            .padding(16.dp)
+    ) {
+        paragraphs.forEach { paragraph ->
+            Text(text = paragraph)
+        }
+    }
+}
+```
+
+Nested scroll — продвинутая тема. Для обычной формы он не нужен. Начинай с `Scaffold`, `LazyColumn`, `TopAppBarDefaults` scroll behavior и стандартных компонентов.
+
+<CatTip title="Котосовет: сначала выбери правильный контейнер">
+  Нужен длинный список однотипных элементов — `LazyColumn`. Нужна статья из нескольких блоков — `Column.verticalScroll`.
+  Нужна горизонтальная лента из нескольких chips — `Row.horizontalScroll`. Нужна большая лента карточек — `LazyRow`.
+</CatTip>
+
+## Scroll и IME
+
+Для форм важно, чтобы клавиатура не перекрывала поля. Используй `imePadding` на контейнере и scrollable область.
+
+```kotlin
+@Composable
+fun ScrollableForm(
+    content: @Composable () -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(scrollState)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        content()
+    }
+}
+```
+
+Для больших форм с повторяющимися секциями иногда лучше `LazyColumn`, но простая форма из 8-12 полей нормально живет в `Column.verticalScroll`.
+
+## Полный пример: экран настроек
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class ReaderSettingsState(
+    val displayName: String,
+    val remindersEnabled: Boolean,
+    val compactModeEnabled: Boolean
+)
+
+@Composable
+fun ReaderSettingsScreen(
+    state: ReaderSettingsState,
+    onDisplayNameChange: (String) -> Unit,
+    onRemindersEnabledChange: (Boolean) -> Unit,
+    onCompactModeEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(scrollState)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text(
+            text = "Настройки чтения",
+            style = MaterialTheme.typography.headlineSmall
+        )
+
+        OutlinedTextField(
+            value = state.displayName,
+            onValueChange = onDisplayNameChange,
+            label = {
+                Text(text = "Имя в профиле")
+            }
+        )
+
+        SettingsSwitchRow(
+            title = "Напоминания",
+            checked = state.remindersEnabled,
+            onCheckedChange = onRemindersEnabledChange
+        )
+
+        SettingsSwitchRow(
+            title = "Компактный режим",
+            checked = state.compactModeEnabled,
+            onCheckedChange = onCompactModeEnabledChange
+        )
+    }
+}
+
+@Composable
+fun SettingsSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            modifier = Modifier.weight(1f),
+            text = title
+        )
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+```
+
+Разбор:
+
+- экран использует `verticalScroll`, потому что форма небольшая;
+- `imePadding` защищает поля от клавиатуры;
+- state приходит снаружи;
+- `Arrangement.spacedBy` задает регулярные промежутки;
+- `ScrollState` создается один раз через `rememberScrollState`.
+
+## Итоги
+
+Прокрутка в Compose выбирается по задаче:
+
+- `verticalScroll` — небольшие вертикальные экраны;
+- `horizontalScroll` — небольшие горизонтальные полосы;
+- `rememberScrollState` хранит состояние обычной прокрутки;
+- `scrollTo` и `animateScrollTo` вызываются из coroutine;
+- `scrollable` обрабатывает жесты, но сам не двигает контент;
+- nested scroll нужен для координации нескольких scrollable областей;
+- `imePadding` помогает формам рядом с клавиатурой;
+- для больших списков используй lazy containers, а не `Column.verticalScroll`.
+

@@ -1,0 +1,553 @@
+---
+title: "Индикаторы и feedback"
+description: "Разбираем feedback-компоненты Compose: CircularProgressIndicator, LinearProgressIndicator, Snackbar, Badge, BadgedBox, состояния loading/content/error/empty и правила честной обратной связи в UI."
+order: 13
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем UI нужна обратная связь
+
+Пользователь должен понимать, что приложение делает прямо сейчас. Если экран молчит после нажатия кнопки, человек не знает, сработало ли действие, зависло ли приложение или он промахнулся. Feedback-компоненты закрывают эту тревожную паузу:
+
+- progress indicators показывают, что идет загрузка или обработка;
+- snackbar сообщает краткий результат действия;
+- badge показывает небольшой статус или количество;
+- empty/error/loading states объясняют, почему основного контента нет.
+
+В Compose feedback особенно важно моделировать через состояние. Не "показать спиннер командой", а описать UI для каждого состояния.
+
+```kotlin
+sealed interface LessonFeedState {
+    data object Loading : LessonFeedState
+    data object Empty : LessonFeedState
+    data class Content(val lessons: List<String>) : LessonFeedState
+    data class Error(val message: String) : LessonFeedState
+}
+```
+
+Такая модель сразу заставляет экран ответить на вопрос: что пользователь видит при загрузке, пустом списке, успешном контенте и ошибке.
+
+## Determinate и indeterminate progress
+
+Progress indicator бывает двух типов.
+
+Determinate indicator знает прогресс: например, 30 процентов загрузки файла. Для него передается значение от `0f` до `1f`.
+
+Indeterminate indicator не знает прогресс: например, идет сетевой запрос, но сервер не сообщает, сколько осталось. Он просто показывает, что операция продолжается.
+
+<CatTip title="Котосовет: не притворяйся, что знаешь прогресс">
+  Если приложение не знает реальный процент выполнения, показывай indeterminate indicator. Фальшивый прогресс раздражает:
+  пользователь видит 90 процентов, ждет еще долго и перестает доверять интерфейсу.
+</CatTip>
+
+## `LinearProgressIndicator`
+
+`LinearProgressIndicator` показывает прогресс горизонтальной полосой. Он хорошо подходит для загрузки страницы, синхронизации, выполнения длинной операции внутри области экрана.
+
+Основные параметры:
+
+- `progress` — lambda, возвращающая `Float` от `0f` до `1f` для determinate-варианта;
+- `modifier` — размер и размещение;
+- `color` — цвет заполненной части;
+- `trackColor` — цвет дорожки;
+- `strokeCap` — форма концов линии.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonDownloadProgress(
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    val normalizedProgress = progress.coerceIn(0f, 1f)
+    val percent = (normalizedProgress * 100).toInt()
+
+    Column(
+        modifier = modifier
+    ) {
+        Text(
+            text = "Загрузка материалов: $percent%",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        LinearProgressIndicator(
+            progress = { normalizedProgress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .semantics {
+                    // Явно задаем диапазон для assistive technologies.
+                    progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(
+                        current = normalizedProgress,
+                        range = 0f..1f
+                    )
+                },
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    }
+}
+```
+
+`coerceIn(0f, 1f)` защищает UI от некорректных данных. Даже если repository случайно отдаст `1.4f`, индикатор не должен рисовать невозможное состояние.
+
+## Indeterminate linear progress
+
+Если точный процент неизвестен, не передавай `progress`.
+
+```kotlin
+@Composable
+fun LoadingTopBarProgress(
+    loading: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (loading) {
+        LinearProgressIndicator(
+            modifier = modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    }
+}
+```
+
+Такой индикатор можно показать под top app bar, пока экран обновляет данные.
+
+## `CircularProgressIndicator`
+
+`CircularProgressIndicator` подходит для компактных мест: центр пустого экрана, кнопка загрузки, карточка, avatar placeholder.
+
+Основные параметры похожи:
+
+- `progress` — determinate progress;
+- `modifier`;
+- `color`;
+- `strokeWidth`;
+- `trackColor`;
+- `strokeCap`.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CenteredLoadingIndicator(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(48.dp),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            strokeWidth = 4.dp
+        )
+    }
+}
+```
+
+Для full-screen загрузки не ограничивайся одним спиннером, если операция может длиться долго. Добавь текст: что именно происходит.
+
+```kotlin
+@Composable
+fun FullScreenLoadingState() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        CircularProgressIndicator()
+
+        Text(
+            text = "Загружаем уроки",
+            style = MaterialTheme.typography.bodyLarge
+        )
+    }
+}
+```
+
+## `Snackbar`
+
+Snackbar — краткое сообщение внизу экрана. Он сообщает результат действия, не прерывая пользователя dialog-окном.
+
+Типичные сценарии:
+
+- "Прогресс сохранен";
+- "Урок удален" с действием "Отменить";
+- "Нет подключения";
+- "Настройки обновлены".
+
+В Compose snackbar обычно показывают через `SnackbarHostState` внутри `Scaffold`.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
+
+@Composable
+fun SnackbarExampleScreen() {
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    Scaffold(
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        }
+    ) { innerPadding ->
+        Button(
+            modifier = Modifier.padding(innerPadding),
+            onClick = {
+                scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Урок удален",
+                        actionLabel = "Отменить",
+                        duration = SnackbarDuration.Short
+                    )
+
+                    when (result) {
+                        SnackbarResult.ActionPerformed -> {
+                            // Пользователь нажал действие snackbar, поэтому восстанавливаем урок.
+                            restoreDeletedLesson()
+                        }
+                        SnackbarResult.Dismissed -> {
+                            // Snackbar исчез без действия. Дополнительная работа не нужна.
+                            recordDeletionConfirmed()
+                        }
+                    }
+                }
+            }
+        ) {
+            Text(text = "Удалить урок")
+        }
+    }
+}
+
+fun restoreDeletedLesson() {
+    println("Урок восстановлен")
+}
+
+fun recordDeletionConfirmed() {
+    println("Удаление осталось в силе")
+}
+```
+
+Почему здесь используется `rememberCoroutineScope`: `showSnackbar` — suspend-функция, а клик по кнопке не является suspend-контекстом. Scope привязан к Composition, поэтому подходит для user event handlers.
+
+<MouseTrap title="Мышеловка: snackbar не должен быть складом ошибок">
+  Если действие требует выбора, формы, подтверждения опасной операции или подробного объяснения, snackbar не подходит.
+  Snackbar короткий и временный. Для сложного решения используй dialog, bottom sheet или полноценное состояние экрана.
+</MouseTrap>
+
+## `Badge` и `BadgedBox`
+
+Badge показывает маленький статус или число поверх другого composable. `BadgedBox` является контейнером, а `Badge` рисует сам бейдж.
+
+`res/drawable/ic_notifications_24.xml`:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,22c1.1,0 2,-0.9 2,-2h-4c0,1.1 0.9,2 2,2zM18,16v-5c0,-3.07 -1.63,-5.64 -4.5,-6.32V4c0,-0.83 -0.67,-1.5 -1.5,-1.5S10.5,3.17 10.5,4v0.68C7.64,5.36 6,7.92 6,11v5l-2,2v1h16v-1l-2,-2z" />
+</vector>
+```
+
+Kotlin:
+
+```kotlin
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.kotlingo.reader.R
+
+@Composable
+fun NotificationIconButton(
+    unreadCount: Int,
+    onClick: () -> Unit
+) {
+    val visibleCount = unreadCount.coerceAtLeast(0)
+
+    IconButton(
+        modifier = Modifier.semantics {
+            contentDescription = if (visibleCount == 0) {
+                "Уведомлений нет"
+            } else {
+                "Непрочитанных уведомлений: $visibleCount"
+            }
+        },
+        onClick = onClick
+    ) {
+        BadgedBox(
+            badge = {
+                if (visibleCount > 0) {
+                    Badge {
+                        Text(text = visibleCount.coerceAtMost(99).toString())
+                    }
+                }
+            }
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_notifications_24),
+                contentDescription = null
+            )
+        }
+    }
+}
+```
+
+Почему `contentDescription = null` у `Icon`: описание задано на `IconButton`, и оно учитывает число. Иконка сама по себе не должна дублировать текст.
+
+## Empty, loading, error и content states
+
+Хороший экран не должен иметь только "успешный список". У него есть состояния.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+sealed interface LessonListUiState {
+    data object Loading : LessonListUiState
+    data object Empty : LessonListUiState
+    data class Error(val message: String) : LessonListUiState
+    data class Content(val lessons: List<LessonSummary>) : LessonListUiState
+}
+
+@Immutable
+data class LessonSummary(
+    val id: String,
+    val title: String
+)
+
+@Composable
+fun LessonListScreen(
+    state: LessonListUiState,
+    onRetryClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    when (state) {
+        LessonListUiState.Loading -> {
+            FullScreenLoadingState()
+        }
+        LessonListUiState.Empty -> {
+            EmptyLessonsState(
+                modifier = modifier.fillMaxSize()
+            )
+        }
+        is LessonListUiState.Error -> {
+            ErrorLessonsState(
+                message = state.message,
+                onRetryClick = onRetryClick,
+                modifier = modifier.fillMaxSize()
+            )
+        }
+        is LessonListUiState.Content -> {
+            LessonContentState(
+                lessons = state.lessons,
+                modifier = modifier
+            )
+        }
+    }
+}
+
+@Composable
+fun EmptyLessonsState(
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Пока нет уроков",
+            style = MaterialTheme.typography.titleLarge
+        )
+
+        Text(
+            text = "Когда появятся доступные темы, они будут показаны здесь.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+
+@Composable
+fun ErrorLessonsState(
+    message: String,
+    onRetryClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Не удалось загрузить уроки",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.error
+        )
+
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Button(onClick = onRetryClick) {
+            Text(text = "Повторить")
+        }
+    }
+}
+
+@Composable
+fun LessonContentState(
+    lessons: List<LessonSummary>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        lessons.forEach { lesson ->
+            Text(
+                text = lesson.title,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+    }
+}
+```
+
+Здесь `when` exhaustive, потому что состояние описано sealed interface. Если появится новый вариант, компилятор заставит обновить UI.
+
+## Полный пример: feedback-панель загрузки курса
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class CourseSyncState(
+    val syncing: Boolean,
+    val progress: Float?,
+    val lastMessage: String?
+)
+
+@Composable
+fun CourseSyncBanner(
+    state: CourseSyncState,
+    modifier: Modifier = Modifier
+) {
+    if (!state.syncing && state.lastMessage == null) {
+        return
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = state.lastMessage ?: "Синхронизируем курс",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            if (state.syncing) {
+                if (state.progress == null) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        progress = { state.progress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+```
+
+Важная деталь: `progress: Float?` различает два честных состояния. `null` означает "точный прогресс неизвестен", число означает determinate progress.
+
+## Итоги
+
+Feedback-компоненты делают UI честным и спокойным:
+
+- `LinearProgressIndicator` подходит для горизонтального прогресса;
+- `CircularProgressIndicator` подходит для компактной загрузки;
+- determinate progress получает значение от `0f` до `1f`;
+- indeterminate progress используется, когда точный процент неизвестен;
+- `SnackbarHostState.showSnackbar` вызывается из coroutine;
+- `SnackbarResult` позволяет обработать действие пользователя;
+- `Badge` и `BadgedBox` показывают статус или число поверх элемента;
+- empty/loading/error/content лучше моделировать sealed-состояниями;
+- feedback должен объяснять происходящее, а не просто мигать индикатором.
+

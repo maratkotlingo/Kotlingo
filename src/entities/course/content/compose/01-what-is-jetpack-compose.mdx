@@ -1,0 +1,594 @@
+---
+title: "Что такое Jetpack Compose"
+description: "Разбираем Jetpack Compose как декларативный UI toolkit: чем он отличается от View-системы, из каких библиотечных слоев состоит, как мыслить UI как функцией состояния и где проходит граница ответственности Compose."
+order: 01
+category: "Compose: Вход и рабочая среда"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем отдельный курс по Compose
+
+Jetpack Compose — это современный декларативный toolkit для построения Android UI на Kotlin. В старой View-системе интерфейс обычно описывался XML-разметкой, а затем изменялся из Kotlin или Java через ссылки на конкретные `View`: поменять текст, скрыть кнопку, добавить элемент в контейнер, обновить `RecyclerView.Adapter`. В Compose экран описывается функциями: ты передаешь текущее состояние, а Compose строит UI, который этому состоянию соответствует.
+
+Ключевая фраза: UI в Compose — это функция состояния.
+
+```kotlin
+// Состояние экрана: данные, которые нужны для отрисовки.
+data class LessonCardState(
+    val title: String,
+    val minutes: Int,
+    val completed: Boolean
+)
+
+// Функция преобразует состояние в человекочитаемую подпись.
+fun completionText(state: LessonCardState): String {
+    return if (state.completed) {
+        "Урок пройден"
+    } else {
+        "Осталось примерно ${state.minutes} мин."
+    }
+}
+```
+
+В настоящем Compose-коде такой принцип применяется не только к строкам, но и к кнопкам, спискам, карточкам, навигации, анимациям и доступности. Вместо того чтобы вручную искать виджет и вызывать setter, ты вызываешь composable-функцию с новыми данными. Если данные изменились, Compose сам решает, какие части UI нужно пересчитать и применить к реальному дереву.
+
+## Декларативный UI против императивного UI
+
+Императивный стиль отвечает на вопрос: "Какие команды нужно выполнить, чтобы привести старый UI к новому состоянию?"
+
+Декларативный стиль отвечает на вопрос: "Как должен выглядеть UI для текущего состояния?"
+
+Императивная View-логика часто выглядит так:
+
+```kotlin
+class LessonViewBinder(
+    private val titleView: android.widget.TextView,
+    private val subtitleView: android.widget.TextView,
+    private val actionButton: android.widget.Button
+) {
+    fun bind(state: LessonCardState) {
+        // Каждый виджет обновляется отдельной командой.
+        titleView.text = state.title
+
+        // Подпись нужно не забыть синхронизировать с состоянием.
+        subtitleView.text = completionText(state)
+
+        // Текст кнопки зависит от completed, поэтому его тоже меняем вручную.
+        actionButton.text = if (state.completed) {
+            "Повторить"
+        } else {
+            "Начать"
+        }
+
+        // Доступность кнопки тоже является частью UI-состояния.
+        actionButton.isEnabled = !state.completed
+    }
+}
+```
+
+Этот код может быть корректным, но он требует дисциплины: если состояние отображается в трех местах, нужно обновить все три места. Если новый сценарий добавляет еще один виджет, нужно вспомнить, где именно выполняется bind. Если часть дерева удалена, старые ссылки могут стать источником ошибок.
+
+В Compose тот же экран выражается как описание результата:
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonCard(
+    state: LessonCardState,
+    onStartClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = state.title,
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Text(
+                text = completionText(state),
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Button(
+                onClick = onStartClick,
+                enabled = !state.completed
+            ) {
+                Text(
+                    text = if (state.completed) {
+                        "Повторить"
+                    } else {
+                        "Начать"
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Здесь нет поиска View по идентификатору и нет ручного сравнения старого UI с новым. `LessonCard` получает `LessonCardState` и описывает, что должно быть на экране. Если `completed` станет `true`, кнопка будет disabled, текст изменится, а Compose пересчитает нужную часть дерева.
+
+<CatTip title="Котосовет: думай состоянием, а не командами">
+  В Compose полезно начинать с вопроса: какие данные нужны экрану прямо сейчас?
+  Если ответ ясен, UI обычно становится набором небольших composable-функций.
+  Если ответ размыт, код быстро превращается в смесь локального состояния,
+  случайных side effects и трудно тестируемых условий.
+</CatTip>
+
+## Из каких частей состоит Compose
+
+Jetpack Compose часто воспринимают как одну библиотеку, но на практике это несколько слоев, которые работают вместе.
+
+### Compose Compiler
+
+Compose Compiler — это плагин компилятора Kotlin. Он понимает `@Composable`, преобразует вызовы composable-функций и добавляет служебную информацию, которая нужна runtime для Composition и Recomposition. Без compiler plugin обычный Kotlin-компилятор не знает, как исполнять composable-контекст.
+
+С Compose Compiler связаны понятия:
+
+- restartable composable: функция может быть точкой перезапуска recomposition;
+- skippable composable: функцию можно пропустить, если входные параметры не изменились значимым образом;
+- stability inference: компилятор пытается понять, стабильны ли типы параметров;
+- compiler metrics: отчеты, которые помогают диагностировать лишние recomposition.
+
+### Compose Runtime
+
+Compose Runtime — это слой, который управляет Composition, Slot Table, состоянием и effect API. Runtime не знает про Material-кнопки или Android-изображения. Его задача глубже: помнить структуру composition, отслеживать чтения `State<T>`, запускать recomposition и применять изменения.
+
+К Runtime относятся:
+
+- `@Composable`;
+- `remember`;
+- `rememberSaveable`;
+- `mutableStateOf`;
+- `derivedStateOf`;
+- `LaunchedEffect`;
+- `DisposableEffect`;
+- `SideEffect`;
+- `produceState`;
+- `snapshotFlow`;
+- `CompositionLocal`.
+
+### Compose UI
+
+Compose UI — базовый слой, который связывает runtime с Android UI: измерение, размещение, отрисовка, input, semantics, density, layout direction, tooling hooks.
+
+К Compose UI относятся:
+
+- `Modifier`;
+- `Layout`;
+- `Canvas`;
+- `GraphicsLayerScope`;
+- `Painter`;
+- `ImageBitmap`;
+- `ImageVector`;
+- `SemanticsPropertyReceiver`;
+- `LocalContext`;
+- `LocalDensity`;
+- `LocalLayoutDirection`.
+
+### Compose Foundation
+
+Foundation дает фундаментальные строительные блоки, которые еще не являются Material Design:
+
+- `Box`;
+- `Row`;
+- `Column`;
+- `LazyColumn`;
+- `LazyRow`;
+- `LazyVerticalGrid`;
+- `BasicText`;
+- `BasicTextField`;
+- `Image`;
+- `Canvas`;
+- `clickable`;
+- `scrollable`;
+- `verticalScroll`;
+- `horizontalScroll`;
+- gesture APIs.
+
+Foundation удобно использовать, когда нужен свой дизайн-системный слой или компонент, который не должен тянуть Material-поведение.
+
+### Compose Material и Material 3
+
+Material и Material 3 — реализации дизайн-системы Material Design. В современных Android-приложениях чаще выбирают Material 3:
+
+- `MaterialTheme`;
+- `Surface`;
+- `Text`;
+- `Button`;
+- `Card`;
+- `Scaffold`;
+- `TopAppBar`;
+- `NavigationBar`;
+- `NavigationRail`;
+- `TextField`;
+- `AlertDialog`;
+- `ModalBottomSheet`;
+- `Snackbar`;
+- `ProgressIndicator`;
+- `DatePicker`;
+- `TimePicker`.
+
+Material 3 не обязателен для Compose, но он дает зрелые компоненты, accessibility defaults, темы, shape system, typography system и предсказуемые interaction states.
+
+### Compose Tooling
+
+Tooling помогает разрабатывать и диагностировать UI:
+
+- `@Preview` показывает composable в Android Studio без запуска полного приложения;
+- Layout Inspector показывает UI-дерево и recomposition counters;
+- Compose compiler reports помогают увидеть stability/skipping;
+- UI test APIs работают через semantics tree;
+- screenshot testing фиксирует визуальные регрессии.
+
+## Что именно делает `@Composable`
+
+`@Composable` помечает функцию, которую можно вызвать только из composable-контекста. Такая функция не просто "возвращает View". На самом деле большинство composable-функций возвращают `Unit`, а результат записывается в текущую Composition через скрытый контекст, который добавляет Compose Compiler.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Greeting(name: String) {
+    // Text тоже composable-функция. Ее можно вызвать здесь,
+    // потому что Greeting уже находится в composable-контексте.
+    Text(text = "Привет, $name")
+}
+```
+
+Обычная функция не может вызвать `Text`:
+
+```kotlin
+import androidx.compose.material3.Text
+
+fun buildGreeting(name: String) {
+    // Этот код не компилируется: composable-вызов нельзя сделать
+    // из функции, которая не помечена @Composable.
+    Text(text = "Привет, $name")
+}
+```
+
+Правильная граница такая: обычные функции готовят данные, composable-функции описывают UI.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+fun greetingText(name: String): String {
+    // Обычная функция не зависит от Compose и легко тестируется.
+    return "Привет, ${name.trim()}"
+}
+
+@Composable
+fun Greeting(name: String) {
+    // Composable-функция получает готовую строку и отображает ее.
+    Text(text = greetingText(name))
+}
+```
+
+<MouseTrap title="Мышеловка: composable-функция не должна быть фабрикой View">
+  Если воспринимать `@Composable` как способ создать объект `View`, модель
+  быстро ломается. Composable-вызов может выполняться повторно, пропускаться,
+  отменяться и перезапускаться. Поэтому внутри него нельзя бездумно открывать
+  соединения, отправлять аналитику, запускать сетевые запросы или менять внешние
+  объекты. Для таких действий есть effect API, и они будут разобраны отдельно.
+</MouseTrap>
+
+## Минимальный production-ready экран
+
+Ниже цельный пример одного экрана. Он не делает сетевых запросов и не использует архитектурные слои, потому что задача первого урока — увидеть форму Compose-кода. При этом пример уже держит важные production-привычки: состояние отделено от UI, события передаются наружу, `modifier` стоит последним параметром со значением по умолчанию, а строки экрана собраны в понятные функции.
+
+```kotlin
+package com.kotlingo.reader
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            KotlingoTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    LessonOverviewScreen(
+                        state = LessonOverviewState(
+                            courseTitle = "Jetpack Compose",
+                            completedLessons = 0,
+                            totalLessons = 120,
+                            nextLesson = LessonCardState(
+                                title = "Что такое Jetpack Compose",
+                                minutes = 28,
+                                completed = false
+                            )
+                        ),
+                        onStartLesson = {
+                            // В реальном приложении здесь обычно будет навигация,
+                            // отправленная наружу через state holder или ViewModel.
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+data class LessonOverviewState(
+    val courseTitle: String,
+    val completedLessons: Int,
+    val totalLessons: Int,
+    val nextLesson: LessonCardState
+)
+
+data class LessonCardState(
+    val title: String,
+    val minutes: Int,
+    val completed: Boolean
+)
+
+@Composable
+fun KotlingoTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = androidx.compose.material3.lightColorScheme(),
+        typography = androidx.compose.material3.Typography(),
+        content = content
+    )
+}
+
+@Composable
+fun LessonOverviewScreen(
+    state: LessonOverviewState,
+    onStartLesson: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text(
+            text = state.courseTitle,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        Text(
+            text = progressText(
+                completedLessons = state.completedLessons,
+                totalLessons = state.totalLessons
+            ),
+            style = MaterialTheme.typography.bodyLarge
+        )
+
+        LessonCard(
+            state = state.nextLesson,
+            onStartClick = onStartLesson
+        )
+    }
+}
+
+@Composable
+fun LessonCard(
+    state: LessonCardState,
+    onStartClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = state.title,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = completionText(state),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Button(
+                    onClick = onStartClick,
+                    enabled = !state.completed
+                ) {
+                    Text(
+                        text = if (state.completed) {
+                            "Повторить"
+                        } else {
+                            "Начать"
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+fun completionText(state: LessonCardState): String {
+    return if (state.completed) {
+        "Урок пройден"
+    } else {
+        "Осталось примерно ${state.minutes} мин."
+    }
+}
+
+fun progressText(completedLessons: Int, totalLessons: Int): String {
+    require(completedLessons >= 0) {
+        "Количество пройденных уроков не может быть отрицательным"
+    }
+    require(totalLessons > 0) {
+        "Общее количество уроков должно быть положительным"
+    }
+    require(completedLessons <= totalLessons) {
+        "Количество пройденных уроков не может превышать общее количество"
+    }
+
+    return "Пройдено $completedLessons из $totalLessons"
+}
+
+@Preview(showBackground = true, widthDp = 420)
+@Composable
+fun LessonOverviewScreenPreview() {
+    KotlingoTheme {
+        LessonOverviewScreen(
+            state = LessonOverviewState(
+                courseTitle = "Jetpack Compose",
+                completedLessons = 0,
+                totalLessons = 120,
+                nextLesson = LessonCardState(
+                    title = "Что такое Jetpack Compose",
+                    minutes = 28,
+                    completed = false
+                )
+            ),
+            onStartLesson = {}
+        )
+    }
+}
+```
+
+Разбор по блокам:
+
+- `MainActivity` остается обычной Android-активити, но вместо `setContentView` вызывает `setContent`;
+- `KotlingoTheme` задает Material 3 тему для всего дерева ниже;
+- `LessonOverviewState` и `LessonCardState` являются обычными immutable data class;
+- `LessonOverviewScreen` не хранит состояние внутри себя, а получает его параметром;
+- `onStartLesson` передается как событие, поэтому экран не знает, будет ли после клика навигация, аналитика или другой сценарий;
+- `LessonCard` принимает `modifier`, чтобы вызывающий код мог управлять размещением компонента;
+- `progressText` остается обычной функцией и защищает свои инварианты через `require`;
+- `@Preview` дает быстрый визуальный просмотр без ручного запуска всего приложения.
+
+## Что Compose делает хорошо
+
+Compose особенно силен в задачах, где UI зависит от состояния:
+
+- экраны с несколькими состояниями загрузки;
+- списки, которые меняются из-за фильтров, поиска и пагинации;
+- дизайн-системы с переиспользуемыми компонентами;
+- анимации, завязанные на state;
+- адаптивные layouts для разных размеров экрана;
+- UI-тесты через semantics;
+- постепенная миграция с XML Views.
+
+Compose не отменяет архитектуру приложения. Он не решает за тебя, где хранить данные, как устроить repository, как обрабатывать ошибки сети и как проектировать domain-модель. Его зона ответственности — выразительно и эффективно построить UI из состояния и событий.
+
+## Что Compose не делает автоматически
+
+Важно сразу убрать магическое ожидание. Compose не делает приложение хорошим сам по себе.
+
+- Compose не исправляет плохую модель состояния.
+- Compose не делает тяжелые вычисления дешевыми.
+- Compose не превращает mutable-объекты в безопасные immutable-данные.
+- Compose не освобождает от понимания Android lifecycle.
+- Compose не заменяет accessibility-дизайн.
+- Compose не гарантирует производительность, если читать слишком много state в горячих местах.
+- Compose не требует Material 3, но без дизайн-системы экран быстро станет набором случайных компонентов.
+
+<MouseTrap title="Мышеловка: Compose не является Virtual DOM">
+  В Compose нет React-style Virtual DOM diff как центральной модели. Runtime
+  хранит информацию о composition в Slot Table, использует позиционную
+  идентичность вызовов, отслеживает чтения snapshot state и умеет пропускать
+  стабильные части дерева. Сравнение с Virtual DOM иногда помогает новичку, но
+  быстро начинает мешать при разборе `remember`, keys и recomposition.
+</MouseTrap>
+
+## Базовый словарь курса
+
+Перед следующими уроками удобно зафиксировать термины.
+
+### Composition
+
+Composition — результат выполнения composable-функций: структура UI, remembered state, связи между state reads и местами, которые нужно пересчитать. Это не просто дерево View и не просто список функций. Composition содержит служебные группы, слоты и информацию для будущих recomposition.
+
+### Recomposition
+
+Recomposition — повторное выполнение части composable-кода, когда данные, прочитанные этой частью, изменились. Compose старается пересчитать только нужные участки, но это возможно только если код написан предсказуемо: без скрытых side effects, с устойчивыми параметрами и корректным state ownership.
+
+### Slot Table
+
+Slot Table — внутренняя структура Runtime, где хранится информация о вызовах composable-функций, remembered values и группах. В обычном приложении ты не работаешь с ней напрямую, но должен понимать следствие: позиция вызова в дереве имеет значение, а изменение порядка вызовов может изменить, к какому месту привязан remembered state.
+
+### State
+
+State — данные, изменение которых должно отразиться на UI. В Compose важны observable state holders: `MutableState<T>`, `StateFlow`, `LiveData` через adapters, snapshot lists/maps. Простая mutable-переменная сама по себе не сообщает Compose, что UI нужно пересчитать.
+
+### Modifier
+
+Modifier — иммутабельная цепочка инструкций, которая меняет layout, отрисовку, input, accessibility и parent data элемента. Порядок modifier-цепочки важен, потому что каждый modifier оборачивает следующий узел.
+
+### Effect
+
+Effect — composable API, который не рисует UI, но запускает побочное действие в контролируемой точке жизненного цикла Composition. К effect API относятся `LaunchedEffect`, `DisposableEffect`, `SideEffect`, `produceState`, `snapshotFlow` и связанные паттерны.
+
+## Итоги
+
+Jetpack Compose — это не синтаксический сахар над XML, а другая модель построения UI:
+
+- UI описывается composable-функциями;
+- состояние передается в UI явно;
+- события выходят из UI наружу через lambdas;
+- compiler plugin превращает `@Composable` в особый исполняемый контекст;
+- runtime управляет Composition, Slot Table, state reads и recomposition;
+- foundation, material, animation, tooling и testing APIs образуют практическую экосистему вокруг runtime;
+- хороший Compose-код начинается с ясной модели состояния, а не с набора красивых компонентов.

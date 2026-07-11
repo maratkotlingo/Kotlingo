@@ -1,0 +1,591 @@
+---
+title: "Keyboard input"
+description: "Разбираем keyboard input в Jetpack Compose: onKeyEvent, onPreviewKeyEvent, KeyEventType, modifier keys, IME actions, KeyboardOptions, KeyboardActions, shortcuts, Keyboard Shortcuts Helper и keyboard-first UI."
+order: 82
+category: "Compose: Input, gestures, focus and accessibility"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему keyboard input важен
+
+Keyboard input в Compose — это не только физическая клавиатура на ноутбуке. Это также:
+
+- ChromeOS devices;
+- tablets с клавиатурой;
+- desktop mode;
+- Android TV и D-pad;
+- accessibility switches;
+- hardware barcode scanners;
+- game controllers;
+- foldables с external input;
+- emulator и automated testing.
+
+Если приложение работает только через touch, оно быстро становится неудобным на больших экранах. Compose дает keyboard APIs на уровне modifiers, focus system и text input.
+
+Основные инструменты:
+
+- `Modifier.onKeyEvent`;
+- `Modifier.onPreviewKeyEvent`;
+- `KeyEvent`;
+- `Key`;
+- `KeyEventType.KeyDown` и `KeyEventType.KeyUp`;
+- `isCtrlPressed`, `isAltPressed`, `isShiftPressed`, `isMetaPressed`;
+- `KeyboardOptions`;
+- `KeyboardActions`;
+- `ImeAction`;
+- `LocalFocusManager`;
+- Android Keyboard Shortcuts Helper.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun EscapeAwareBox(
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(160.dp)
+            .onKeyEvent { event ->
+                if (event.key == Key.Escape && event.type == KeyEventType.KeyUp) {
+                    onClose()
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusable()
+    )
+}
+```
+
+`onKeyEvent` получает события только тогда, когда элемент или его focused descendant находится в focus chain.
+
+<CatTip>
+Keyboard support начинается с focus. Если элемент не focusable и не содержит focused child, он не будет надежной точкой обработки клавиш.
+</CatTip>
+
+## `onKeyEvent`
+
+`Modifier.onKeyEvent` вызывается после того, как focused child получил шанс обработать событие. Если lambda возвращает `true`, событие считается обработанным. Если возвращает `false`, событие может продолжить распространение.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CounterWithKeyboard() {
+    var count by remember {
+        mutableIntStateOf(0)
+    }
+
+    Column(
+        modifier = Modifier
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyUp) {
+                    return@onKeyEvent false
+                }
+
+                when (event.key) {
+                    Key.DirectionUp -> {
+                        count += 1
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        count -= 1
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable()
+            .padding(16.dp)
+    ) {
+        Text(text = "Значение: $count")
+        Text(text = "Используйте стрелки вверх и вниз")
+    }
+}
+```
+
+Для повторяющихся клавиш часто важно различать `KeyDown` и `KeyUp`. Если действие должно выполниться один раз, чаще выбирают `KeyUp`.
+
+## `onPreviewKeyEvent`
+
+`onPreviewKeyEvent` вызывается до focused child. Он нужен, когда parent должен перехватить событие раньше дочернего компонента.
+
+Типичные сценарии:
+
+- `Ctrl+S` внутри editor, даже когда focused `TextField`;
+- `Escape` закрывает modal;
+- `Tab` управляет custom focus traversal;
+- `Enter` подтверждает form;
+- shortcuts на уровне экрана.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun EditorWithSaveShortcut(
+    onSave: (String) -> Unit
+) {
+    var text by remember {
+        mutableStateOf("")
+    }
+
+    Column(
+        modifier = Modifier
+            .onPreviewKeyEvent { event ->
+                val savePressed =
+                    event.isCtrlPressed &&
+                        event.key == Key.S &&
+                        event.type == KeyEventType.KeyUp
+
+                if (savePressed) {
+                    onSave(text)
+                    true
+                } else {
+                    false
+                }
+            }
+            .padding(16.dp)
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { newText ->
+                text = newText
+            },
+            label = {
+                Text(text = "Заметка")
+            }
+        )
+    }
+}
+```
+
+`onPreviewKeyEvent` мощный, но легко сломать поведение child. Перехватывайте только конкретные shortcuts.
+
+<MouseTrap>
+Не возвращайте `true` для всех key events "на всякий случай". Так вы заблокируете ввод текста, навигацию, screen reader shortcuts и ожидаемое поведение дочерних компонентов.
+</MouseTrap>
+
+## `KeyEvent`
+
+Полезные свойства и helpers:
+
+- `key`: какая клавиша нажата;
+- `type`: `KeyDown`, `KeyUp` или другое событие;
+- `utf16CodePoint`: символ, если событие соответствует символу;
+- `nativeKeyEvent`: Android framework event;
+- `isCtrlPressed`: зажат ли Ctrl;
+- `isAltPressed`: зажат ли Alt;
+- `isShiftPressed`: зажат ли Shift;
+- `isMetaPressed`: зажат ли Meta;
+- `Key.DirectionUp`, `Key.DirectionDown`, `Key.DirectionLeft`, `Key.DirectionRight`;
+- `Key.Enter`, `Key.NumPadEnter`;
+- `Key.Tab`, `Key.Escape`, `Key.Backspace`, `Key.Delete`;
+- буквенные keys вроде `Key.S`;
+- digit keys вроде `Key.Zero`.
+
+```kotlin
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+
+fun isSaveShortcut(
+    event: KeyEvent
+): Boolean {
+    return event.isCtrlPressed &&
+        event.key == Key.S &&
+        event.type == KeyEventType.KeyUp
+}
+```
+
+Вынос predicates в функции делает shortcuts тестируемыми без UI.
+
+## Focus manager и клавиатура
+
+Для перемещения focus используйте `LocalFocusManager`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+
+@Composable
+fun TwoFieldKeyboardForm() {
+    val focusManager = LocalFocusManager.current
+    var firstName by remember {
+        mutableStateOf("")
+    }
+    var lastName by remember {
+        mutableStateOf("")
+    }
+
+    Column(
+        modifier = Modifier.onPreviewKeyEvent { event ->
+            if (event.key == Key.Tab && event.type == KeyEventType.KeyUp) {
+                focusManager.moveFocus(FocusDirection.Next)
+                true
+            } else {
+                false
+            }
+        }
+    ) {
+        OutlinedTextField(
+            value = firstName,
+            onValueChange = { firstName = it },
+            label = { Text(text = "Имя") }
+        )
+        OutlinedTextField(
+            value = lastName,
+            onValueChange = { lastName = it },
+            label = { Text(text = "Фамилия") }
+        )
+    }
+}
+```
+
+Обычно Compose сам управляет Tab traversal. Ручная обработка нужна для custom forms, dialogs и desktop-like workflows.
+
+## IME actions
+
+IME action — действие на soft keyboard: `Done`, `Search`, `Next`, `Send`, `Go`. Это не hardware key event, а text input contract.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+
+@Composable
+fun SearchField(
+    onSearch: (String) -> Unit
+) {
+    val focusManager = LocalFocusManager.current
+    var query by remember {
+        mutableStateOf("")
+    }
+
+    Column {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = {
+                Text(text = "Поиск")
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Search
+            ),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    onSearch(query)
+                    focusManager.clearFocus()
+                }
+            )
+        )
+    }
+}
+```
+
+Для text fields используйте IME actions вместо попытки ловить Enter через `onKeyEvent`, если действие относится к soft keyboard.
+
+## `KeyboardOptions`
+
+`KeyboardOptions` управляет keyboard configuration:
+
+- `capitalization`: автокапитализация;
+- `autoCorrectEnabled`: включение autocorrect;
+- `keyboardType`: text, email, password, number, phone, uri;
+- `imeAction`: действие на IME;
+- `platformImeOptions`: platform-specific настройки.
+
+```kotlin
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+
+@Composable
+fun EmailTextField(
+    email: String,
+    onEmailChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = email,
+        onValueChange = onEmailChange,
+        label = {
+            Text(text = "Email")
+        },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false,
+            keyboardType = KeyboardType.Email,
+            imeAction = ImeAction.Next
+        )
+    )
+}
+```
+
+Keyboard type не является validation. Он помогает IME показать удобную раскладку, но входные данные все равно нужно валидировать.
+
+## Shortcut registry
+
+Для больших экранов полезно описывать shortcuts централизованно.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+
+@Immutable
+data class AppShortcut(
+    val key: Key,
+    val ctrl: Boolean,
+    val shift: Boolean,
+    val description: String,
+    val action: () -> Unit
+)
+
+fun AppShortcut.matches(
+    event: KeyEvent
+): Boolean {
+    return event.type == KeyEventType.KeyUp &&
+        event.key == key &&
+        event.isCtrlPressed == ctrl &&
+        event.isShiftPressed == shift
+}
+```
+
+```kotlin
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+
+fun Modifier.appShortcuts(
+    shortcuts: List<AppShortcut>
+): Modifier {
+    return onPreviewKeyEvent { event ->
+        val shortcut = shortcuts.firstOrNull { candidate ->
+            candidate.matches(event)
+        }
+
+        if (shortcut != null) {
+            shortcut.action()
+            true
+        } else {
+            false
+        }
+    }
+}
+```
+
+Централизованный registry упрощает тестирование и помогает позже показать список shortcuts пользователю.
+
+## Android Keyboard Shortcuts Helper
+
+Android может показывать системный overlay со shortcuts. Для этого Activity переопределяет `onProvideKeyboardShortcuts`.
+
+```kotlin
+import android.os.Bundle
+import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.KeyboardShortcutInfo
+import android.view.Menu
+import androidx.activity.ComponentActivity
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onProvideKeyboardShortcuts(
+        data: MutableList<KeyboardShortcutGroup>,
+        menu: Menu?,
+        deviceId: Int
+    ) {
+        super.onProvideKeyboardShortcuts(
+            data,
+            menu,
+            deviceId
+        )
+
+        data.add(
+            KeyboardShortcutGroup(
+                "Редактор",
+                listOf(
+                    KeyboardShortcutInfo(
+                        "Сохранить",
+                        KeyEvent.KEYCODE_S,
+                        KeyEvent.META_CTRL_ON
+                    ),
+                    KeyboardShortcutInfo(
+                        "Поиск",
+                        KeyEvent.KEYCODE_F,
+                        KeyEvent.META_CTRL_ON
+                    )
+                )
+            )
+        )
+    }
+}
+```
+
+Shortcuts helper должен соответствовать реальным shortcuts в Compose UI. Не документируйте сочетание, которое не обрабатывается.
+
+## Testing keyboard input
+
+Compose UI tests могут отправлять key events.
+
+```kotlin
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.requestFocus
+import androidx.compose.ui.test.ExperimentalTestApi
+import org.junit.Rule
+import org.junit.Test
+
+class KeyboardCounterTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun arrowUp_incrementsCounter() {
+        composeRule.setContent {
+            CounterWithKeyboard()
+        }
+
+        composeRule
+            .onNodeWithText("Значение: 0")
+            .requestFocus()
+
+        composeRule
+            .onNodeWithText("Значение: 0")
+            .performKeyInput {
+                keyDown(Key.DirectionUp)
+                keyUp(Key.DirectionUp)
+            }
+
+        composeRule
+            .onNodeWithText("Значение: 1")
+            .assertExists()
+    }
+}
+```
+
+Если тест не проходит, проверьте focus, event type и то, что modifier стоит на нужном узле.
+
+## Типичные ошибки
+
+### Ловить Enter в `TextField` через `onKeyEvent`
+
+Для soft keyboard используйте `KeyboardActions` и `ImeAction`.
+
+### Не делать элемент focusable
+
+Keyboard event не придет в элемент, который не участвует в focus system.
+
+### Возвращать `true` слишком широко
+
+Это ломает ввод, navigation и shortcuts дочерних компонентов.
+
+### Дублировать действие в `KeyDown` и `KeyUp`
+
+Если обработать оба типа, действие может выполниться дважды.
+
+### Документировать shortcuts без реализации
+
+Keyboard Shortcuts Helper должен соответствовать реальному behavior.
+
+## Итоги
+
+Keyboard input в Compose требует focus-aware дизайна:
+
+- `onKeyEvent` вызывается после child;
+- `onPreviewKeyEvent` вызывается до child;
+- возвращайте `true` только для обработанного события;
+- различайте `KeyDown` и `KeyUp`;
+- shortcuts лучше держать в централизованной модели;
+- text fields должны использовать `KeyboardOptions` и `KeyboardActions`;
+- IME actions не заменяют hardware shortcuts;
+- Keyboard Shortcuts Helper показывает системный список сочетаний;
+- keyboard-first UI нужен для ChromeOS, TV, tablets, accessibility и power users.

@@ -1,0 +1,570 @@
+---
+title: "Wear OS Compose"
+description: "Разбираем Compose для Wear OS: wear-specific dependencies, Wear Material 3, AppScaffold, ScreenScaffold, TransformingLazyColumn, ScalingLazyColumn, rotary input, swipe-to-dismiss, small round screens, Tiles overview и production-паттерны wrist-first UI."
+order: 97
+category: "Compose: Adaptive UI and form factors"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Чем Wear OS Compose отличается от phone Compose
+
+Wear OS использует тот же Compose runtime и тот же Kotlin mental model, но UI среда другая:
+
+- маленький экран;
+- часто круглая форма;
+- короткие сессии взаимодействия;
+- glanceable content;
+- rotary input;
+- swipe-to-dismiss navigation;
+- battery constraints;
+- ограниченная плотность информации;
+- осложненный text input;
+- другая Material library.
+
+На часах пользователь обычно не "работает с приложением", а быстро проверяет состояние или выполняет одно действие. Поэтому wrist-first UI должен быть коротким, крупным, сканируемым и предсказуемым.
+
+```kotlin
+data class WearAction(
+    val id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val enabled: Boolean = true
+)
+```
+
+Хороший Wear screen часто строится не вокруг сложной navigation graph, а вокруг списка immediate actions и одного понятного primary flow.
+
+<CatTip>
+Если phone screen можно "почитать", Wear screen нужно "схватить взглядом". На часах лишняя строка текста ощущается как лишний экран.
+</CatTip>
+
+## Dependencies
+
+Wear OS использует wear-specific Compose artifacts. Не заменяйте их обычным `androidx.compose.material3:material3`, если строите полноценный Wear UI.
+
+```kotlin
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.00")
+    implementation(composeBom)
+
+    implementation("androidx.activity:activity-compose:1.12.0")
+    implementation("androidx.wear.compose:compose-material3:1.5.0")
+    implementation("androidx.wear.compose:compose-foundation:1.7.0")
+    implementation("androidx.wear.compose:compose-navigation:1.7.0")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+
+    debugImplementation("androidx.compose.ui:ui-tooling")
+}
+```
+
+Версии здесь показывают структуру. В production держите их в version catalog и сверяйте с актуальным Compose/Wear BOM guidance.
+
+## Wear Material 3
+
+Wear Material 3 дает компоненты, оптимизированные под часы:
+
+- `MaterialTheme`;
+- `AppScaffold`;
+- `ScreenScaffold`;
+- `TimeText`;
+- `ScrollIndicator`;
+- `Button`;
+- `IconButton`;
+- `EdgeButton`;
+- `Picker`;
+- `SwipeToDismissBox`;
+- `SwipeToReveal`;
+- Wear-specific page indicators;
+- responsive paddings for round/square screens.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.Text
+
+@Composable
+fun WearGreeting() {
+    MaterialTheme {
+        Text(text = "Привет")
+    }
+}
+```
+
+Не смешивайте Wear Material 2 и Wear Material 3 long-term. Если проект мигрирует, делайте это фазами и держите component boundary явной.
+
+## `AppScaffold` и `ScreenScaffold`
+
+Wear M3 разделяет app-level scaffold и screen-level scaffold.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.wear.compose.material3.AppScaffold
+import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.Text
+import androidx.wear.compose.material3.TimeText
+
+@Composable
+fun WearAppRoot() {
+    AppScaffold {
+        WearHomeScreen()
+    }
+}
+
+@Composable
+fun WearHomeScreen() {
+    ScreenScaffold(
+        timeText = {
+            TimeText()
+        }
+    ) {
+        Text(text = "Главный экран")
+    }
+}
+```
+
+`AppScaffold` задает верхний app shell. `ScreenScaffold` связывает screen content со scroll indicator, time text, edge button и content padding.
+
+## `TransformingLazyColumn`
+
+На круглых экранах элементы у верхнего и нижнего края хуже читаются. Wear `TransformingLazyColumn` умеет трансформировать items при прокрутке: scale, shape, alpha и высота могут адаптироваться.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
+import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
+import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ListHeader
+import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.Text
+
+@Composable
+fun WearActionsList(
+    actions: List<WearAction>,
+    onActionClick: (String) -> Unit
+) {
+    val listState = rememberTransformingLazyColumnState()
+
+    ScreenScaffold(
+        scrollState = listState
+    ) { contentPadding ->
+        TransformingLazyColumn(
+            state = listState,
+            contentPadding = contentPadding
+        ) {
+            item {
+                ListHeader {
+                    Text(text = "Действия")
+                }
+            }
+
+            items(
+                count = actions.size,
+                key = { index ->
+                    actions[index].id
+                }
+            ) { index ->
+                val action = actions[index]
+
+                Button(
+                    enabled = action.enabled,
+                    onClick = {
+                        onActionClick(action.id)
+                    },
+                    modifier = Modifier
+                ) {
+                    Text(
+                        text = action.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+```
+
+В реальном Wear M3 коде часто добавляют transformation spec и responsive padding для list items. Смысл остается: list state передается и в `ScreenScaffold`, и в list, чтобы scaffold мог показать scroll indicator.
+
+## `ScalingLazyColumn`
+
+`ScalingLazyColumn` был важным Wear-specific list primitive и до сих пор встречается в проектах. В новых M3-first экранах чаще смотрите на `TransformingLazyColumn`, но понимать `ScalingLazyColumn` полезно для поддержки существующего кода.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.ScrollIndicator
+import androidx.wear.compose.material3.Text
+
+@Composable
+fun LegacyScalingList(
+    items: List<String>
+) {
+    val listState = rememberScalingLazyListState()
+
+    ScreenScaffold(
+        scrollState = listState,
+        scrollIndicator = {
+            ScrollIndicator(state = listState)
+        }
+    ) {
+        ScalingLazyColumn(
+            state = listState
+        ) {
+            items(items.size) { index ->
+                Text(text = items[index])
+            }
+        }
+    }
+}
+```
+
+Если вы мигрируете старый Wear UI, не переписывайте все за один PR. Сначала зафиксируйте behavior: scroll position, rotary input, item focus и swipe dismissal.
+
+## Edge button
+
+`EdgeButton` — Wear-specific action в нижней части screen. Он хорошо подходит для primary action в конце списка.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
+import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
+import androidx.wear.compose.material3.EdgeButton
+import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.Text
+
+@Composable
+fun WorkoutSummaryScreen(
+    stats: List<String>,
+    onFinish: () -> Unit
+) {
+    val state = rememberTransformingLazyColumnState()
+
+    ScreenScaffold(
+        scrollState = state,
+        edgeButton = {
+            EdgeButton(onClick = onFinish) {
+                Text(text = "Готово")
+            }
+        }
+    ) { contentPadding ->
+        TransformingLazyColumn(
+            state = state,
+            contentPadding = contentPadding
+        ) {
+            items(stats.size) { index ->
+                Text(text = stats[index])
+            }
+        }
+    }
+}
+```
+
+Edge button не должен становиться свалкой для вторичных действий. На часах primary action должен быть один и понятный.
+
+## Rotary input
+
+Rotary input приходит от rotating side button, physical bezel или touch bezel. Для списков Wear components обычно поддерживают rotary scroll, если state корректно связан со scaffold.
+
+Для custom controls rotary нужно обработать явно.
+
+```kotlin
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+
+@Composable
+fun RotaryVolumeControl(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val focusRequester = remember {
+        FocusRequester()
+    }
+
+    VolumeControlUi(
+        value = value,
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .focusable()
+            .onRotaryScrollEvent { event ->
+                val delta = if (event.verticalScrollPixels > 0f) {
+                    -1
+                } else {
+                    1
+                }
+                onValueChange((value + delta).coerceIn(0, 10))
+                true
+            }
+    )
+}
+```
+
+Rotary input должен иметь visual feedback. Если пользователь вращает bezel, UI обязан показать изменение immediately.
+
+## Swipe-to-dismiss
+
+На Wear OS back gesture часто реализуется через swipe-to-dismiss. Wear navigation components и `SwipeToDismissBox` помогают дать platform-consistent behavior.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.wear.compose.material3.SwipeToDismissBox
+
+@Composable
+fun WearDetailsScreen(
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    SwipeToDismissBox(
+        onDismissed = onDismiss
+    ) {
+        content()
+    }
+}
+```
+
+Не заменяйте swipe-to-dismiss custom horizontal drag без необходимости. На маленьком экране жесты конфликтуют быстро.
+
+## Круглые и маленькие экраны
+
+Wear UI должен учитывать:
+
+- round screens;
+- small chin areas;
+- edge clipping;
+- large font scale;
+- короткие строки;
+- centered important content;
+- progressive disclosure;
+- fewer taps.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.wear.compose.material3.Text
+
+@Composable
+fun WearEmptyState(
+    title: String,
+    action: @Composable () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+    ) {
+        Text(
+            text = title,
+            textAlign = TextAlign.Center,
+            maxLines = 2
+        )
+        action()
+    }
+}
+```
+
+На Wear OS text overflow должен быть нормальным сценарием, а не редкой ошибкой. Проверяйте German/Russian translations и large font.
+
+## Tiles overview
+
+Tiles — это не обычный Compose screen. Они показываются рядом с watch face и должны быть быстрыми, glanceable и passive. Современные Wear surfaces могут строиться через ProtoLayout/Tiles или Glance-based APIs, но главный mental model тот же:
+
+- tile/widget живет в удаленной среде;
+- UI должен быть легким;
+- state приходит из app data layer;
+- update запрашивается явно;
+- long-running work не выполняется внутри UI;
+- interactions обычно открывают app или запускают короткое действие.
+
+```kotlin
+data class HydrationTileState(
+    val glassesToday: Int,
+    val goal: Int,
+    val lastUpdatedText: String
+) {
+    val progress: Float
+        get() = (glassesToday.toFloat() / goal).coerceIn(0f, 1f)
+}
+```
+
+Tile не должен знать, как синхронизировать базу данных. Он получает snapshot state и отображает его.
+
+## Wear state ownership
+
+Для Wear screens полезно делать state минимальным:
+
+```kotlin
+data class WearTimerState(
+    val title: String,
+    val remainingText: String,
+    val running: Boolean,
+    val primaryAction: WearTimerAction
+)
+
+enum class WearTimerAction {
+    Start,
+    Pause,
+    Resume,
+    Finish
+}
+```
+
+UI:
+
+```kotlin
+@Composable
+fun WearTimerScreen(
+    state: WearTimerState,
+    onPrimaryAction: () -> Unit
+) {
+    ScreenScaffold {
+        TimerContent(
+            title = state.title,
+            remainingText = state.remainingText,
+            running = state.running,
+            primaryAction = state.primaryAction,
+            onPrimaryAction = onPrimaryAction
+        )
+    }
+}
+```
+
+Не переносите phone ViewModel целиком на часы, если у Wear flow другой уровень детализации.
+
+## Performance и battery
+
+На Wear OS особенно важно:
+
+- не держать тяжелые animations бесконечно;
+- не выполнять network work в composables;
+- ограничивать recomposition горячих секундомеров;
+- использовать lifecycle-aware collection;
+- избегать больших изображений;
+- обновлять Tiles/widgets только когда нужно;
+- уважать ambient/low-power behavior;
+- тестировать на реальном устройстве.
+
+```kotlin
+@Composable
+fun SecondsTicker(
+    running: Boolean,
+    nowText: String
+) {
+    if (running) {
+        Text(text = nowText)
+    } else {
+        Text(text = "Пауза")
+    }
+}
+```
+
+Секундомер должен получать уже подготовленную строку из state holder. Не форматируйте время с тяжелой логикой в каждом recomposition.
+
+## Testing Wear UI
+
+Проверяйте:
+
+- round и square devices;
+- small screens;
+- font scale;
+- rotary scroll;
+- swipe-to-dismiss;
+- scroll indicator;
+- edge button;
+- TalkBack;
+- battery/performance на реальном устройстве;
+- ambient-related behavior, если экран его поддерживает.
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import org.junit.Rule
+import org.junit.Test
+
+class WearTimerScreenTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun pausedTimer_showsPauseState() {
+        composeRule.setContent {
+            WearTimerScreen(
+                state = WearTimerState(
+                    title = "Таймер",
+                    remainingText = "03:00",
+                    running = false,
+                    primaryAction = WearTimerAction.Resume
+                ),
+                onPrimaryAction = {}
+            )
+        }
+
+        composeRule
+            .onNodeWithText("03:00")
+            .assertExists()
+    }
+}
+```
+
+UI tests не заменяют hardware testing: rotary input, screen shape и battery behavior лучше проверять на emulator/device matrix.
+
+## Типичные ошибки
+
+### Использовать phone Material на часах
+
+Обычные Material components не дают Wear-specific sizes, shapes, scrolling и wrist-friendly behavior.
+
+### Писать длинные тексты
+
+На часах пользователь быстро теряет context и patience.
+
+### Игнорировать rotary input
+
+Для списков и picker-like controls rotary является expected input.
+
+### Не связывать list state со scaffold
+
+Scroll indicator и rotary behavior начинают жить отдельно от списка.
+
+### Делать Tile как мини-приложение
+
+Tile должен быть glanceable и passive, а не копией screen.
+
+### Не тестировать круглые экраны
+
+Контент у краев может обрезаться или становиться нечитаемым.
+
+## Итоги
+
+Wear OS Compose переносит Compose mental model на wrist-first среду:
+
+- используйте Wear-specific Material/Foundation/Navigation dependencies;
+- Wear Material 3 дает `AppScaffold`, `ScreenScaffold`, `TimeText`, `ScrollIndicator`, `EdgeButton` и wrist components;
+- `TransformingLazyColumn` лучше подходит для современных Wear M3 списков;
+- `ScalingLazyColumn` важен для legacy и некоторых existing flows;
+- list state нужно передавать в `ScreenScaffold`;
+- rotary input должен работать для основных interactions;
+- swipe-to-dismiss должен соответствовать platform expectations;
+- Tiles/widgets — remote glanceable surfaces, а не обычные composables;
+- Wear state должен быть минимальным и action-oriented;
+- performance и battery constraints сильнее, чем на телефоне.

@@ -1,0 +1,776 @@
+---
+title: "Navigation surfaces"
+description: "Разбираем Material 3 navigation surfaces в Compose: NavigationBar, NavigationRail, NavigationDrawer, ModalNavigationDrawer, PermanentNavigationDrawer, adaptive navigation, state, callbacks и integration со Scaffold."
+order: 48
+category: "Compose: Material 3 components and app structure"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое navigation surfaces
+
+Navigation surfaces — это Material-компоненты, которые помогают пользователю переключаться между основными разделами приложения.
+
+В Compose Material 3 чаще всего используются:
+
+- `NavigationBar`;
+- `NavigationBarItem`;
+- `NavigationRail`;
+- `NavigationRailItem`;
+- `ModalNavigationDrawer`;
+- `PermanentNavigationDrawer`;
+- `DismissibleNavigationDrawer`;
+- `ModalDrawerSheet`;
+- `PermanentDrawerSheet`;
+- `NavigationDrawerItem`;
+- adaptive navigation surfaces.
+
+Главное правило: navigation surface показывает top-level destinations или крупные разделы, а не каждое действие экрана.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.graphics.vector.ImageVector
+
+@Immutable
+data class AppDestination(
+    val id: String,
+    val label: String,
+    val icon: ImageVector
+)
+```
+
+Такой `AppDestination` можно использовать для bar, rail и drawer, а UI будет выбирать подходящую поверхность.
+
+<CatTip>
+Навигационная поверхность должна быть стабильной и предсказуемой. Пользователь ожидает, что основные разделы приложения находятся в одном и том же месте, а не исчезают от экрана к экрану без причины.
+</CatTip>
+
+## NavigationBar
+
+`NavigationBar` — нижняя навигационная панель для compact window sizes и 3-5 top-level destinations.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun MainNavigationBar(
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit
+) {
+    val destinations = listOf(
+        AppDestination(
+            id = "home",
+            label = "Главная",
+            icon = Icons.Filled.Home
+        ),
+        AppDestination(
+            id = "articles",
+            label = "Статьи",
+            icon = Icons.Filled.Article
+        ),
+        AppDestination(
+            id = "settings",
+            label = "Настройки",
+            icon = Icons.Filled.Settings
+        )
+    )
+
+    NavigationBar {
+        destinations.forEach { destination ->
+            NavigationBarItem(
+                selected = selectedDestinationId == destination.id,
+                onClick = {
+                    onDestinationClick(destination.id)
+                },
+                icon = {
+                    Icon(
+                        imageVector = destination.icon,
+                        contentDescription = destination.label
+                    )
+                },
+                label = {
+                    Text(text = destination.label)
+                }
+            )
+        }
+    }
+}
+```
+
+Ключевые параметры `NavigationBarItem`:
+
+- `selected`: выбран ли destination;
+- `onClick`: пользователь выбрал item;
+- `icon`: иконка destination;
+- `label`: подпись;
+- `enabled`: доступен ли item;
+- `alwaysShowLabel`: показывать label всегда или только у выбранного item;
+- `colors`: цвета item.
+
+## NavigationBar внутри Scaffold
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun MainNavigationBarScaffold(
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit
+) {
+    Scaffold(
+        bottomBar = {
+            MainNavigationBar(
+                selectedDestinationId = selectedDestinationId,
+                onDestinationClick = onDestinationClick
+            )
+        }
+    ) { innerPadding ->
+        Text(
+            text = "Текущий раздел: $selectedDestinationId",
+            modifier = Modifier.padding(innerPadding)
+        )
+    }
+}
+```
+
+`Scaffold` даст content правильный padding, чтобы он не залезал под navigation bar.
+
+<MouseTrap>
+Не храните выбранный destination только внутри `NavigationBar`. Источник истины должен быть навигационный state или route-level state, иначе bar и back stack легко разойдутся.
+</MouseTrap>
+
+## NavigationRail
+
+`NavigationRail` — вертикальная навигационная поверхность для medium/expanded screens: планшеты, desktop windowing, landscape.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun MainNavigationRail(
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val destinations = listOf(
+        AppDestination("home", "Главная", Icons.Filled.Home),
+        AppDestination("articles", "Статьи", Icons.Filled.Article),
+        AppDestination("settings", "Настройки", Icons.Filled.Settings)
+    )
+
+    Row {
+        NavigationRail {
+            destinations.forEach { destination ->
+                NavigationRailItem(
+                    selected = selectedDestinationId == destination.id,
+                    onClick = {
+                        onDestinationClick(destination.id)
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = destination.icon,
+                            contentDescription = destination.label
+                        )
+                    },
+                    label = {
+                        Text(text = destination.label)
+                    }
+                )
+            }
+        }
+
+        content()
+    }
+}
+```
+
+Используйте rail, если:
+
+- экран шире compact;
+- destination должно быть доступно постоянно;
+- bottom navigation занимает слишком много вертикального смысла;
+- пользователь работает в landscape или large screen.
+
+## ModalNavigationDrawer
+
+`ModalNavigationDrawer` появляется поверх content и подходит для compact/medium layouts, где drawer открывается по кнопке menu или жесту.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ModalDrawerScaffold(
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit
+) {
+    val drawerState = rememberDrawerState(
+        initialValue = DrawerValue.Closed
+    )
+    val scope = rememberCoroutineScope()
+
+    val destinations = listOf(
+        AppDestination("home", "Главная", Icons.Filled.Home),
+        AppDestination("articles", "Статьи", Icons.Filled.Article),
+        AppDestination("settings", "Настройки", Icons.Filled.Settings)
+    )
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Text(
+                    text = "Разделы",
+                    modifier = Modifier.padding(16.dp)
+                )
+                HorizontalDivider()
+
+                destinations.forEach { destination ->
+                    NavigationDrawerItem(
+                        selected = selectedDestinationId == destination.id,
+                        onClick = {
+                            onDestinationClick(destination.id)
+                            scope.launch {
+                                drawerState.close()
+                            }
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null
+                            )
+                        },
+                        label = {
+                            Text(text = destination.label)
+                        }
+                    )
+                }
+            }
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(text = "Приложение")
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    drawerState.open()
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Menu,
+                                contentDescription = "Открыть меню"
+                            )
+                        }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            Text(
+                text = "Текущий раздел: $selectedDestinationId",
+                modifier = Modifier.padding(innerPadding)
+            )
+        }
+    }
+}
+```
+
+Почему нужен `rememberCoroutineScope`:
+
+- `drawerState.open()` является suspend-функцией;
+- `drawerState.close()` тоже suspend;
+- эти действия запускаются из `onClick`, который не является suspend.
+
+## PermanentNavigationDrawer
+
+`PermanentNavigationDrawer` занимает постоянное место рядом с content. Он подходит для expanded screens.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.PermanentDrawerSheet
+import androidx.compose.material3.PermanentNavigationDrawer
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun PermanentDrawerLayout(
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val destinations = listOf(
+        AppDestination("home", "Главная", Icons.Filled.Home),
+        AppDestination("articles", "Статьи", Icons.Filled.Article),
+        AppDestination("settings", "Настройки", Icons.Filled.Settings)
+    )
+
+    PermanentNavigationDrawer(
+        drawerContent = {
+            PermanentDrawerSheet {
+                destinations.forEach { destination ->
+                    NavigationDrawerItem(
+                        selected = selectedDestinationId == destination.id,
+                        onClick = {
+                            onDestinationClick(destination.id)
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = destination.icon,
+                                contentDescription = null
+                            )
+                        },
+                        label = {
+                            Text(text = destination.label)
+                        }
+                    )
+                }
+            }
+        },
+        content = content
+    )
+}
+```
+
+Permanent drawer не должен перекрывать content. Он является частью layout.
+
+## DismissibleNavigationDrawer
+
+`DismissibleNavigationDrawer` занимает промежуточную позицию: drawer может быть открыт или закрыт, но в открытом состоянии сдвигает content, а не просто появляется поверх него. Он полезен для некоторых tablet layouts, но `ModalNavigationDrawer` и `PermanentNavigationDrawer` встречаются чаще.
+
+Критерии:
+
+- нужен drawer, который можно скрыть;
+- экран достаточно широк, чтобы content мог сдвигаться;
+- drawer не должен быть permanent;
+- modal overlay выглядит слишком временным.
+
+## NavigationDrawerItem
+
+`NavigationDrawerItem` имеет ключевые параметры:
+
+- `label`: текст пункта;
+- `selected`: выбран ли пункт;
+- `onClick`: обработчик выбора;
+- `icon`: ведущая иконка;
+- `badge`: badge справа;
+- `shape`: форма item;
+- `colors`: цвета;
+- `modifier`: modifier.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Badge
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun NotificationsDrawerItem(
+    selected: Boolean,
+    unreadCount: Int,
+    onClick: () -> Unit
+) {
+    NavigationDrawerItem(
+        selected = selected,
+        onClick = onClick,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Notifications,
+                contentDescription = null
+            )
+        },
+        label = {
+            Text(text = "Уведомления")
+        },
+        badge = {
+            if (unreadCount > 0) {
+                Badge {
+                    Text(text = unreadCount.toString())
+                }
+            }
+        }
+    )
+}
+```
+
+Если label уже описывает destination, у icon внутри drawer часто можно ставить `contentDescription = null`, чтобы screen reader не дублировал текст.
+
+## Adaptive navigation
+
+Один и тот же набор destinations можно отображать по-разному:
+
+- compact width: `NavigationBar`;
+- medium width: `NavigationRail`;
+- expanded width: `PermanentNavigationDrawer`;
+- modal drawer: если top-level sections много или нужна иерархия.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+enum class NavigationSurfaceType {
+    BottomBar,
+    Rail,
+    PermanentDrawer
+}
+
+@Composable
+fun AdaptiveNavigationLayout(
+    surfaceType: NavigationSurfaceType,
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit,
+    content: @Composable () -> Unit
+) {
+    when (surfaceType) {
+        NavigationSurfaceType.BottomBar -> {
+            Scaffold(
+                bottomBar = {
+                    MainNavigationBar(
+                        selectedDestinationId = selectedDestinationId,
+                        onDestinationClick = onDestinationClick
+                    )
+                }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    content()
+                }
+            }
+        }
+
+        NavigationSurfaceType.Rail -> {
+            MainNavigationRail(
+                selectedDestinationId = selectedDestinationId,
+                onDestinationClick = onDestinationClick
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    content()
+                }
+            }
+        }
+
+        NavigationSurfaceType.PermanentDrawer -> {
+            PermanentDrawerLayout(
+                selectedDestinationId = selectedDestinationId,
+                onDestinationClick = onDestinationClick,
+                content = content
+            )
+        }
+    }
+}
+```
+
+В настоящем приложении `surfaceType` обычно вычисляется из window size class или adaptive layout library.
+
+## NavigationSuiteScaffold
+
+Для adaptive navigation Material 3 предлагает navigation suite API в отдельной зависимости:
+
+```kotlin
+dependencies {
+    implementation("androidx.compose.material3:material3-adaptive-navigation-suite")
+}
+```
+
+Идея `NavigationSuiteScaffold`: один API может переключаться между navigation bar и navigation rail в зависимости от adaptive info.
+
+Концептуальный пример:
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.runtime.Composable
+
+@Composable
+fun AdaptiveNavigationSuite(
+    selectedDestinationId: String,
+    onDestinationClick: (String) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val destinations = listOf(
+        AppDestination("home", "Главная", Icons.Filled.Home),
+        AppDestination("articles", "Статьи", Icons.Filled.Article),
+        AppDestination("settings", "Настройки", Icons.Filled.Settings)
+    )
+
+    NavigationSuiteScaffold(
+        navigationSuiteItems = {
+            destinations.forEach { destination ->
+                NavigationSuiteItem(
+                    selected = selectedDestinationId == destination.id,
+                    onClick = {
+                        onDestinationClick(destination.id)
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = destination.icon,
+                            contentDescription = destination.label
+                        )
+                    },
+                    label = {
+                        Text(text = destination.label)
+                    }
+                )
+            }
+        }
+    ) {
+        content()
+    }
+}
+```
+
+Если проект еще не подключил adaptive navigation suite, используйте ручной выбор `NavigationBar`, `NavigationRail` и drawer.
+
+## Интеграция с Navigation Compose
+
+Navigation surface не обязана знать о `NavController`. Reusable UI может принимать selected id и callback.
+
+Route-level слой связывает это с навигацией:
+
+```kotlin
+import androidx.compose.runtime.Composable
+
+interface AppNavigator {
+    fun navigateToDestination(destinationId: String)
+}
+
+@Composable
+fun MainShell(
+    selectedDestinationId: String,
+    navigator: AppNavigator,
+    content: @Composable () -> Unit
+) {
+    AdaptiveNavigationSuite(
+        selectedDestinationId = selectedDestinationId,
+        onDestinationClick = { destinationId ->
+            navigator.navigateToDestination(destinationId)
+        },
+        content = content
+    )
+}
+```
+
+Так UI-компонент navigation surface не зависит от конкретной navigation library.
+
+## State restoration
+
+Выбранный destination обычно должен быть связан с navigation back stack, а не храниться отдельно в `remember`.
+
+Плохо:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun LocalNavigationSelectionWrong() {
+    var selectedDestinationId by remember {
+        mutableStateOf("home")
+    }
+}
+```
+
+Почему плохо:
+
+- local state может разойтись с back stack;
+- deep link не выберет правильный item;
+- restore state становится сложнее;
+- system back может оставить старую подсветку.
+
+Лучше вычислять selected destination из текущего route или screen state.
+
+## Production-пример: единая модель destinations
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.graphics.vector.ImageVector
+
+@Immutable
+data class ShellDestination(
+    val id: String,
+    val route: String,
+    val label: String,
+    val icon: ImageVector
+)
+
+val MainShellDestinations = listOf(
+    ShellDestination(
+        id = "home",
+        route = "home",
+        label = "Главная",
+        icon = Icons.Filled.Home
+    ),
+    ShellDestination(
+        id = "articles",
+        route = "articles",
+        label = "Статьи",
+        icon = Icons.Filled.Article
+    ),
+    ShellDestination(
+        id = "profile",
+        route = "profile",
+        label = "Профиль",
+        icon = Icons.Filled.Person
+    ),
+    ShellDestination(
+        id = "settings",
+        route = "settings",
+        label = "Настройки",
+        icon = Icons.Filled.Settings
+    )
+)
+```
+
+Renderer:
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ShellNavigationBar(
+    destinations: List<ShellDestination>,
+    selectedDestinationId: String,
+    onDestinationSelected: (ShellDestination) -> Unit
+) {
+    NavigationBar {
+        destinations.forEach { destination ->
+            NavigationBarItem(
+                selected = selectedDestinationId == destination.id,
+                onClick = {
+                    onDestinationSelected(destination)
+                },
+                icon = {
+                    Icon(
+                        imageVector = destination.icon,
+                        contentDescription = destination.label
+                    )
+                },
+                label = {
+                    Text(text = destination.label)
+                }
+            )
+        }
+    }
+}
+```
+
+Это удобно, потому что один список destinations можно использовать для bar, rail и drawer.
+
+## Типичные ошибки
+
+### Держать выбранный item отдельно от navigation state
+
+Back stack и visual selection должны иметь один источник истины.
+
+### Использовать NavigationBar для слишком большого числа разделов
+
+Для большого числа destinations лучше drawer или переработка информационной архитектуры.
+
+### Дублировать иконку и label в accessibility
+
+Если label уже читается, icon в drawer может иметь `contentDescription = null`.
+
+### Использовать drawer как список всех действий
+
+Drawer должен помогать навигации, а не заменять экран настроек или overflow menu.
+
+### Игнорировать large screens
+
+Bottom navigation на планшете часто хуже, чем rail или permanent drawer.
+
+## Итоги
+
+Navigation surfaces задают основную навигацию приложения:
+
+- `NavigationBar` подходит compact window sizes и 3-5 destinations;
+- `NavigationRail` подходит medium/expanded layouts;
+- `ModalNavigationDrawer` открывается поверх content;
+- `PermanentNavigationDrawer` занимает постоянное место на wide screens;
+- `DismissibleNavigationDrawer` может сдвигать content и скрываться;
+- `NavigationDrawerItem` поддерживает icon, label, badge и selected state;
+- adaptive navigation выбирает surface по размеру окна;
+- `NavigationSuiteScaffold` может упростить adaptive выбор;
+- selected destination должен приходить из navigation state;
+- reusable navigation UI должен получать selected id и callbacks, а не напрямую владеть back stack.

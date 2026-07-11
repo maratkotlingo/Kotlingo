@@ -1,0 +1,767 @@
+---
+title: "Resources and Android framework APIs"
+description: "Разбираем Android resources и framework APIs в Jetpack Compose: stringResource, pluralStringResource, dimensionResource, colorResource, painterResource, animatedVectorResource, LocalContext, LocalConfiguration, LocalView, theme boundaries и platform side effects."
+order: 90
+category: "Compose: Interoperability and migration"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему resources в Compose не исчезли
+
+Compose описывает UI в Kotlin, но Android-приложение все еще использует ресурсную систему:
+
+- строки и переводы;
+- plurals;
+- dimensions;
+- colors;
+- drawables;
+- vector assets;
+- fonts;
+- raw resources;
+- configuration qualifiers;
+- density buckets;
+- locale;
+- night mode;
+- framework services через `Context`.
+
+Compose дает composable helpers для популярных ресурсов и `CompositionLocal` для Android framework objects.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+
+@Composable
+fun AppTitle() {
+    Text(
+        text = stringResource(R.string.app_name)
+    )
+}
+```
+
+`stringResource` можно вызывать только из composable context, потому что результат зависит от current configuration: locale, layout direction, font scale и других параметров.
+
+<CatTip>
+Ресурсы в Compose — это не шаг назад к XML. Это способ сохранить Android localization, density, night mode и asset pipeline там, где они уже решают задачу хорошо.
+</CatTip>
+
+## `stringResource`
+
+Все user-visible строки должны жить в resources, если приложение локализуется или может локализоваться.
+
+```xml
+<!-- Файл res/values/strings.xml -->
+<resources>
+    <string name="welcome_title">Добро пожаловать</string>
+    <string name="lesson_progress">Урок %1$d из %2$d</string>
+</resources>
+```
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+
+@Composable
+fun WelcomeHeader(
+    currentLesson: Int,
+    totalLessons: Int
+) {
+    Column {
+        Text(
+            text = stringResource(R.string.welcome_title)
+        )
+        Text(
+            text = stringResource(
+                R.string.lesson_progress,
+                currentLesson,
+                totalLessons
+            )
+        )
+    }
+}
+```
+
+Форматированные строки должны использовать positional arguments (`%1$s`, `%2$d`). Это важно для языков, где порядок слов другой.
+
+## Не передавайте resource IDs глубоко без причины
+
+Есть два нормальных подхода:
+
+- UI получает уже готовый `String`;
+- UI получает `@StringRes` id, если именно UI отвечает за localization.
+
+Для leaf component часто лучше строка:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun PrimaryActionButton(
+    label: String,
+    onClick: () -> Unit
+) {
+    Button(onClick = onClick) {
+        Text(text = label)
+    }
+}
+```
+
+Route решает, откуда взять строку:
+
+```kotlin
+@Composable
+fun CheckoutRoute(
+    onPay: () -> Unit
+) {
+    PrimaryActionButton(
+        label = stringResource(R.string.pay_now),
+        onClick = onPay
+    )
+}
+```
+
+Если component является частью design system, `@StringRes` может быть уместен:
+
+```kotlin
+import androidx.annotation.StringRes
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+
+@Composable
+fun ResourceText(
+    @StringRes textRes: Int
+) {
+    Text(
+        text = stringResource(textRes)
+    )
+}
+```
+
+Но domain layer не должен знать про `R.string`.
+
+## `pluralStringResource`
+
+Plural resources нужны для правильных форм количества. Не собирайте такие строки руками через `if (count == 1)`.
+
+```xml
+<!-- Файл res/values/plurals.xml -->
+<resources>
+    <plurals name="completed_lessons">
+        <item quantity="one">%1$d урок завершен</item>
+        <item quantity="few">%1$d урока завершено</item>
+        <item quantity="many">%1$d уроков завершено</item>
+        <item quantity="other">%1$d урока завершено</item>
+    </plurals>
+</resources>
+```
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.pluralStringResource
+
+@Composable
+fun CompletedLessonsLabel(
+    count: Int
+) {
+    Text(
+        text = pluralStringResource(
+            R.plurals.completed_lessons,
+            count,
+            count
+        )
+    )
+}
+```
+
+Первый `count` выбирает plural branch. Второй `count` подставляется в `%1$d`. Если в строке нет числового placeholder, третий аргумент не нужен.
+
+<MouseTrap>
+Plural rules отличаются между языками. Русский, английский, арабский и польский не укладываются в простую проверку "один или много".
+</MouseTrap>
+
+## `dimensionResource`
+
+`dimensionResource` возвращает `Dp` из XML dimensions.
+
+```xml
+<!-- Файл res/values/dimens.xml -->
+<resources>
+    <dimen name="screen_padding">16dp</dimen>
+    <dimen name="card_spacing">12dp</dimen>
+</resources>
+```
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
+
+@Composable
+fun ResourceSpacingExample() {
+    val screenPadding = dimensionResource(R.dimen.screen_padding)
+    val cardSpacing = dimensionResource(R.dimen.card_spacing)
+
+    Column(
+        modifier = Modifier.padding(screenPadding)
+    ) {
+        Text(
+            text = "Отступ из ресурсов",
+            modifier = Modifier.padding(bottom = cardSpacing)
+        )
+    }
+}
+```
+
+В Compose-first дизайн-системе spacing часто держат в Kotlin tokens, а не XML. `dimensionResource` особенно полезен во время миграции или когда один token должен использоваться и XML, и Compose.
+
+## `colorResource`
+
+`colorResource` читает color resource, но для Material UI чаще лучше брать цвета из `MaterialTheme.colorScheme`.
+
+```xml
+<!-- Файл res/values/colors.xml -->
+<resources>
+    <color name="legacy_warning">#B3261E</color>
+</resources>
+```
+
+```kotlin
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.colorResource
+
+@Composable
+fun LegacyWarningDivider() {
+    HorizontalDivider(
+        color = colorResource(R.color.legacy_warning)
+    )
+}
+```
+
+Для нового Compose UI лучше:
+
+```kotlin
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ThemedDivider() {
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outlineVariant
+    )
+}
+```
+
+`colorResource` может flatten-ить `ColorStateList`, поэтому не используйте его как полноценную замену stateful color design. Для interactive colors используйте theme, component defaults или собственную state mapping функцию.
+
+## `painterResource`
+
+`painterResource` загружает vector drawable или raster image как `Painter`.
+
+```xml
+<!-- Файл res/drawable/ic_course.xml -->
+<vector
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M4,4h16v16H4z" />
+</vector>
+```
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+
+@Composable
+fun CourseIcon() {
+    Icon(
+        painter = painterResource(R.drawable.ic_course),
+        contentDescription = null
+    )
+}
+```
+
+`contentDescription = null` означает, что icon декоративная. Если icon сама является действием, описание должно быть у кнопки или icon.
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+
+@Composable
+fun DeleteLessonButton(
+    onDelete: () -> Unit
+) {
+    IconButton(onClick = onDelete) {
+        Icon(
+            painter = painterResource(R.drawable.ic_delete),
+            contentDescription = stringResource(R.string.delete_lesson)
+        )
+    }
+}
+```
+
+`painterResource` декодирует/парсит ресурс на main thread. Для больших изображений, remote images и сложных resize scenarios используйте image loading library, например Coil.
+
+## Animated vector resources
+
+Animated Vector Drawable можно загрузить через `AnimatedImageVector.animatedVectorResource` и показать через `rememberAnimatedVectorPainter`.
+
+```kotlin
+import androidx.compose.animation.graphics.ExperimentalAnimationGraphicsApi
+import androidx.compose.animation.graphics.res.animatedVectorResource
+import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.vector.AnimatedImageVector
+
+@OptIn(ExperimentalAnimationGraphicsApi::class)
+@Composable
+fun SyncAnimatedIcon(
+    syncing: Boolean
+) {
+    val image = AnimatedImageVector.animatedVectorResource(
+        R.drawable.avd_sync
+    )
+
+    Icon(
+        painter = rememberAnimatedVectorPainter(
+            animatedImageVector = image,
+            atEnd = syncing
+        ),
+        contentDescription = null
+    )
+}
+```
+
+Для сложной motion-системы Compose animation APIs часто гибче, но AVD полезен при миграции существующих assets.
+
+## Fonts
+
+Font resources можно подключать через `Font` и `FontFamily`.
+
+```kotlin
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+
+val AppFontFamily = FontFamily(
+    Font(
+        resId = R.font.inter_regular,
+        weight = FontWeight.Normal
+    ),
+    Font(
+        resId = R.font.inter_semibold,
+        weight = FontWeight.SemiBold
+    )
+)
+```
+
+Затем font family попадает в `Typography`.
+
+```kotlin
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.TextStyle
+
+@Composable
+fun AppTheme(
+    content: @Composable () -> Unit
+) {
+    MaterialTheme(
+        typography = Typography(
+            bodyLarge = TextStyle(
+                fontFamily = AppFontFamily
+            )
+        ),
+        content = content
+    )
+}
+```
+
+Не задавайте font на каждом `Text`, если это часть общей типографики.
+
+## `LocalContext`
+
+`LocalContext.current` дает текущий Android `Context`.
+
+```kotlin
+import android.widget.Toast
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+@Composable
+fun ToastButton() {
+    val context = LocalContext.current
+
+    Button(
+        onClick = {
+            Toast
+                .makeText(
+                    context,
+                    "Сохранено",
+                    Toast.LENGTH_SHORT
+                )
+                .show()
+        }
+    ) {
+        Text(text = "Показать Toast")
+    }
+}
+```
+
+Для быстрых platform actions это нормально. Для сложной логики лучше поднимать событие наружу:
+
+```kotlin
+@Composable
+fun ShareCourseButton(
+    onShare: () -> Unit
+) {
+    Button(onClick = onShare) {
+        Text(text = stringResource(R.string.share_course))
+    }
+}
+```
+
+Activity/host решает, как выполнить share intent.
+
+<MouseTrap>
+`LocalContext.current` не должен становиться способом вызвать все что угодно из любого composable. Если UI начинает запускать services, регистрировать receivers и писать в files, boundary уже размыта.
+</MouseTrap>
+
+## `LocalConfiguration`
+
+`LocalConfiguration.current` дает Android `Configuration`: locale, orientation, screen size, font scale и другие параметры.
+
+```kotlin
+import android.content.res.Configuration
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
+
+@Composable
+fun OrientationLabel() {
+    val configuration = LocalConfiguration.current
+    val text = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        "Горизонтальная ориентация"
+    } else {
+        "Вертикальная ориентация"
+    }
+
+    Text(text = text)
+}
+```
+
+Для adaptive UI чаще лучше использовать window size classes и layout constraints, а не вручную ветвиться по orientation. `LocalConfiguration` полезен, но не должен заменять responsive layout.
+
+## `LocalView`
+
+`LocalView.current` дает host `View`. Он нужен для некоторых platform APIs:
+
+- haptics через View APIs;
+- window insets interop;
+- screenshot/test hooks;
+- finding window token;
+- accessibility announcements в legacy code;
+- integration с SDK, которому нужен View.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalView
+
+@Composable
+fun LegacyHapticButton(
+    onClick: () -> Unit
+) {
+    val view = LocalView.current
+
+    Button(
+        onClick = {
+            view.performHapticFeedback(
+                android.view.HapticFeedbackConstants.CONFIRM
+            )
+            onClick()
+        }
+    ) {
+        Text(text = "Готово")
+    }
+}
+```
+
+В Compose есть `LocalHapticFeedback`, и для обычных haptics лучше использовать его. `LocalView` нужен, когда API существует только в View/framework мире.
+
+## `LocalDensity`
+
+`LocalDensity` конвертирует `Dp` и `Sp` в pixels.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun rememberTouchSlopPx(): Float {
+    val density = LocalDensity.current
+
+    return with(density) {
+        24.dp.toPx()
+    }
+}
+```
+
+Не храните px value глобально. Density может измениться при configuration changes, display changes и в preview/test environments.
+
+## Framework services
+
+Иногда нужен system service:
+
+```kotlin
+import android.content.Context
+import android.net.ConnectivityManager
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+@Composable
+fun rememberConnectivityManager(): ConnectivityManager {
+    val context = LocalContext.current
+    return context.getSystemService(
+        ConnectivityManager::class.java
+    )
+}
+```
+
+Но UI не должен сам решать network policy. Лучше сделать platform adapter:
+
+```kotlin
+interface NetworkStatusProvider {
+    fun isOnline(): Boolean
+}
+
+class AndroidNetworkStatusProvider(
+    private val context: Context
+) : NetworkStatusProvider {
+
+    override fun isOnline(): Boolean {
+        val manager = context.getSystemService(
+            ConnectivityManager::class.java
+        )
+        return manager.activeNetwork != null
+    }
+}
+```
+
+Composable получает готовый state:
+
+```kotlin
+@Composable
+fun OfflineBanner(
+    online: Boolean
+) {
+    if (!online) {
+        Text(text = stringResource(R.string.offline))
+    }
+}
+```
+
+Так UI остается тестируемым без Android framework.
+
+## Side effects с framework APIs
+
+Если framework API должен вызваться при изменении state, используйте effect API.
+
+```kotlin
+import android.view.Window
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+
+@Composable
+fun StatusBarColorEffect(
+    window: Window,
+    color: Color
+) {
+    DisposableEffect(window, color) {
+        val previousColor = window.statusBarColor
+        window.statusBarColor = color.toArgb()
+
+        onDispose {
+            window.statusBarColor = previousColor
+        }
+    }
+}
+```
+
+Не вызывайте такие APIs прямо во время composition без effect. Composition может повториться, пропуститься или быть отменена.
+
+## Resources outside composable context
+
+`stringResource` нельзя вызвать из ViewModel. Это хорошо: ViewModel не должна зависеть от Android UI resources. Есть несколько вариантов:
+
+- ViewModel отдает resource key/domain error, UI переводит в string;
+- ViewModel получает abstraction для text resolving;
+- domain возвращает typed error, UI мапит на `R.string`;
+- для non-UI text используется application context adapter.
+
+```kotlin
+sealed interface LoginError {
+    data object EmptyEmail : LoginError
+    data object InvalidPassword : LoginError
+    data object Network : LoginError
+}
+
+@Composable
+fun LoginError.message(): String {
+    return when (this) {
+        LoginError.EmptyEmail -> stringResource(R.string.error_empty_email)
+        LoginError.InvalidPassword -> stringResource(R.string.error_invalid_password)
+        LoginError.Network -> stringResource(R.string.error_network)
+    }
+}
+```
+
+UI:
+
+```kotlin
+@Composable
+fun LoginErrorText(
+    error: LoginError?
+) {
+    if (error != null) {
+        Text(text = error.message())
+    }
+}
+```
+
+Domain остается свободным от Android resources.
+
+## Preview resources
+
+Previews умеют использовать resources, но иногда ломаются из-за отсутствующих runtime dependencies, theme setup или слишком сложного `LocalContext` usage.
+
+Хороший preview не должен запускать реальные platform actions:
+
+```kotlin
+import androidx.compose.ui.tooling.preview.Preview
+
+@Preview
+@Composable
+fun WelcomeHeaderPreview() {
+    AppTheme {
+        WelcomeHeader(
+            currentLesson = 3,
+            totalLessons = 12
+        )
+    }
+}
+```
+
+Если composable требует `Context` для side effect, вынесите side effect в callback и preview передаст пустую lambda.
+
+## Testing resources
+
+В UI tests лучше проверять видимый текст, но не завязываться на локализацию, если тест должен быть language-independent.
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import org.junit.Rule
+import org.junit.Test
+
+class ResourcesTextTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun title_isShown() {
+        composeRule.setContent {
+            AppTitle()
+        }
+
+        composeRule
+            .onNodeWithText("Kotlingo")
+            .assertExists()
+    }
+}
+```
+
+Для многоязычных тестов можно:
+
+- запускать отдельные locale tests;
+- проверять semantics role вместо текста;
+- использовать resource lookup в test;
+- тестировать mapper `LoginError -> string res`;
+- держать screenshot tests на фиксированной locale.
+
+## Типичные ошибки
+
+### Хардкодить user-visible строки
+
+Такой UI трудно локализовать и поддерживать.
+
+### Собирать plural руками
+
+Plural rules сложнее, чем `if (count == 1)`.
+
+### Использовать `colorResource` вместо темы
+
+Для нового Material UI цвета должны приходить из `MaterialTheme.colorScheme`.
+
+### Загружать большие изображения через `painterResource`
+
+Это может делать decode на main thread и ухудшать performance.
+
+### Тянуть `Context` в ViewModel
+
+ViewModel становится Android UI dependent и хуже тестируется.
+
+### Вызывать framework side effects во время composition
+
+Используйте `LaunchedEffect`, `DisposableEffect` или callback в host.
+
+### Хранить px после density conversion
+
+Density может измениться, и сохраненное значение устареет.
+
+## Итоги
+
+Compose работает вместе с Android resources и framework APIs:
+
+- `stringResource` читает локализованные строки;
+- format args должны быть positional;
+- `pluralStringResource` нужен для quantity strings;
+- `dimensionResource` полезен для shared XML/Compose tokens;
+- `colorResource` подходит для migration, но theme лучше для нового UI;
+- `painterResource` загружает vector/raster assets, но не заменяет image loader;
+- animated vectors можно использовать через animation graphics resources;
+- fonts подключаются через `Font`, `FontFamily` и `Typography`;
+- `LocalContext`, `LocalConfiguration`, `LocalView`, `LocalDensity` дают Android/Compose environment;
+- framework side effects должны жить в effect API или host layer;
+- ViewModel/domain не должны зависеть от `R.string` и Android `Context`;
+- resources помогают сохранить localization, density и configuration behavior при переходе на Compose.

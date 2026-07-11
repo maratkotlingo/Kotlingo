@@ -1,0 +1,734 @@
+---
+title: "Composable-функции"
+description: "Подробно разбираем синтаксис @Composable: правила вызова, параметры, Modifier, callbacks, slot APIs, content lambdas, naming conventions, preview-friendly дизайн и типичные ошибки проектирования composable API."
+order: 06
+category: "Compose: Вход и рабочая среда"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое composable-функция
+
+Composable-функция — это Kotlin-функция, помеченная аннотацией `@Composable`. Она может участвовать в Composition и вызывать другие composable-функции.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun CourseTitle(title: String) {
+    Text(text = title)
+}
+```
+
+`CourseTitle` не возвращает объект `TextView`, `View`, `Node` или `Composable`. Она возвращает `Unit`, а UI-результат записывается в текущую Composition. Это главное отличие от фабрик объектов.
+
+## Где можно вызывать composable
+
+Composable-вызов можно сделать только из composable-контекста.
+
+Корректно:
+
+```kotlin
+@Composable
+fun Header() {
+    Text(text = "Jetpack Compose")
+}
+
+@Composable
+fun Screen() {
+    Header()
+}
+```
+
+Некорректно:
+
+```kotlin
+fun ScreenTitle() {
+    // Этот код не компилируется: обычная функция не находится
+    // в composable-контексте и не может вызвать Text.
+    Text(text = "Jetpack Compose")
+}
+```
+
+Исправление зависит от намерения:
+
+- если функция рисует UI, пометь ее `@Composable`;
+- если функция только готовит данные, оставь ее обычной Kotlin-функцией и вызывай из composable;
+- если нужно выполнить side effect, используй effect API, а не обычный вызов из body.
+
+```kotlin
+fun normalizeTitle(rawTitle: String): String {
+    // Обычная функция готовит данные и не зависит от Compose.
+    return rawTitle.trim().replace(Regex("\\s+"), " ")
+}
+
+@Composable
+fun ScreenTitle(rawTitle: String) {
+    // Composable-функция отображает результат.
+    Text(text = normalizeTitle(rawTitle))
+}
+```
+
+<CatTip title="Котосовет: не делай всё composable">
+  Если функция не читает Compose state, не вызывает composable API и не зависит
+  от CompositionLocal, ей не нужна аннотация `@Composable`. Обычная
+  Kotlin-функция проще тестируется, переиспользуется и не тащит за собой
+  composable-контекст.
+</CatTip>
+
+## Имена composable-функций
+
+В Compose есть важная naming convention:
+
+- UI-emitting composable-функции, которые возвращают `Unit`, называются с заглавной буквы: `CourseCard`, `ProfileHeader`, `LessonRow`;
+- composable-функции, которые возвращают значение и ведут себя как helpers, называются lowerCamelCase: `rememberCourseState`, `collectCourseState`, `currentCourseColors`;
+- обычные Kotlin-функции остаются lowerCamelCase: `formatProgress`, `normalizeTitle`, `calculateReadingTime`.
+
+```kotlin
+@Composable
+fun CourseCard(state: CourseCardState) {
+    Text(text = state.title)
+}
+
+@Composable
+fun rememberCourseCardState(title: String): CourseCardState {
+    return CourseCardState(title = title)
+}
+
+data class CourseCardState(
+    val title: String
+)
+```
+
+Почему это важно: имя с заглавной буквы визуально говорит "этот вызов эмитит UI". Это помогает читать Compose-код как дерево интерфейса.
+
+## Параметры composable API
+
+Хороший composable API обычно устроен так:
+
+- обязательные данные идут первыми;
+- callbacks идут рядом с данными, которые их вызывают;
+- `modifier: Modifier = Modifier` идет как первый optional parameter после обязательных параметров;
+- optional visual-параметры имеют значения по умолчанию;
+- slot lambdas, например `content`, идут в конце;
+- composable не принимает ViewModel, если это reusable UI-компонент;
+- composable не создает скрытую навигацию или аналитику внутри себя.
+
+Пример:
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class CourseCardState(
+    val title: String,
+    val subtitle: String,
+    val completedLessons: Int,
+    val totalLessons: Int
+)
+
+@Composable
+fun CourseCard(
+    state: CourseCardState,
+    onContinueClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    showProgress: Boolean = true
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = state.title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = state.subtitle,
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            if (showProgress) {
+                Text(
+                    text = "${state.completedLessons} из ${state.totalLessons} уроков",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(onClick = onContinueClick) {
+                    Text(text = "Продолжить")
+                }
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- `state` содержит данные для отображения;
+- `onContinueClick` сообщает событие наружу;
+- `modifier` позволяет вызывающему коду управлять внешним размещением;
+- `showProgress` является optional visual-настройкой;
+- компонент не знает про навигацию, repository или Activity;
+- компонент можно показать в Preview и протестировать через Compose UI tests.
+
+## `Modifier` в параметрах
+
+`Modifier` — главный способ дать вызывающему коду контроль над внешним поведением компонента: размер, padding снаружи, semantics, test tag, click handling, layout behavior.
+
+Правильный паттерн:
+
+```kotlin
+@Composable
+fun LessonBadge(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        modifier = modifier,
+        text = title
+    )
+}
+```
+
+Компонент применяет `modifier` к своему корневому элементу. Внутренние modifier-цепочки создаются отдельно:
+
+```kotlin
+@Composable
+fun LessonBadge(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            text = title,
+            color = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+    }
+}
+```
+
+Плохой паттерн:
+
+```kotlin
+@Composable
+fun LessonBadge(title: String) {
+    Text(
+        modifier = Modifier.padding(16.dp),
+        text = title
+    )
+}
+```
+
+Здесь вызывающий код не может добавить `testTag`, внешний padding, width, semantics или alignment. Компонент становится жестким.
+
+<MouseTrap title="Мышеловка: не прячь внешний layout внутри компонента">
+  Если компонент сам решает, что у него всегда `fillMaxWidth()` и внешний
+  `padding(24.dp)`, его трудно переиспользовать. Внешнее размещение обычно
+  принадлежит родителю. Внутренние отступы и визуальная структура принадлежат
+  самому компоненту.
+</MouseTrap>
+
+## Callbacks вместо прямых действий
+
+Composable-компонент должен сообщать о событии, а не решать всю судьбу приложения.
+
+Плохо:
+
+```kotlin
+@Composable
+fun StartLessonButton(activity: android.app.Activity, lessonId: String) {
+    Button(
+        onClick = {
+            // Компонент привязан к Activity и сам решает навигацию.
+            activity.startActivity(
+                android.content.Intent(activity, LessonActivity::class.java)
+                    .putExtra("lesson_id", lessonId)
+            )
+        }
+    ) {
+        Text(text = "Начать")
+    }
+}
+
+class LessonActivity : android.app.Activity()
+```
+
+Лучше:
+
+```kotlin
+@Composable
+fun StartLessonButton(
+    lessonId: String,
+    onStartLesson: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        modifier = modifier,
+        onClick = {
+            onStartLesson(lessonId)
+        }
+    ) {
+        Text(text = "Начать")
+    }
+}
+```
+
+Теперь кнопку можно использовать:
+
+- в Navigation Compose;
+- в Preview;
+- в UI-тесте;
+- в другом приложении;
+- в разных сценариях, где старт урока не обязательно означает Activity navigation.
+
+## Slot API
+
+Slot API — паттерн, где компонент принимает composable-lambda для части своего содержимого. Это делает компонент гибким без наследования.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SettingsSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    action: @Composable (() -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                if (action != null) {
+                    action()
+                }
+            }
+
+            content()
+        }
+    }
+}
+```
+
+Использование:
+
+```kotlin
+@Composable
+fun NotificationSettings() {
+    SettingsSection(
+        title = "Уведомления",
+        action = {
+            Text(text = "Важно")
+        }
+    ) {
+        Text(text = "Напоминать о новых уроках и повторении материала.")
+    }
+}
+```
+
+Slot API используется в стандартных компонентах Compose повсюду:
+
+- `Button { Text("OK") }`;
+- `Scaffold(topBar = { TopAppBar(title = { Text("Курс") }) }, bottomBar = { NavigationBar { } }) { innerPadding -> CourseContent(innerPadding) }`;
+- `AlertDialog(title = { Text("Удалить урок?") }, text = { Text("Действие нельзя отменить") }, confirmButton = { Button(onClick = onConfirm) { Text("Удалить") } })`;
+- `Card { Text(text = "Содержимое карточки") }`;
+- `NavigationBarItem(icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Главная") }, selected = true, onClick = onHomeClick)`.
+
+## Composable function types
+
+Composable-lambda имеет тип с `@Composable`.
+
+```kotlin
+val content: @Composable () -> Unit = {
+    Text(text = "Содержимое")
+}
+```
+
+Если lambda принимает параметры:
+
+```kotlin
+val rowContent: @Composable (String) -> Unit = { title ->
+    Text(text = title)
+}
+```
+
+Если lambda является receiver-lambda:
+
+```kotlin
+import androidx.compose.foundation.layout.ColumnScope
+
+val columnContent: @Composable ColumnScope.() -> Unit = {
+    Text(text = "Элемент внутри ColumnScope")
+}
+```
+
+Receiver-lambdas нужны, когда content должен получить scope родительского layout. Например, внутри `ColumnScope` доступен `Modifier.weight`.
+
+## Default arguments
+
+Default arguments делают composable удобным, но ими нельзя скрывать важную бизнес-логику.
+
+Хорошо:
+
+```kotlin
+@Composable
+fun EmptyState(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String = "Попробуйте изменить фильтры или вернуться позже"
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+```
+
+Сомнительно:
+
+```kotlin
+@Composable
+fun CourseScreen(
+    courseId: String,
+    repository: CourseRepository = RealCourseRepository()
+) {
+    Text(text = "Курс: $courseId")
+}
+
+interface CourseRepository
+
+class RealCourseRepository : CourseRepository
+```
+
+Здесь composable скрыто создает production dependency. Это мешает preview, тестам, dependency injection и контролю lifecycle. Зависимости такого уровня должны приходить из route, ViewModel или DI-графа, а не из default argument UI-функции.
+
+## Возвращаемые значения
+
+Большинство UI-emitting composable возвращают `Unit`.
+
+```kotlin
+@Composable
+fun LessonTitle(title: String) {
+    Text(text = title)
+}
+```
+
+Но composable может возвращать значение, если она читает CompositionLocal, использует `remember` или строит state holder.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+class SearchState(
+    initialQuery: String
+) {
+    var query by mutableStateOf(initialQuery)
+        private set
+
+    fun updateQuery(newQuery: String) {
+        query = newQuery
+    }
+
+    fun clear() {
+        query = ""
+    }
+}
+
+@Composable
+fun rememberSearchState(
+    initialQuery: String = ""
+): SearchState {
+    return remember(initialQuery) {
+        SearchState(initialQuery)
+    }
+}
+```
+
+Такую функцию называют lowerCamelCase, потому что она не эмитит UI напрямую, а возвращает объект состояния.
+
+## `@Preview`
+
+`@Preview` не делает функцию composable. Он только говорит Android Studio, что эту composable-функцию можно показать в preview.
+
+```kotlin
+import androidx.compose.ui.tooling.preview.Preview
+
+@Preview(showBackground = true, widthDp = 360)
+@Composable
+fun CourseCardPreview() {
+    MaterialTheme {
+        CourseCard(
+            state = CourseCardState(
+                title = "Jetpack Compose",
+                subtitle = "Вход и рабочая среда",
+                completedLessons = 2,
+                totalLessons = 6
+            ),
+            onContinueClick = {}
+        )
+    }
+}
+```
+
+Preview-функции:
+
+- не должны требовать реальную сеть;
+- не должны читать базу данных;
+- не должны зависеть от настоящей навигации;
+- должны использовать реалистичные данные;
+- должны покрывать длинные строки, пустые состояния и разные размеры.
+
+## Аннотации рядом с composable
+
+### `@Composable`
+
+Главная аннотация. Включает функцию в composable-контекст.
+
+### `@Preview`
+
+Tooling-аннотация для Android Studio Preview. Не влияет на production UI напрямую.
+
+### `@ReadOnlyComposable`
+
+Используется для composable-функций, которые только читают CompositionLocal-like значения и не эмитят UI. Применяется редко и требует понимания runtime-контракта.
+
+### `@NonRestartableComposable`
+
+Оптимизационная аннотация для функций, которые не должны становиться restart group. Используется библиотечными авторами осторожно, когда overhead restartability не нужен.
+
+### `@Stable`
+
+Контракт стабильности типа или API. Сообщает Compose compiler, что тип ведет себя стабильно для целей recomposition.
+
+### `@Immutable`
+
+Контракт неизменяемости. Подходит для UI-state data classes, если все публичные свойства действительно immutable.
+
+### `@DisallowComposableCalls`
+
+Ограничивает вызов composable-функций внутри определенных lambda-контекстов. Встречается в низкоуровневых API вроде `remember` calculation lambda, где composable-вызовы запрещены.
+
+Эти аннотации не нужно расставлять повсюду. Большинству прикладного кода достаточно `@Composable`, `@Preview`, а для UI-state моделей иногда `@Immutable`.
+
+## Полный пример: preview-friendly компонент
+
+Ниже компонент `CourseHero`. Он использует правильный порядок параметров, `Modifier`, callbacks, slot API и immutable state.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class CourseHeroState(
+    val title: String,
+    val description: String,
+    val primaryActionLabel: String,
+    val secondaryActionLabel: String
+)
+
+@Composable
+fun CourseHero(
+    state: CourseHeroState,
+    onPrimaryActionClick: () -> Unit,
+    onSecondaryActionClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    badge: @Composable (() -> Unit)? = null
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (badge != null) {
+                badge()
+            }
+
+            Text(
+                text = state.title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+
+            Text(
+                text = state.description,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(onClick = onPrimaryActionClick) {
+                    Text(text = state.primaryActionLabel)
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                OutlinedButton(onClick = onSecondaryActionClick) {
+                    Text(text = state.secondaryActionLabel)
+                }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, widthDp = 420)
+@Composable
+fun CourseHeroPreview() {
+    MaterialTheme {
+        CourseHero(
+            state = CourseHeroState(
+                title = "Jetpack Compose",
+                description = "Научись строить современный Android UI через состояние, компоненты и ясную архитектуру.",
+                primaryActionLabel = "Начать",
+                secondaryActionLabel = "План курса"
+            ),
+            onPrimaryActionClick = {},
+            onSecondaryActionClick = {},
+            badge = {
+                Text(
+                    text = "Новый модуль",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        )
+    }
+}
+```
+
+Почему API удачный:
+
+- `CourseHeroState` immutable и описывает данные;
+- callbacks не привязаны к navigation framework;
+- `modifier` управляет внешним размещением;
+- `badge` является optional slot;
+- preview использует реалистичный текст;
+- компонент можно встроить в разные экраны без переписывания.
+
+## Частые ошибки проектирования composable API
+
+### Передавать ViewModel в каждый маленький компонент
+
+Маленький UI-компонент должен получать state и callbacks. ViewModel уместна на route/screen boundary, где UI связывается с архитектурным состоянием.
+
+### Не давать `modifier`
+
+Без `modifier` компонент трудно размещать, тестировать и адаптировать.
+
+### Смешивать внутренний и внешний padding
+
+Внутренний padding принадлежит компоненту. Внешний padding должен задавать родитель через `modifier`.
+
+### Делать callback слишком конкретным
+
+`onNavigateToLessonDetails` хуже, чем `onLessonClick`, если компонент является reusable card. Конкретная навигация должна жить выше.
+
+### Передавать mutable collections
+
+`MutableList` в параметрах UI-state делает recomposition менее предсказуемой. Передавай immutable/read-only модели и создавай новое состояние при изменениях.
+
+### Создавать зависимости в default arguments
+
+Repository, database, analytics и navigator не должны создаваться внутри reusable composable.
+
+## Итоги
+
+Composable-функции — это Kotlin API с особыми правилами:
+
+- `@Composable` открывает composable-контекст;
+- composable можно вызвать только из composable;
+- UI-emitting functions обычно возвращают `Unit` и называются с заглавной буквы;
+- value-returning composable helpers называются lowerCamelCase;
+- обязательные данные и callbacks идут первыми;
+- `modifier: Modifier = Modifier` дает родителю контроль над размещением;
+- slot API делает компоненты гибкими;
+- callbacks должны сообщать о событиях, а не выполнять скрытую архитектурную работу;
+- preview-friendly компонент получает state и lambdas, а не реальные внешние зависимости;
+- обычные Kotlin-функции остаются лучшим местом для форматирования, валидации и чистых вычислений.

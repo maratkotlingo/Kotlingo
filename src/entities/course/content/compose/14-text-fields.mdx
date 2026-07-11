@@ -1,0 +1,601 @@
+---
+title: "Поля ввода"
+description: "Подробно разбираем TextField и OutlinedTextField в Compose: value-based и state-based API, TextFieldState, KeyboardOptions, KeyboardActions, VisualTransformation, OutputTransformation, ошибки, supporting text и production-валидацию."
+order: 14
+category: "Compose: UI Fundamentals"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему TextField сложнее обычного текста
+
+Поле ввода — один из самых сложных UI-компонентов. Оно работает не только со строкой, но и с курсором, выделением, IME, автозаменой, ошибками, фокусом, accessibility, форматированием, сохранением состояния и валидацией.
+
+В Compose есть два семейства API:
+
+- value-based поля: `value` + `onValueChange`;
+- state-based поля: `state = TextFieldState` и трансформации ввода/вывода.
+
+Value-based API проще и широко распространен. State-based API современнее и надежнее для сложного ввода, потому что состояние текста, selection и composition живут в специальном state holder.
+
+## `TextField` и `OutlinedTextField`
+
+`TextField` — заполненное поле Material 3. Оно визуально более плотное и заметное.
+
+`OutlinedTextField` — поле с рамкой. Оно часто используется в формах, потому что хорошо отделяет ввод от фона и спокойно смотрится в списках настроек.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+
+@Composable
+fun TextFieldVariants() {
+    var filledValue by remember { mutableStateOf("") }
+    var outlinedValue by remember { mutableStateOf("") }
+
+    Column {
+        TextField(
+            value = filledValue,
+            onValueChange = { newValue ->
+                filledValue = newValue
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = {
+                Text(text = "Filled поле")
+            }
+        )
+
+        OutlinedTextField(
+            value = outlinedValue,
+            onValueChange = { newValue ->
+                outlinedValue = newValue
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = {
+                Text(text = "Outlined поле")
+            }
+        )
+    }
+}
+```
+
+## Value-based API
+
+Value-based `TextField` получает строку и callback изменения. Это классический Compose-паттерн controlled input.
+
+Основные параметры:
+
+- `value` — текущая строка;
+- `onValueChange` — callback нового текста;
+- `modifier`;
+- `enabled`;
+- `readOnly`;
+- `textStyle`;
+- `label`;
+- `placeholder`;
+- `leadingIcon`;
+- `trailingIcon`;
+- `prefix`;
+- `suffix`;
+- `supportingText`;
+- `isError`;
+- `visualTransformation`;
+- `keyboardOptions`;
+- `keyboardActions`;
+- `singleLine`;
+- `maxLines`;
+- `minLines`;
+- `interactionSource`;
+- `shape`;
+- `colors`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+
+@Composable
+fun LessonTitleField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val trimmedLength = value.trim().length
+    val errorMessage = when {
+        value.isBlank() -> "Название не должно быть пустым"
+        trimmedLength < 4 -> "Название должно быть длиннее трех символов"
+        trimmedLength > 80 -> "Название должно быть не длиннее 80 символов"
+        else -> null
+    }
+
+    Column(
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { newValue ->
+                // Ограничиваем ввод на уровне UI, чтобы поле не разрасталось бесконечно.
+                if (newValue.length <= 100) {
+                    onValueChange(newValue)
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = {
+                Text(text = "Название урока")
+            },
+            placeholder = {
+                Text(text = "Например: Состояние в Compose")
+            },
+            singleLine = true,
+            isError = errorMessage != null,
+            supportingText = {
+                Text(
+                    text = errorMessage ?: "$trimmedLength из 80 символов",
+                    color = if (errorMessage != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            },
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+                imeAction = ImeAction.Next
+            )
+        )
+    }
+}
+```
+
+Важная граница: UI-ограничение длины не заменяет доменную валидацию. Сервер, repository или use case все равно должны проверять данные.
+
+## `TextFieldState`
+
+State-based API использует `TextFieldState`. Он хранит:
+
+- текст;
+- selection;
+- composition для IME;
+- операции редактирования;
+- интеграцию с snapshot state.
+
+```kotlin
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldLineLimits
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun UsernameStateBasedField(
+    modifier: Modifier = Modifier
+) {
+    val usernameState = rememberTextFieldState()
+
+    OutlinedTextField(
+        state = usernameState,
+        modifier = modifier,
+        lineLimits = TextFieldLineLimits.SingleLine,
+        label = {
+            Text(text = "Имя пользователя")
+        },
+        placeholder = {
+            Text(text = "student_2026")
+        }
+    )
+}
+```
+
+`rememberTextFieldState` сохраняет объект состояния между recomposition и поддерживает save/restore. Если нужно хранить поле во ViewModel, можно создать `TextFieldState` выше и передать в composable.
+
+<CatTip title="Котосовет: state-based API лучше для сложного ввода">
+  Если поле содержит телефон, маску, лимит, selection-операции, IME composition или форматирование вывода, `TextFieldState`
+  обычно устойчивее, чем ручная синхронизация `value` и `onValueChange`.
+</CatTip>
+
+## `InputTransformation`
+
+`InputTransformation` фильтрует ввод до сохранения в `TextFieldState`. Например, можно разрешить только цифры и ограничить длину.
+
+```kotlin
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.OutputTransformation
+import androidx.compose.foundation.text.input.TextFieldBuffer
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldLineLimits
+import androidx.compose.runtime.Composable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.core.text.isDigitsOnly
+
+@Composable
+fun PhoneNumberField(
+    modifier: Modifier = Modifier
+) {
+    val phoneState = rememberTextFieldState()
+
+    OutlinedTextField(
+        state = phoneState,
+        modifier = modifier,
+        label = {
+            Text(text = "Телефон")
+        },
+        lineLimits = TextFieldLineLimits.SingleLine,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Phone
+        ),
+        inputTransformation = InputTransformation.maxLength(10).then {
+            // Если пользователь вставил буквы или символы, откатываем всю правку.
+            if (!asCharSequence().isDigitsOnly()) {
+                revertAllChanges()
+            }
+        },
+        outputTransformation = OutputTransformation {
+            // Форматирование вывода не сохраняется в state, оно влияет только на отображение.
+            if (length > 0) insert(0, "(")
+            if (length > 4) insert(4, ") ")
+            if (length > 9) insert(9, "-")
+        },
+        supportingText = {
+            Text(text = "Введите 10 цифр без кода страны")
+        }
+    )
+}
+```
+
+Не мутируй внешнее состояние внутри `InputTransformation`. Работай с `TextFieldBuffer`: `insert`, `delete`, `replace`, `revertAllChanges`.
+
+## `OutputTransformation`
+
+`OutputTransformation` форматирует текст перед показом, но не меняет сохраненный state. Это удобно для телефона, номера карты, кода доступа.
+
+```kotlin
+class GroupedAccessCodeOutputTransformation : OutputTransformation {
+    override fun TextFieldBuffer.transformOutput() {
+        if (length > 3) insert(3, " ")
+        if (length > 7) insert(7, " ")
+    }
+}
+```
+
+Использование:
+
+```kotlin
+@Composable
+fun AccessCodeField(
+    modifier: Modifier = Modifier
+) {
+    val codeState = rememberTextFieldState()
+
+    OutlinedTextField(
+        state = codeState,
+        modifier = modifier,
+        lineLimits = TextFieldLineLimits.SingleLine,
+        label = {
+            Text(text = "Код доступа")
+        },
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.NumberPassword
+        ),
+        inputTransformation = InputTransformation.maxLength(9).then {
+            if (!asCharSequence().isDigitsOnly()) {
+                revertAllChanges()
+            }
+        },
+        outputTransformation = GroupedAccessCodeOutputTransformation()
+    )
+}
+```
+
+## `KeyboardOptions` и `KeyboardActions`
+
+`KeyboardOptions` просит IME показать подходящий тип клавиатуры и действие. Это не жесткая гарантия: клавиатуры могут вести себя по-разному.
+
+`KeyboardActions` описывает, что делать при IME-действии.
+
+```kotlin
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+
+@Composable
+fun SearchTextField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier,
+        singleLine = true,
+        label = {
+            Text(text = "Поиск")
+        },
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Text,
+            imeAction = ImeAction.Search
+        ),
+        keyboardActions = KeyboardActions(
+            onSearch = {
+                // IME action должен вызывать то же намерение, что и кнопка поиска.
+                onSearch()
+            }
+        )
+    )
+}
+```
+
+## Password field
+
+Для value-based API пароль часто делают через `PasswordVisualTransformation`.
+
+`res/drawable/ic_visibility_24.xml`:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,4.5C7,4.5 2.73,7.61 1,12c1.73,4.39 6,7.5 11,7.5s9.27,-3.11 11,-7.5C21.27,7.61 17,4.5 12,4.5zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5s5,2.24 5,5s-2.24,5 -5,5zM12,9c-1.66,0 -3,1.34 -3,3s1.34,3 3,3s3,-1.34 3,-3s-1.34,-3 -3,-3z" />
+</vector>
+```
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import com.kotlingo.reader.R
+
+@Composable
+fun PasswordField(
+    password: String,
+    passwordVisible: Boolean,
+    onPasswordChange: (String) -> Unit,
+    onPasswordVisibilityChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = password,
+        onValueChange = onPasswordChange,
+        modifier = modifier,
+        singleLine = true,
+        label = {
+            Text(text = "Пароль")
+        },
+        visualTransformation = if (passwordVisible) {
+            VisualTransformation.None
+        } else {
+            PasswordVisualTransformation()
+        },
+        trailingIcon = {
+            IconButton(
+                onClick = {
+                    onPasswordVisibilityChange(!passwordVisible)
+                }
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_visibility_24),
+                    contentDescription = if (passwordVisible) {
+                        "Скрыть пароль"
+                    } else {
+                        "Показать пароль"
+                    }
+                )
+            }
+        },
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Done
+        )
+    )
+}
+```
+
+Для новых state-based сценариев смотри также `SecureTextField`, если версия Material 3 в проекте его поддерживает и команда готова использовать соответствующий API.
+
+## Полный пример формы
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class LessonFormState(
+    val title: String,
+    val description: String,
+    val saving: Boolean
+)
+
+data class LessonFormValidation(
+    val titleError: String?,
+    val descriptionError: String?
+) {
+    val canSubmit: Boolean
+        get() = titleError == null && descriptionError == null
+}
+
+fun validateLessonForm(state: LessonFormState): LessonFormValidation {
+    val titleError = when {
+        state.title.isBlank() -> "Введите название урока"
+        state.title.trim().length < 4 -> "Название слишком короткое"
+        else -> null
+    }
+
+    val descriptionError = when {
+        state.description.isBlank() -> "Введите описание"
+        state.description.trim().length < 20 -> "Описание должно быть подробнее"
+        else -> null
+    }
+
+    return LessonFormValidation(
+        titleError = titleError,
+        descriptionError = descriptionError
+    )
+}
+
+@Composable
+fun LessonForm(
+    state: LessonFormState,
+    onTitleChange: (String) -> Unit,
+    onDescriptionChange: (String) -> Unit,
+    onSubmitClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val validation = validateLessonForm(state)
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        OutlinedTextField(
+            value = state.title,
+            onValueChange = onTitleChange,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.saving,
+            singleLine = true,
+            label = {
+                Text(text = "Название")
+            },
+            isError = validation.titleError != null,
+            supportingText = {
+                Text(
+                    text = validation.titleError ?: "Короткое и понятное название урока",
+                    color = if (validation.titleError != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        )
+
+        OutlinedTextField(
+            value = state.description,
+            onValueChange = onDescriptionChange,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.saving,
+            minLines = 4,
+            maxLines = 8,
+            label = {
+                Text(text = "Описание")
+            },
+            isError = validation.descriptionError != null,
+            supportingText = {
+                Text(
+                    text = validation.descriptionError ?: "Объясните, что студент изучит",
+                    color = if (validation.descriptionError != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        )
+
+        Button(
+            onClick = onSubmitClick,
+            enabled = validation.canSubmit && !state.saving
+        ) {
+            Text(
+                text = if (state.saving) {
+                    "Сохраняем"
+                } else {
+                    "Сохранить урок"
+                }
+            )
+        }
+    }
+}
+```
+
+Разбор:
+
+- форма stateless и получает все данные параметрами;
+- validation вынесена в обычную Kotlin-функцию;
+- errors показаны через `isError` и `supportingText`;
+- `enabled = !state.saving` блокирует редактирование во время сохранения;
+- кнопка disabled только когда есть понятная причина в полях;
+- `minLines` и `maxLines` ограничивают многострочное описание.
+
+## Типичные ошибки
+
+### Делать асинхронную работу внутри `onValueChange`
+
+`onValueChange` должен быть быстрым. Сетевые проверки, сохранение в базу и debounce-поиск лучше делать через state holder, Flow и side effects.
+
+### Терять selection при ручном форматировании
+
+Value-based форматирование вроде телефона может ломать cursor position. Для сложных масок лучше state-based API с `InputTransformation` и `OutputTransformation`.
+
+### Показывать ошибку без текста
+
+Красная рамка без объяснения не помогает. Ошибка должна иметь текст, доступный визуально и семантически.
+
+### Использовать placeholder вместо label
+
+Placeholder исчезает при вводе. Label остается контекстом поля. Для важных форм label почти всегда нужен.
+
+### Хранить все поля только локально внутри composable
+
+Если форма влияет на экран, навигацию или сохранение, состояние должно жить в route/ViewModel/state holder, а не теряться при выходе composable из Composition.
+
+## Итоги
+
+Поля ввода требуют аккуратной модели:
+
+- `TextField` — заполненное Material-поле;
+- `OutlinedTextField` — поле с рамкой;
+- value-based API работает через `value` и `onValueChange`;
+- state-based API работает через `TextFieldState`;
+- `rememberTextFieldState` удобен для локального state;
+- `InputTransformation` фильтрует ввод до сохранения;
+- `OutputTransformation` форматирует вывод без изменения state;
+- `KeyboardOptions` настраивает IME;
+- `KeyboardActions` обрабатывает действия клавиатуры;
+- `isError` всегда должен сопровождаться понятным текстом;
+- placeholder не заменяет label;
+- сложная форма должна быть stateless UI поверх явного состояния.

@@ -1,0 +1,458 @@
+---
+title: "Screenshot and visual regression testing"
+description: "Разбираем screenshot и visual regression testing для Jetpack Compose: Paparazzi-style и Roborazzi-style подходы, fixtures, deterministic rendering, device differences, fonts, dark theme, RTL, font scale, baselines, diffs, CI workflow и ограничения pixel tests."
+order: 113
+category: "Compose: Testing and quality"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны screenshot tests
+
+Compose UI tests хорошо проверяют semantics и поведение, но они плохо отвечают на вопросы:
+
+- не сломался ли spacing;
+- не обрезался ли текст;
+- не уехала ли иконка;
+- не поменялся ли цвет;
+- не развалился ли layout на expanded width;
+- не сломалась ли dark theme;
+- не появился ли visual regression после refactor.
+
+Screenshot tests сравнивают rendered output с baseline image. Это полезно для дизайн-систем, карточек, экранов, adaptive layouts и критичных visual states.
+
+```kotlin
+data class ScreenshotCase(
+    val name: String,
+    val widthDp: Int,
+    val heightDp: Int,
+    val darkTheme: Boolean,
+    val fontScale: Float
+)
+```
+
+Скриншотный тест должен быть deterministic: одинаковый input → одинаковое изображение.
+
+<CatTip>
+Screenshot test — это не проверка красоты. Это датчик: "внешний вид изменился". Человек все равно решает, изменение ожидаемое или regression.
+</CatTip>
+
+## Что тестировать скриншотами
+
+Хорошие кандидаты:
+
+- design system components;
+- cards/list items;
+- empty/loading/error/content states;
+- dialogs/sheets;
+- adaptive breakpoints;
+- typography-heavy screens;
+- dark/light theme;
+- RTL;
+- large font;
+- visual states: focused/pressed/selected/error.
+
+Плохие кандидаты:
+
+- constantly animated UI;
+- remote images без фиксированных fixtures;
+- live maps/video/camera;
+- весь app end-to-end flow;
+- screens с текущим временем без freezing;
+- UI, который зависит от network.
+
+## Fixture-first composables
+
+Screenshot testing проще, если UI принимает state.
+
+```kotlin
+@Immutable
+data class CourseCardState(
+    val title: String,
+    val subtitle: String,
+    val progressText: String,
+    val completed: Boolean
+)
+```
+
+Fixture:
+
+```kotlin
+object CourseCardFixtures {
+
+    val default = CourseCardState(
+        title = "Jetpack Compose",
+        subtitle = "Testing and quality",
+        progressText = "108 из 120",
+        completed = false
+    )
+
+    val longText = CourseCardState(
+        title = "Очень длинное название курса, которое должно переноситься",
+        subtitle = "Раздел с длинным описанием",
+        progressText = "5 из 120",
+        completed = false
+    )
+}
+```
+
+Preview/test content:
+
+```kotlin
+@Composable
+fun CourseCardScreenshotContent(
+    state: CourseCardState,
+    darkTheme: Boolean = false
+) {
+    AppTheme(darkTheme = darkTheme) {
+        CourseCard(
+            state = state,
+            onClick = {}
+        )
+    }
+}
+```
+
+Fixture должен жить рядом с feature/design system, а не копироваться в каждом тесте.
+
+## Paparazzi-style tests
+
+Paparazzi-style подход рендерит Android Views/Compose на JVM без emulator/device. Он быстрый и удобный для component screenshots.
+
+Структура теста обычно такая:
+
+```kotlin
+class CourseCardScreenshotTest {
+
+    @get:Rule
+    val paparazzi = Paparazzi(
+        deviceConfig = DeviceConfig.PIXEL_6
+    )
+
+    @Test
+    fun defaultCard() {
+        paparazzi.snapshot {
+            CourseCardScreenshotContent(
+                state = CourseCardFixtures.default
+            )
+        }
+    }
+}
+```
+
+Преимущества:
+
+- быстро;
+- удобно в CI;
+- хорошо для component baselines;
+- не требует emulator per test.
+
+Ограничения:
+
+- rendering может отличаться от real device;
+- не все platform APIs работают;
+- GPU/device-specific effects могут отличаться;
+- нужно внимательно фиксировать fonts/resources/theme.
+
+## Roborazzi-style tests
+
+Roborazzi-style подход часто использует Robolectric rendering и может быть ближе к Android behavior для некоторых случаев.
+
+Примерная структура:
+
+```kotlin
+@RunWith(RobolectricTestRunner::class)
+class CourseCardRoborazziTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun defaultCard() {
+        composeRule.setContent {
+            CourseCardScreenshotContent(
+                state = CourseCardFixtures.default
+            )
+        }
+
+        composeRule
+            .onRoot()
+            .captureRoboImage("course-card-default.png")
+    }
+}
+```
+
+Exact API зависит от версии инструмента. Идея: render Compose content в controlled environment и сравнить с baseline.
+
+## Device rendering differences
+
+Pixel-perfect screenshots зависят от:
+
+- Android API;
+- font renderer;
+- density;
+- hardware acceleration;
+- emoji/font fallback;
+- locale;
+- dark mode;
+- dynamic color;
+- window insets;
+- antialiasing;
+- library versions.
+
+Чтобы уменьшить шум:
+
+- фиксируйте device config;
+- фиксируйте locale;
+- используйте bundled fonts;
+- отключайте dynamic content;
+- задавайте deterministic time;
+- подменяйте images на local assets;
+- не сравнивайте screenshots между разными environments без политики.
+
+<MouseTrap>
+Скриншотный тест без фиксированной среды может стать генератором случайных diffs. Тогда команда быстро перестанет ему доверять.
+</MouseTrap>
+
+## Font scale and RTL
+
+Обязательно покрывайте:
+
+```kotlin
+data class VisualVariant(
+    val name: String,
+    val widthDp: Int,
+    val fontScale: Float,
+    val darkTheme: Boolean,
+    val layoutDirection: LayoutDirection
+)
+```
+
+Варианты:
+
+- compact light;
+- compact dark;
+- expanded light;
+- long text;
+- font scale 1.3;
+- font scale 2.0 для accessibility-critical components;
+- RTL, если приложение локализуется на RTL-языки.
+
+UI wrapper:
+
+```kotlin
+@Composable
+fun VisualTestWrapper(
+    variant: VisualVariant,
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalLayoutDirection provides variant.layoutDirection
+    ) {
+        AppTheme(darkTheme = variant.darkTheme) {
+            content()
+        }
+    }
+}
+```
+
+Font scale в конкретном screenshot framework настраивается через device/config API.
+
+## Stable images
+
+Remote images должны быть заменены fixtures:
+
+```kotlin
+@Immutable
+data class ArticleCardState(
+    val title: String,
+    val image: ArticleImage
+)
+
+sealed interface ArticleImage {
+    data class Remote(val url: String) : ArticleImage
+    data class Resource(val resId: Int) : ArticleImage
+}
+```
+
+В screenshot:
+
+```kotlin
+ArticleCardState(
+    title = "Compose testing",
+    image = ArticleImage.Resource(R.drawable.fixture_article_cover)
+)
+```
+
+Не делайте screenshot tests зависимыми от CDN, cache или network.
+
+## Handling animations
+
+Для screenshot tests:
+
+- отключайте бесконечные анимации;
+- фиксируйте clock;
+- снимайте final state;
+- избегайте shimmer baselines;
+- используйте static loading state.
+
+```kotlin
+@Composable
+fun LoadingCard(
+    animated: Boolean
+) {
+    if (animated) {
+        ShimmerCard()
+    } else {
+        StaticPlaceholderCard()
+    }
+}
+```
+
+Screenshot:
+
+```kotlin
+LoadingCard(animated = false)
+```
+
+Visual regression должен ловить layout, а не случайную фазу shimmer.
+
+## Baseline review
+
+Workflow:
+
+- test fails with diff;
+- открыть expected/actual/diff;
+- определить: regression или expected change;
+- если regression — исправить UI;
+- если expected — обновить baseline;
+- baseline update должен быть reviewable в PR.
+
+Не обновляйте baselines автоматически без review. Это превращает tests в декорацию.
+
+```text
+Diff: course-card-long-text
+Причина: title maxLines изменен с 2 на 3
+Решение: expected change, baseline обновлен
+Reviewer: design system owner
+```
+
+## Screenshot matrix
+
+Не нужно умножать все states на все devices. Выберите representative matrix.
+
+```kotlin
+val courseCardCases = listOf(
+    ScreenshotCase(
+        name = "default-light",
+        widthDp = 360,
+        heightDp = 160,
+        darkTheme = false,
+        fontScale = 1f
+    ),
+    ScreenshotCase(
+        name = "default-dark",
+        widthDp = 360,
+        heightDp = 160,
+        darkTheme = true,
+        fontScale = 1f
+    ),
+    ScreenshotCase(
+        name = "long-text-large-font",
+        widthDp = 360,
+        heightDp = 220,
+        darkTheme = false,
+        fontScale = 1.3f
+    )
+)
+```
+
+Matrix должна покрывать риск, а не все математические комбинации.
+
+## Combining with semantics tests
+
+Screenshot test может показать, что кнопка выглядит правильно. Он не докажет, что:
+
+- кнопка имеет role;
+- contentDescription корректный;
+- disabled state доступен;
+- click action работает;
+- traversal order верный.
+
+Нужны оба уровня:
+
+```kotlin
+@Test
+fun deleteButton_hasAccessibleLabel() {
+    composeRule.setContent {
+        DeleteButton(onDelete = {})
+    }
+
+    composeRule
+        .onNodeWithContentDescription("Удалить")
+        .assertHasClickAction()
+}
+```
+
+Visual и semantics tests закрывают разные риски.
+
+## CI workflow
+
+В CI сохраняйте:
+
+- actual screenshot;
+- expected baseline;
+- diff image;
+- device/config info;
+- test name;
+- Compose/library versions;
+- artifact link.
+
+Правила:
+
+- screenshot tests запускаются на stable environment;
+- baseline updates идут отдельным коммитом или явно помеченным PR;
+- flaky visual tests triage-ятся, а не игнорируются навсегда;
+- large screenshot suites можно shard-ить.
+
+## Типичные ошибки
+
+### Screenshot всего приложения
+
+Тесты становятся медленными и шумными. Лучше fixtures и component/screen states.
+
+### Remote images в baseline
+
+Любое изменение сети ломает тест.
+
+### Автоматически принимать все diffs
+
+Regression превращается в новый baseline.
+
+### Не фиксировать fonts/locale/device
+
+Pixel diffs становятся случайными.
+
+### Проверять только light/default state
+
+Dark, long text и font scale остаются без защиты.
+
+### Заменять semantics tests screenshots
+
+Картинка не проверяет accessibility contract.
+
+## Итоги
+
+Screenshot testing закрывает visual regressions:
+
+- используйте fixture-first composables;
+- Paparazzi-style tests быстры для component screenshots;
+- Roborazzi-style tests полезны для Robolectric-based rendering;
+- rendering зависит от device, fonts, locale и API;
+- remote images, time и animations нужно стабилизировать;
+- matrix должна покрывать risk states: dark, long text, font scale, RTL, adaptive width;
+- baseline diffs требуют review;
+- screenshots дополняют, а не заменяют semantics/action tests;
+- CI должен сохранять expected/actual/diff artifacts.

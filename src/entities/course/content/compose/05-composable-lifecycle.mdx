@@ -1,0 +1,537 @@
+---
+title: "Жизненный цикл composable"
+description: "Разбираем lifecycle composable-функций: вход в Composition, recomposition, выход из Composition, идентичность вызова, lifetime remember, отмену effects и отличие от жизненного цикла Activity."
+order: 05
+category: "Compose: Вход и рабочая среда"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Жизненный цикл проще, но обманчивее
+
+У `Activity` есть знакомые callbacks: `onCreate`, `onStart`, `onResume`, `onPause`, `onStop`, `onDestroy`. У composable-функции нет такого набора методов. Ее lifecycle в Compose формулируется проще:
+
+- composable входит в Composition;
+- composable может быть recomposed 0 или больше раз;
+- composable выходит из Composition.
+
+Звучит легче, но именно простота часто обманывает. Новичок видит функцию и думает: "Она просто выполняется сверху вниз". На самом деле вызов может быть пропущен, повторен, отменен, перезапущен с новым key, а remembered state может жить дольше одного выполнения функции.
+
+## Вход в Composition
+
+Composable входит в Composition, когда его вызов впервые появляется в дереве.
+
+```kotlin
+@Composable
+fun ProfileScreen(isLoggedIn: Boolean) {
+    if (isLoggedIn) {
+        // ProfileContent входит в Composition только когда isLoggedIn == true.
+        ProfileContent()
+    } else {
+        // LoginPrompt входит в Composition только когда isLoggedIn == false.
+        LoginPrompt()
+    }
+}
+
+@Composable
+fun ProfileContent() {
+    Text(text = "Профиль пользователя")
+}
+
+@Composable
+fun LoginPrompt() {
+    Text(text = "Войдите в аккаунт")
+}
+```
+
+Если `isLoggedIn` меняется с `false` на `true`, `LoginPrompt` выходит из Composition, а `ProfileContent` входит. Это не "скрытие View", если ты сам не написал такой UI. Это изменение composition-структуры.
+
+## Recomposition
+
+Recomposition происходит, когда Compose повторно выполняет часть дерева из-за изменения state или параметров.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun RecompositionCounterExample() {
+    var count by remember { mutableIntStateOf(0) }
+
+    Text(text = "Значение: $count")
+
+    Button(
+        onClick = {
+            count += 1
+        }
+    ) {
+        Text(text = "Увеличить")
+    }
+}
+```
+
+Когда `count` меняется, composable-код, который зависит от `count`, может быть выполнен снова. Но это не значит, что все дерево приложения обязательно пересоздано. Compose пытается пересчитать только затронутые участки и пропустить стабильные части.
+
+## Выход из Composition
+
+Composable выходит из Composition, когда его вызов больше не присутствует в дереве.
+
+```kotlin
+@Composable
+fun LessonPanel(showDetails: Boolean) {
+    Text(text = "Основная информация")
+
+    if (showDetails) {
+        LessonDetails()
+    }
+}
+
+@Composable
+fun LessonDetails() {
+    Text(text = "Подробности урока")
+}
+```
+
+Когда `showDetails` становится `false`, `LessonDetails` выходит из Composition. Если внутри `LessonDetails` были `remember`-значения, они удаляются. Если были effects, они отменяются или очищаются в зависимости от типа effect.
+
+<CatTip title="Котосовет: исчезновение из UI — это lifecycle-событие">
+  Если composable больше не вызывается, его remembered state и effects не
+  продолжают жить просто потому, что функция существует в исходном коде.
+  Lifetime привязан к месту в Composition, а не к файлу и не к имени функции.
+</CatTip>
+
+## Lifetime `remember`
+
+`remember` живет, пока живет соответствующее место в Composition.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun DraftTitleEditor() {
+    var draftTitle by remember { mutableStateOf("") }
+
+    OutlinedTextField(
+        value = draftTitle,
+        onValueChange = { newTitle ->
+            draftTitle = newTitle
+        },
+        label = {
+            Text(text = "Черновик названия")
+        }
+    )
+}
+```
+
+Если `DraftTitleEditor` временно убрали из Composition, `draftTitle` исчезнет. Если экран повернулся и Activity пересоздалась, обычный `remember` тоже не восстановит значение. Для сохранения через configuration changes и process recreation используется `rememberSaveable`, но и он имеет ограничения: данные должны быть сохранены в Bundle или через `Saver`.
+
+## Identity вызова
+
+Compose определяет identity вызова по позиции в Composition и дополнительным ключам, если они есть. Поэтому две одинаковые функции в разных местах имеют разные lifetimes.
+
+```kotlin
+@Composable
+fun TwoEditors() {
+    // Первый вызов имеет свою позицию и свой remembered state.
+    DraftTitleEditor()
+
+    // Второй вызов имеет другую позицию и другой remembered state.
+    DraftTitleEditor()
+}
+```
+
+Оба editor-компонента используют один и тот же код, но их state не общий. Это правильно: identity определяется местом вызова.
+
+В динамических списках позиция может смещаться, поэтому нужен key:
+
+```kotlin
+import androidx.compose.runtime.key
+
+@Composable
+fun EditableLessonTitles(lessons: List<EditableLesson>) {
+    Column {
+        lessons.forEach { lesson ->
+            key(lesson.id) {
+                EditableLessonTitleRow(lesson = lesson)
+            }
+        }
+    }
+}
+
+data class EditableLesson(
+    val id: String,
+    val title: String
+)
+```
+
+Если список сортируется или фильтруется, `key(lesson.id)` помогает сохранить identity строки за конкретным уроком.
+
+## Effects и lifecycle
+
+Effects — мост между Composition lifecycle и внешним миром. Они нужны, когда нужно сделать что-то за пределами чистого описания UI: запустить coroutine, подписаться на listener, отправить событие после успешной composition.
+
+### `LaunchedEffect`
+
+`LaunchedEffect` запускает coroutine, когда входит в Composition. Coroutine отменяется, когда effect выходит из Composition или когда меняется key.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+
+@Composable
+fun AutoClosingMessage(
+    messageId: String,
+    onTimeout: (String) -> Unit
+) {
+    LaunchedEffect(messageId) {
+        // Coroutine привязана к lifecycle этого effect.
+        delay(3_000)
+        onTimeout(messageId)
+    }
+
+    Text(text = "Сообщение будет закрыто автоматически")
+}
+```
+
+Если `messageId` изменился, старая coroutine отменится, а новая начнется для нового сообщения. Если composable исчез с экрана, coroutine тоже отменится.
+
+### `DisposableEffect`
+
+`DisposableEffect` нужен для ресурсов, которые нужно явно очистить.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+
+@Composable
+fun LifecycleLogger(
+    lifecycleOwner: LifecycleOwner,
+    logger: ScreenLogger
+) {
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                logger.log("Экран стал видимым")
+            }
+
+            if (event == Lifecycle.Event.ON_STOP) {
+                logger.log("Экран ушел из видимой области")
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            // Cleanup обязательно симметричен регистрации.
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+}
+
+interface ScreenLogger {
+    fun log(message: String)
+}
+```
+
+Если `lifecycleOwner` поменялся, старый observer будет удален, новый зарегистрирован. Если composable вышел из Composition, observer тоже будет удален.
+
+<MouseTrap title="Мышеловка: listener без onDispose остается жить дольше UI">
+  Если зарегистрировать listener в composable и не удалить его, он может держать
+  ссылки на старый экран, вызывать устаревшие callbacks и создавать утечки.
+  Любая регистрация внешнего ресурса должна иметь симметричный cleanup.
+</MouseTrap>
+
+### `rememberUpdatedState`
+
+Иногда long-lived effect должен продолжать жить, но использовать свежий callback. Для этого нужен `rememberUpdatedState`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+
+@Composable
+fun SplashTimer(
+    onFinished: () -> Unit
+) {
+    val latestOnFinished by rememberUpdatedState(onFinished)
+
+    LaunchedEffect(Unit) {
+        delay(1_500)
+
+        // Effect не перезапускается при каждой новой lambda,
+        // но вызывает самую свежую версию callback.
+        latestOnFinished()
+    }
+}
+```
+
+Без `rememberUpdatedState` можно случайно захватить старую lambda или перезапускать таймер чаще, чем нужно.
+
+## Activity lifecycle и Composition lifecycle
+
+Activity lifecycle и Composition lifecycle пересекаются, но не совпадают.
+
+Activity может быть `RESUMED`, а конкретный composable уже вышел из Composition, потому что пользователь открыл другой экран внутри NavHost. Или Activity может пересоздаться при configuration change, из-за чего вся Composition будет создана заново.
+
+Практические следствия:
+
+- не используй Activity как глобальное хранилище состояния UI;
+- не привязывай listener к Activity lifecycle, если ресурс нужен только конкретному composable;
+- собирай Flow lifecycle-aware способом, если данные должны уважать STARTED/STOPPED состояние;
+- используй `rememberSaveable` или `SavedStateHandle` для состояния, которое должно пережить пересоздание;
+- используй `DisposableEffect`, когда внешний ресурс должен жить ровно столько, сколько composable.
+
+## Route lifecycle и screen lifecycle
+
+В Navigation Compose один `Activity` может содержать много экранов. Поэтому важнее думать не "активити открыта", а "какой destination сейчас в Composition".
+
+```kotlin
+@Composable
+fun CourseRoute(
+    courseId: String,
+    repository: CourseRepository
+) {
+    LaunchedEffect(courseId) {
+        // Загрузка привязана к конкретному courseId.
+        // При переходе на другой courseId effect отменится и запустится заново.
+        repository.preloadCourse(courseId)
+    }
+
+    CourseScreen(courseId = courseId)
+}
+
+interface CourseRepository {
+    suspend fun preloadCourse(courseId: String)
+}
+
+@Composable
+fun CourseScreen(courseId: String) {
+    Text(text = "Курс: $courseId")
+}
+```
+
+Если destination удален из back stack, `CourseRoute` выходит из Composition. Если тот же destination остается, но аргумент `courseId` меняется, effect перезапускается из-за key.
+
+## Lazy lists и временный выход элементов
+
+Элементы lazy list не обязаны постоянно находиться в Composition. Если строка далеко за пределами viewport, она может быть удалена из Composition. Поэтому локальный `remember` внутри item подходит только для временного UI-состояния строки, которое не жалко потерять при уходе далеко за экран.
+
+Плохо для важного состояния:
+
+```kotlin
+@Composable
+fun LessonChecklist(lessons: List<LessonChecklistItem>) {
+    LazyColumn {
+        items(
+            items = lessons,
+            key = { lesson -> lesson.id }
+        ) { lesson ->
+            var checked by remember { mutableStateOf(false) }
+
+            LessonChecklistRow(
+                title = lesson.title,
+                checked = checked,
+                onCheckedChange = { checked = it }
+            )
+        }
+    }
+}
+
+data class LessonChecklistItem(
+    val id: String,
+    val title: String
+)
+```
+
+Если checked является настоящим состоянием задачи, его нужно hoist наружу:
+
+```kotlin
+@Composable
+fun LessonChecklist(
+    lessons: List<LessonChecklistItem>,
+    checkedLessonIds: Set<String>,
+    onLessonCheckedChange: (String, Boolean) -> Unit
+) {
+    LazyColumn {
+        items(
+            items = lessons,
+            key = { lesson -> lesson.id }
+        ) { lesson ->
+            LessonChecklistRow(
+                title = lesson.title,
+                checked = lesson.id in checkedLessonIds,
+                onCheckedChange = { checked ->
+                    onLessonCheckedChange(lesson.id, checked)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun LessonChecklistRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+
+        Text(text = title)
+    }
+}
+```
+
+Теперь состояние не зависит от того, находится ли строка в Composition прямо сейчас.
+
+## API-карта жизненного цикла
+
+### `remember`
+
+Хранит значение в Composition. Lifetime — пока вызов остается в Composition с той же identity.
+
+### `rememberSaveable`
+
+Хранит значение через saveable state mechanism. Может пережить configuration change и process recreation, если значение можно сохранить.
+
+### `key`
+
+Задает identity группы. Нужен для динамических composable-групп, особенно когда порядок элементов меняется.
+
+### `LaunchedEffect`
+
+Запускает coroutine с lifecycle, привязанным к Composition и keys.
+
+### `DisposableEffect`
+
+Позволяет выполнить setup и cleanup внешнего ресурса.
+
+### `SideEffect`
+
+Выполняется после успешной composition. Подходит для публикации данных во внешний объект, когда cleanup не нужен.
+
+### `rememberUpdatedState`
+
+Обновляет значение, доступное long-lived effect, без перезапуска этого effect.
+
+### `produceState`
+
+Создает `State<T>` из suspend/callback источника и управляет lifecycle producer coroutine.
+
+### `CompositionLocalProvider`
+
+Передает значение вниз по Composition. Значение живет в subtree, где provider присутствует.
+
+### `BackHandler`
+
+Регистрирует обработчик back press, пока соответствующий composable находится в Composition.
+
+## Практический пример: экран с таймером и cleanup
+
+Ниже пример показывает lifecycle сразу в нескольких местах: таймер отменяется при выходе, logger получает свежий callback, а состояние времени принадлежит route.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+
+@Composable
+fun TimedLessonRoute(
+    lessonId: String,
+    onLessonExpired: (String) -> Unit
+) {
+    var secondsLeft by remember(lessonId) { mutableIntStateOf(10) }
+    val latestOnLessonExpired by rememberUpdatedState(onLessonExpired)
+
+    LaunchedEffect(lessonId) {
+        while (secondsLeft > 0) {
+            delay(1_000)
+            secondsLeft -= 1
+        }
+
+        latestOnLessonExpired(lessonId)
+    }
+
+    TimedLessonScreen(
+        lessonId = lessonId,
+        secondsLeft = secondsLeft,
+        onRestartClick = {
+            secondsLeft = 10
+        }
+    )
+}
+
+@Composable
+fun TimedLessonScreen(
+    lessonId: String,
+    secondsLeft: Int,
+    onRestartClick: () -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(text = "Урок: $lessonId")
+        Text(text = "Осталось секунд: $secondsLeft")
+
+        Button(onClick = onRestartClick) {
+            Text(text = "Начать отсчет заново")
+        }
+    }
+}
+```
+
+Разбор:
+
+- `remember(lessonId)` сбрасывает счетчик, когда открыт другой урок;
+- `LaunchedEffect(lessonId)` отменяет старый таймер и запускает новый при смене урока;
+- `rememberUpdatedState(onLessonExpired)` защищает от устаревшего callback;
+- если `TimedLessonRoute` выйдет из Composition, coroutine будет отменена;
+- `TimedLessonScreen` stateless и не знает про lifecycle coroutine.
+
+## Итоги
+
+Lifecycle composable-функций строится вокруг Composition:
+
+- вход в Composition происходит, когда вызов появляется в дереве;
+- recomposition может выполняться много раз и не является lifecycle callback;
+- выход из Composition удаляет remembered state и отменяет effects;
+- identity вызова определяется позицией и keys;
+- `remember` живет столько, сколько живет место вызова;
+- `rememberSaveable` помогает переживать пересоздание, но не заменяет архитектурное состояние;
+- `LaunchedEffect` и `DisposableEffect` связывают внешнюю работу с lifetime Composition;
+- Activity lifecycle и composable lifecycle не совпадают;
+- в lazy lists важное состояние нужно хранить вне item-composable.

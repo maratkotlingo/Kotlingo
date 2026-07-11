@@ -1,0 +1,528 @@
+---
+title: "Tooling workflow"
+description: "Разбираем tooling workflow для Jetpack Compose: Android Studio previews, multipreview, Layout Inspector, semantics inspection, System Trace, Composition tracing, Macrobenchmark, Baseline Profiles, screenshot testing, CI artifacts и production performance loop."
+order: 108
+category: "Compose: Performance, stability and tooling"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужен tooling workflow
+
+Compose дает много инструментов, но хаотичное использование превращает диагностику в гадание. Хороший workflow отвечает на вопросы:
+
+- что именно сломалось;
+- где это видно;
+- какой инструмент подтверждает проблему;
+- какая гипотеза проверяется;
+- как измерить before/after;
+- какие artifacts сохранить;
+- как не повторить regression.
+
+Инструменты:
+
+- Android Studio Previews;
+- Multipreview;
+- Preview parameters;
+- Layout Inspector;
+- Semantics inspector;
+- System Trace;
+- Composition tracing;
+- Macrobenchmark;
+- Baseline Profiles;
+- Memory Profiler;
+- Screenshot testing;
+- CI benchmark artifacts.
+
+```kotlin
+data class ToolingQuestion(
+    val problem: String,
+    val firstTool: String,
+    val followUpTool: String
+)
+```
+
+Например: "scroll jank" → first tool System Trace/Macrobenchmark, follow-up Layout Inspector for recomposition.
+
+<CatTip>
+Tooling workflow — это не список окон в Android Studio. Это порядок мышления: сначала симптом, потом инструмент, потом гипотеза, потом измерение.
+</CatTip>
+
+## Preview-driven development
+
+Previews помогают быстро проверять states:
+
+- loading;
+- empty;
+- error;
+- content;
+- long text;
+- RTL;
+- large font;
+- compact/expanded widths;
+- dark theme.
+
+```kotlin
+import androidx.compose.ui.tooling.preview.Preview
+
+@Preview(
+    name = "content",
+    widthDp = 360,
+    heightDp = 720
+)
+@Preview(
+    name = "expanded",
+    widthDp = 900,
+    heightDp = 720
+)
+annotation class ScreenPreviews
+```
+
+Использование:
+
+```kotlin
+@ScreenPreviews
+@Composable
+fun LessonCardPreview() {
+    AppTheme {
+        LessonCard(
+            state = LessonCardState.preview(),
+            onClick = {}
+        )
+    }
+}
+```
+
+Preview должен использовать fake state, а не real ViewModel/network/database.
+
+## Preview parameters
+
+Для набора states используйте preview parameters.
+
+```kotlin
+import androidx.compose.ui.tooling.preview.PreviewParameter
+import androidx.compose.ui.tooling.preview.PreviewParameterProvider
+
+class LessonCardPreviewProvider :
+    PreviewParameterProvider<LessonCardState> {
+
+    override val values: Sequence<LessonCardState> = sequenceOf(
+        LessonCardState.preview(completed = false),
+        LessonCardState.preview(completed = true),
+        LessonCardState.previewLongTitle(),
+        LessonCardState.previewError()
+    )
+}
+
+@Preview
+@Composable
+fun LessonCardStatesPreview(
+    @PreviewParameter(LessonCardPreviewProvider::class)
+    state: LessonCardState
+) {
+    AppTheme {
+        LessonCard(
+            state = state,
+            onClick = {}
+        )
+    }
+}
+```
+
+Preview provider не должен создавать тяжелые objects или читать real resources вне preview-safe scope.
+
+## Layout Inspector workflow
+
+Используйте Layout Inspector, когда нужно понять:
+
+- actual UI tree;
+- modifiers/layout sizes;
+- recomposition/skipped counters;
+- semantics;
+- parameters selected composable;
+- mixed View/Compose hierarchy.
+
+Workflow:
+
+- запустить debuggable app;
+- открыть screen;
+- подключить Layout Inspector;
+- включить recomposition counts;
+- reset counters;
+- выполнить конкретное interaction;
+- записать suspicious nodes;
+- перейти к source double-click;
+- проверить report/trace, если есть performance impact.
+
+```kotlin
+data class LayoutInspectorNote(
+    val interaction: String,
+    val hotComposable: String,
+    val recompositions: Int,
+    val skips: Int,
+    val nextStep: String
+)
+```
+
+Layout Inspector хорош для локализации, но не для финального timing.
+
+## Semantics inspection
+
+Semantics tree важен для:
+
+- accessibility;
+- Compose UI tests;
+- autofill;
+- custom actions;
+- merged/unmerged tree debugging.
+
+Что проверять:
+
+- role;
+- contentDescription;
+- stateDescription;
+- customActions;
+- collection info;
+- error semantics;
+- hidden/decorative nodes;
+- traversal order.
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToLog
+
+class SemanticsDebugTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun printSemanticsTree() {
+        composeRule.setContent {
+            SettingsScreenPreviewContent()
+        }
+
+        composeRule
+            .onRoot()
+            .printToLog("Semantics")
+    }
+}
+```
+
+Не оставляйте debug prints в обычных tests, если они шумят CI logs.
+
+## System Trace
+
+System Trace нужен, когда есть performance symptom:
+
+- jank;
+- slow startup;
+- animation stutter;
+- input latency;
+- GC pauses;
+- main thread stalls.
+
+Что смотреть:
+
+- long frames;
+- main thread slices;
+- RenderThread;
+- Choreographer;
+- GC;
+- binder calls;
+- image decode;
+- composition/layout/draw;
+- custom trace sections.
+
+Добавьте trace sections для app code:
+
+```kotlin
+import androidx.tracing.trace
+
+fun loadInitialDashboard() {
+    trace("Dashboard/loadInitial") {
+        repository.refresh()
+        cache.warmUp()
+    }
+}
+```
+
+Не делайте trace section слишком мелкими. Trace должен помогать читать сценарий, а не превращаться в шум.
+
+## Composition tracing
+
+Composition tracing добавляет composable names в system trace.
+
+Use cases:
+
+- понять, какие composables участвуют в long frame;
+- связать Layout Inspector hot nodes с trace cost;
+- увидеть composition work в flame chart;
+- проверить hypothesis "дорогая composition".
+
+```kotlin
+dependencies {
+    debugImplementation("androidx.compose.runtime:runtime-tracing")
+}
+```
+
+Включайте tracing в diagnostic build. Не измеряйте финальные production numbers с лишним overhead без понимания.
+
+## Macrobenchmark workflow
+
+Macrobenchmark нужен для repeatable измерения:
+
+- startup;
+- scroll;
+- navigation;
+- animation;
+- critical journey.
+
+```kotlin
+@RunWith(AndroidJUnit4::class)
+class FeedScrollBenchmark {
+
+    @get:Rule
+    val benchmarkRule = MacrobenchmarkRule()
+
+    @Test
+    fun scrollFeed() {
+        benchmarkRule.measureRepeated(
+            packageName = "com.example.app",
+            metrics = listOf(
+                FrameTimingMetric()
+            ),
+            iterations = 5,
+            startupMode = StartupMode.WARM,
+            compilationMode = CompilationMode.Partial()
+        ) {
+            startActivityAndWait()
+            openFeed()
+            scrollFeedList()
+        }
+    }
+}
+```
+
+Benchmark должен быть:
+
+- deterministic enough;
+- representative;
+- release-like;
+- run на стабильном device;
+- сохранять trace artifacts.
+
+## Screenshot testing
+
+Screenshot tests ловят visual regressions:
+
+- spacing;
+- typography;
+- dark theme;
+- RTL;
+- adaptive widths;
+- loading/error/content states;
+- font scale;
+- screenshot-only layout bugs.
+
+Fixture-first UI упрощает screenshot testing:
+
+```kotlin
+@Composable
+fun LessonCardFixture(
+    state: LessonCardState = LessonCardState.preview()
+) {
+    AppTheme {
+        LessonCard(
+            state = state,
+            onClick = {}
+        )
+    }
+}
+```
+
+Screenshot tests не заменяют semantics tests. Они отвечают на другой вопрос: "выглядит ли UI так же?".
+
+## Baseline Profiles in workflow
+
+Baseline Profiles должны быть частью performance loop:
+
+- generator covers critical journeys;
+- macrobenchmark measures before/after;
+- profile stored and reviewed;
+- updated after navigation/UI changes;
+- CI artifact includes generated profile and benchmark JSON.
+
+```kotlin
+data class ProfileMaintenanceRule(
+    val trigger: String,
+    val requiredAction: String
+)
+
+val rules = listOf(
+    ProfileMaintenanceRule(
+        trigger = "Переписан startup screen",
+        requiredAction = "Обновить baseline profile generator"
+    ),
+    ProfileMaintenanceRule(
+        trigger = "Добавлен новый главный tab",
+        requiredAction = "Добавить journey в Macrobenchmark"
+    )
+)
+```
+
+Profile устаревает вместе с app flow.
+
+## Choosing the right tool
+
+### UI не выглядит правильно
+
+Начните с:
+
+- Preview;
+- Layout Inspector;
+- screenshot test.
+
+### Accessibility/test не видит node
+
+Начните с:
+
+- Semantics inspector;
+- `printToLog`;
+- merged/unmerged tree.
+
+### Scroll jank
+
+Начните с:
+
+- Macrobenchmark FrameTimingMetric;
+- System Trace;
+- Layout Inspector counters;
+- Memory Profiler, если есть GC.
+
+### Slow startup
+
+Начните с:
+
+- Macrobenchmark StartupTimingMetric;
+- System Trace;
+- Baseline Profile check;
+- app initialization audit.
+
+### Stale UI
+
+Начните с:
+
+- state mutation audit;
+- compiler stability reports;
+- Layout Inspector;
+- targeted UI test.
+
+## CI artifacts
+
+Для performance/visual CI сохраняйте:
+
+- benchmark JSON;
+- trace files;
+- generated baseline profiles;
+- screenshot diffs;
+- device configuration;
+- build variant;
+- commit SHA;
+- test logs.
+
+```kotlin
+data class CiPerformanceArtifact(
+    val benchmarkName: String,
+    val jsonPath: String,
+    val tracePath: String,
+    val deviceName: String,
+    val buildVariant: String
+)
+```
+
+Без artifacts regression невозможно нормально расследовать.
+
+## Tooling hygiene
+
+Правила:
+
+- debug-only tools в debug source set;
+- trace/log probes удалять после расследования;
+- benchmark selectors делать стабильными;
+- previews не должны зависеть от backend;
+- fake data держать рядом с feature;
+- screenshot baselines обновлять осознанно;
+- benchmark thresholds вводить постепенно;
+- reports не коммитить случайно, если проект так не договорился.
+
+## Example workflow: scroll jank
+
+1. User-visible symptom: feed дергается при первом scroll.
+2. Macrobenchmark: p95 frame time высокий.
+3. System Trace: long frames содержат GC и item composition.
+4. Layout Inspector: all visible `ArticleRow` recomposes при scroll.
+5. Compiler report: `ArticleUi` stable, но parent читает scroll offset.
+6. Fix: перенести scroll state read в header через `derivedStateOf`, добавить contentType.
+7. Re-run Macrobenchmark: p95 улучшился.
+8. Add note в PR с before/after.
+
+```text
+Before: p95 31 ms, jank 18%
+After: p95 18 ms, jank 4%
+Device: Pixel 8, release benchmark, Android 15
+```
+
+## Example workflow: visual regression
+
+1. Screenshot diff показывает broken padding.
+2. Preview воспроизводит expanded width.
+3. Layout Inspector показывает `Scaffold` innerPadding не применен.
+4. Fix: добавить `Modifier.padding(innerPadding)`.
+5. Screenshot baseline обновлять не нужно, тест стал зеленым.
+
+Такой workflow быстрее, чем гадать по CSS-like modifiers на глаз.
+
+## Типичные ошибки
+
+### Использовать один инструмент для всего
+
+Layout Inspector не заменяет Macrobenchmark. Screenshot test не заменяет semantics.
+
+### Не сохранять traces
+
+Без trace artifact regression сложно обсудить в команде.
+
+### Делать previews с реальным ViewModel
+
+Preview становится медленным и нестабильным.
+
+### Верить одному benchmark run
+
+Нужны iterations, стабильное устройство и trend.
+
+### Обновлять screenshot baseline автоматически
+
+Так можно принять regression как новую норму.
+
+### Оставлять debug instrumentation в production
+
+Логи, highlighters и tracing могут влиять на performance.
+
+## Итоги
+
+Tooling workflow делает Compose-разработку измеримой:
+
+- Previews ускоряют разработку states и adaptive variants;
+- Layout Inspector показывает tree, parameters, recomposition/skips и semantics;
+- System Trace нужен для frame-level performance;
+- Composition tracing связывает composables с trace;
+- Macrobenchmark дает repeatable startup/scroll/runtime measurements;
+- Baseline Profiles должны поддерживаться вместе с critical journeys;
+- screenshot tests ловят visual regressions;
+- semantics tools нужны для accessibility и tests;
+- CI должен сохранять benchmark, trace и screenshot artifacts;
+- хороший workflow начинается с симптома и гипотезы, а заканчивается before/after measurement.

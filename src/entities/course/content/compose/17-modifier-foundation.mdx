@@ -1,0 +1,511 @@
+---
+title: "Modifier как фундамент Compose UI"
+description: "Глубоко разбираем Modifier в Jetpack Compose: иммутабельные цепочки, порядок применения, layout/draw/input/semantics modifiers, parent data, переиспользование и типичные ошибки."
+order: 17
+category: "Compose: Layouts, constraints и Modifier"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `Modifier`
+
+`Modifier` — упорядоченная иммутабельная цепочка элементов, которая декорирует или расширяет composable. Через modifier ты задаешь:
+
+- размер;
+- отступы;
+- фон;
+- форму;
+- клики;
+- скролл;
+- accessibility semantics;
+- test tags;
+- drawing;
+- pointer input;
+- parent data для конкретного layout.
+
+```kotlin
+Text(
+    modifier = Modifier
+        .padding(16.dp)
+        .background(MaterialTheme.colorScheme.primaryContainer)
+        .padding(12.dp),
+    text = "Modifier применяется по порядку"
+)
+```
+
+Порядок важен. Первый `padding` находится снаружи фона, второй — внутри фона. Это не один объект настроек, а цепочка оберток.
+
+## Почему `modifier` почти всегда параметр
+
+Reusable composable должен принимать `modifier: Modifier = Modifier`.
+
+```kotlin
+@Composable
+fun LessonBadge(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        modifier = modifier
+            .background(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.small
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        text = title,
+        color = MaterialTheme.colorScheme.onSecondaryContainer
+    )
+}
+```
+
+Внешний код управляет размещением:
+
+```kotlin
+LessonBadge(
+    title = "Новый",
+    modifier = Modifier.padding(top = 8.dp)
+)
+```
+
+Компонент добавляет свою внутреннюю визуальную цепочку после внешнего modifier. Так вызывающий код может задать внешний padding, test tag, alignment или width.
+
+<CatTip title="Котосовет: modifier — это ручка для родителя">
+  Если компонент не принимает `modifier`, родителю приходится оборачивать его в лишний `Box` или просить автора компонента
+  добавить частный параметр. `modifier` делает composable гибким без роста API.
+</CatTip>
+
+## Иммутабельность цепочки
+
+`Modifier` не изменяется на месте. Каждый вызов возвращает новую цепочку.
+
+```kotlin
+val baseModifier = Modifier.padding(16.dp)
+
+val cardModifier = baseModifier.fillMaxWidth()
+val iconModifier = baseModifier.size(48.dp)
+```
+
+`baseModifier` остался тем же. Это безопасно для переиспользования.
+
+Неудачный способ ожидать мутацию:
+
+```kotlin
+fun modifierWithoutReassignment(): Modifier {
+    var modifier = Modifier
+
+    // Здесь создается новая цепочка, поэтому ее нужно присвоить обратно.
+    modifier.padding(16.dp)
+
+    return modifier
+}
+```
+
+Правильно:
+
+```kotlin
+fun modifierWithReassignment(): Modifier {
+    var modifier = Modifier
+    modifier = modifier.padding(16.dp)
+    return modifier
+}
+```
+
+Но в обычном Compose-коде цепочки почти всегда пишут fluent-стилем:
+
+```kotlin
+val modifier = Modifier
+    .fillMaxWidth()
+    .padding(16.dp)
+```
+
+## Порядок modifier-цепочки
+
+Порядок меняет результат.
+
+```kotlin
+@Composable
+fun PaddingAndBackgroundOrder() {
+    Text(
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(16.dp),
+        text = "Фон снаружи, отступ внутри"
+    )
+
+    Text(
+        modifier = Modifier
+            .padding(16.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        text = "Отступ снаружи, фон только под текстом"
+    )
+}
+```
+
+В первом случае фон покрывает область вместе с внутренним отступом. Во втором внешний отступ остается прозрачным.
+
+## Layout modifiers
+
+Layout modifiers влияют на измерение и размещение:
+
+- `size`;
+- `width`;
+- `height`;
+- `requiredSize`;
+- `sizeIn`;
+- `defaultMinSize`;
+- `fillMaxSize`;
+- `fillMaxWidth`;
+- `fillMaxHeight`;
+- `wrapContentSize`;
+- `padding`;
+- `offset`;
+- `aspectRatio`;
+- `weight` в `RowScope` и `ColumnScope`;
+- `align` в специальных scopes.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CoverAspectBox(
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.large
+    ) {
+        Box(
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+```
+
+Здесь внешний размер принадлежит `Surface`, а внутренний padding принадлежит содержимому.
+
+## Draw modifiers
+
+Draw modifiers меняют отрисовку:
+
+- `background`;
+- `border`;
+- `clip`;
+- `alpha`;
+- `shadow`;
+- `drawBehind`;
+- `drawWithContent`;
+- `drawWithCache`;
+- `graphicsLayer`;
+- `paint`.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun HighlightedLabel(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.tertiaryContainer)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.tertiary,
+                shape = MaterialTheme.shapes.small
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        text = text,
+        color = MaterialTheme.colorScheme.onTertiaryContainer
+    )
+}
+```
+
+## Input modifiers
+
+Input modifiers добавляют взаимодействие:
+
+- `clickable`;
+- `combinedClickable`;
+- `toggleable`;
+- `selectable`;
+- `pointerInput`;
+- `scrollable`;
+- `draggable`;
+- `anchoredDraggable`;
+- `focusable`;
+- `onKeyEvent`;
+- `onPreviewKeyEvent`.
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ClickableLessonRow(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    ListItem(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(
+                role = Role.Button,
+                onClick = onClick
+            )
+            .padding(horizontal = 8.dp),
+        headlineContent = {
+            Text(text = title)
+        }
+    )
+}
+```
+
+Если элемент является кнопкой, лучше использовать `Button`. Но если вся строка списка открывает детали, `clickable(role = Role.Button)` помогает accessibility.
+
+## Semantics modifiers
+
+Semantics сообщает accessibility, тестам и инструментам смысл элемента.
+
+- `semantics`;
+- `clearAndSetSemantics`;
+- `testTag`;
+- `selectableGroup`;
+- `heading`;
+- `contentDescription`;
+- `stateDescription`;
+- `progressBarRangeInfo`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+
+@Composable
+fun SectionHeading(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        modifier = modifier.semantics {
+            heading()
+        },
+        text = title
+    )
+}
+```
+
+Semantics не должна лгать. Не ставь `Role.Button` на текст, который не кликается.
+
+## Parent data modifiers
+
+Некоторые modifiers работают только внутри конкретного родителя:
+
+- `Modifier.weight` работает в `RowScope` и `ColumnScope`;
+- `Modifier.align` в `BoxScope`;
+- `Modifier.matchParentSize` в `BoxScope`;
+- `Modifier.layoutId` используется custom layouts и ConstraintLayout-like сценариями.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun WeightedLessonRow(
+    title: String,
+    minutes: Int
+) {
+    Row {
+        Text(
+            modifier = Modifier.weight(1f),
+            text = title
+        )
+
+        Text(text = "$minutes мин.")
+    }
+}
+```
+
+`weight` здесь доступен, потому что `Text` вызывается внутри `Row` content lambda, где receiver — `RowScope`.
+
+<MouseTrap title="Мышеловка: parent data modifier вне scope не работает как магия">
+  `Modifier.weight` нельзя применить где угодно. Он передает данные конкретному родительскому layout. Если родитель не
+  понимает эти данные, modifier либо недоступен по типу, либо не даст ожидаемого эффекта.
+</MouseTrap>
+
+## Переиспользование modifier-цепочек
+
+Если modifier-цепочка создается часто и не зависит от state, ее можно вынести.
+
+```kotlin
+private val LessonCardOuterModifier = Modifier
+    .fillMaxWidth()
+    .padding(horizontal = 16.dp, vertical = 8.dp)
+
+@Composable
+fun LessonCardShell(
+    title: String
+) {
+    Surface(
+        modifier = LessonCardOuterModifier,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Text(
+            modifier = Modifier.padding(16.dp),
+            text = title
+        )
+    }
+}
+```
+
+Но не выноси modifier, если он зависит от CompositionLocal или state:
+
+```kotlin
+@Composable
+fun themedModifier(): Modifier {
+    return Modifier.background(MaterialTheme.colorScheme.primaryContainer)
+}
+```
+
+Такой helper сам стал composable. Обычно проще оставить цепочку рядом с компонентом.
+
+## Полный пример: компонент с грамотным modifier API
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class ModifierLessonCardState(
+    val title: String,
+    val description: String,
+    val minutes: Int
+)
+
+@Composable
+fun ModifierLessonCard(
+    state: ModifierLessonCardState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(
+                role = Role.Button,
+                onClick = onClick
+            ),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                modifier = Modifier.semantics {
+                    heading()
+                },
+                text = state.title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = state.description,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Row {
+                Text(
+                    modifier = Modifier
+                        .background(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = MaterialTheme.shapes.small
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    text = "${state.minutes} мин.",
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- внешний `modifier` применен к корневому `Surface`;
+- `fillMaxWidth` добавлен внутри, потому что карточка по дизайну занимает ширину родителя;
+- `clickable` стоит на контейнере, чтобы вся карточка была действием;
+- внутренний padding не смешан с внешним;
+- heading semantics применен к заголовку;
+- декоративный badge сделан через внутреннюю modifier-цепочку.
+
+## Итоги
+
+`Modifier` — центральный инструмент Compose UI:
+
+- modifier-цепочка иммутабельна;
+- порядок modifier влияет на layout, draw и input;
+- reusable composable почти всегда принимает `modifier: Modifier = Modifier`;
+- внешний modifier применяется к корневому элементу;
+- layout modifiers меняют constraints и размещение;
+- draw modifiers меняют отрисовку;
+- input modifiers добавляют взаимодействие;
+- semantics modifiers дают смысл accessibility и тестам;
+- parent data modifiers работают только в нужном scope;
+- переиспользуй статические цепочки, но не выноси stateful/themed modifier без причины.

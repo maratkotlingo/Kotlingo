@@ -1,0 +1,625 @@
+---
+title: "Типографика и стили текста"
+description: "Разбираем TextStyle, MaterialTheme.typography, AnnotatedString, SpanStyle, ParagraphStyle, SelectionContainer, шрифты и правила построения типографической системы в Compose."
+order: 08
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Типографика как система
+
+Типографика — это не просто "сделать заголовок побольше". В UI типографика решает четыре задачи:
+
+- показывает иерархию: что главное, что второстепенное, что служебное;
+- улучшает читаемость: длина строки, line height, размер и контраст;
+- задает тон продукта: строгий, учебный, игровой, редакционный;
+- помогает layout быть устойчивым при локализации и пользовательском font scale.
+
+В Compose типографика обычно строится вокруг трех уровней:
+
+- `TextStyle` описывает конкретный стиль текста;
+- `Typography` хранит набор стилей дизайн-системы;
+- `MaterialTheme.typography` предоставляет эти стили всему composable-дереву.
+
+```kotlin
+Text(
+    text = "Ментальная модель Compose",
+    style = MaterialTheme.typography.titleLarge
+)
+```
+
+Такой код лучше, чем `fontSize = 22.sp` в каждой карточке, потому что он опирается на систему. Если дизайн изменится, ты обновишь `Typography`, а не сотни отдельных `Text`.
+
+## `TextStyle`
+
+`TextStyle` — immutable-объект, который описывает внешний вид текста. Он может содержать цвет, размер, шрифт, вес, межбуквенное расстояние, высоту строки, выравнивание, decoration, shadow, platform style и другие настройки.
+
+```kotlin
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+val LessonTitleStyle = TextStyle(
+    fontSize = 22.sp,
+    lineHeight = 28.sp,
+    fontWeight = FontWeight.SemiBold,
+    letterSpacing = 0.sp
+)
+```
+
+В production-коде стили чаще складывают в `Typography`, а не держат как разбросанные top-level constants. Но отдельный `TextStyle` полезен для объяснения и локальных компонентов дизайн-системы.
+
+## Главные свойства `TextStyle`
+
+### `color`
+
+Цвет текста. В Material-компонентах часто лучше передавать цвет через `Text` или `LocalContentColor`, но `TextStyle` тоже может его содержать.
+
+### `fontSize`
+
+Размер шрифта в `sp`. Не используй `dp` для текста: `sp` учитывает настройки доступности пользователя.
+
+### `fontWeight`
+
+Вес шрифта. Типичные значения: `Normal`, `Medium`, `SemiBold`, `Bold`.
+
+### `fontStyle`
+
+Наклон: обычный или italic.
+
+### `fontSynthesis`
+
+Управляет тем, может ли система синтезировать bold/italic, если выбранный font family не содержит нужный вариант.
+
+### `fontFamily`
+
+Семейство шрифта: системное, ресурсное, downloadable или variable font.
+
+### `fontFeatureSettings`
+
+Низкоуровневые OpenType-настройки. Используется редко, например для tabular numbers.
+
+### `letterSpacing`
+
+Межбуквенное расстояние. Его легко испортить, поэтому меняй только по дизайн-системе.
+
+### `baselineShift`
+
+Сдвиг baseline. Нужен для верхних и нижних индексов.
+
+### `textGeometricTransform`
+
+Масштабирование и наклон glyph geometry. Используется редко.
+
+### `localeList`
+
+Подсказка системе о locale для выбора glyph и typographic behavior.
+
+### `background`
+
+Фон под текстом. Часто для highlight внутри `AnnotatedString`.
+
+### `textDecoration`
+
+Подчеркивание или зачеркивание.
+
+### `shadow`
+
+Тень текста. В обычном app UI используется редко, в медиа и баннерах чаще.
+
+### `textAlign`
+
+Выравнивание внутри блока.
+
+### `textDirection`
+
+Направление текста. Обычно лучше доверить layout direction, но иногда нужно явно.
+
+### `lineHeight`
+
+Высота строки. Критически важна для читаемости многострочного текста.
+
+### `textIndent`
+
+Отступ первой строки и остальных строк в параграфе.
+
+### `platformStyle`
+
+Platform-specific настройки текста. Используются осторожно, когда нужны детали Android text rendering.
+
+### `lineHeightStyle`
+
+Управляет распределением line height относительно glyph metrics. Полезно для точной вертикальной типографики.
+
+### `lineBreak`
+
+Стратегия переноса строк. Важна для quality text layout.
+
+### `hyphens`
+
+Переносы с дефисами. Может улучшать длинные тексты, но требует проверки локалей.
+
+### `textMotion`
+
+Настройки отрисовки текста при анимации. Нужны в продвинутых animated typography сценариях.
+
+<CatTip title="Котосовет: стиль должен иметь смысловую роль">
+  Хорошее имя стиля отвечает на вопрос "где и зачем он используется":
+  `lessonTitle`, `screenHeadline`, `metadataLabel`. Плохое имя отвечает только
+  на пиксели: `bigBlueText`, `bold22`, `graySmall`.
+</CatTip>
+
+## Material 3 type scale
+
+Material 3 дает 15 базовых текстовых ролей:
+
+- `displayLarge`, `displayMedium`, `displaySmall`;
+- `headlineLarge`, `headlineMedium`, `headlineSmall`;
+- `titleLarge`, `titleMedium`, `titleSmall`;
+- `bodyLarge`, `bodyMedium`, `bodySmall`;
+- `labelLarge`, `labelMedium`, `labelSmall`.
+
+Практическое применение:
+
+- `display` — редкие крупные выразительные тексты;
+- `headline` — заголовки экранов и крупных секций;
+- `title` — заголовки карточек, dialogs, list sections;
+- `body` — основной читаемый текст;
+- `label` — кнопки, бейджи, служебные подписи, metadata.
+
+```kotlin
+@Composable
+fun TypeScaleSample() {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Compose",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Text(
+            text = "UI как функция состояния",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Text(
+            text = "Composable-функции описывают, как должен выглядеть экран при текущих данных.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Text(
+            text = "12 минут чтения",
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+```
+
+## Своя `Typography`
+
+Ниже цельная тема с кастомной типографикой. Она использует системный font family, чтобы пример был полностью самодостаточным.
+
+```kotlin
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+private val KotlingoTypography = Typography(
+    headlineMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 28.sp,
+        lineHeight = 36.sp,
+        letterSpacing = 0.sp
+    ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 0.sp
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp
+    ),
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.1.sp
+    )
+)
+
+@Composable
+fun KotlingoTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        typography = KotlingoTypography,
+        content = content
+    )
+}
+```
+
+Если ты переопределяешь только часть ролей, остальные остаются со значениями Material 3 по умолчанию. Это удобно для постепенного внедрения дизайн-системы.
+
+## Кастомные шрифты из ресурсов
+
+Для кастомного шрифта добавь файлы в `res/font`.
+
+Структура:
+
+```text
+app/src/main/res/font/kotlingo_regular.ttf
+app/src/main/res/font/kotlingo_medium.ttf
+app/src/main/res/font/kotlingo_bold.ttf
+```
+
+Kotlin:
+
+```kotlin
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import com.kotlingo.reader.R
+
+val KotlingoFontFamily = FontFamily(
+    Font(
+        resId = R.font.kotlingo_regular,
+        weight = FontWeight.Normal
+    ),
+    Font(
+        resId = R.font.kotlingo_medium,
+        weight = FontWeight.Medium
+    ),
+    Font(
+        resId = R.font.kotlingo_bold,
+        weight = FontWeight.Bold
+    )
+)
+```
+
+Затем family используется в `TextStyle`:
+
+```kotlin
+val ReaderBodyStyle = TextStyle(
+    fontFamily = KotlingoFontFamily,
+    fontWeight = FontWeight.Normal,
+    fontSize = 16.sp,
+    lineHeight = 24.sp
+)
+```
+
+## `AnnotatedString`
+
+`AnnotatedString` нужен, когда один `Text` содержит несколько стилей или annotations.
+
+```kotlin
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+
+@Composable
+fun LessonProgressText(
+    completed: Int,
+    total: Int
+) {
+    val text = buildAnnotatedString {
+        append("Пройдено ")
+
+        withStyle(
+            style = SpanStyle(
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+        ) {
+            append(completed.toString())
+        }
+
+        append(" из ")
+        append(total.toString())
+        append(" уроков")
+    }
+
+    Text(text = text)
+}
+```
+
+Этот подход лучше, чем несколько `Text` в `Row`, если фраза должна читаться как единая строка и переноситься естественным образом.
+
+## `SpanStyle` и `ParagraphStyle`
+
+`SpanStyle` меняет стиль участка текста внутри параграфа: цвет, вес, фон, decoration, baseline shift.
+
+`ParagraphStyle` меняет параграф целиком: выравнивание, line height, text indent. Когда применяешь `ParagraphStyle` к фрагменту `AnnotatedString`, этот фрагмент становится отдельным параграфом.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.ParagraphStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.sp
+
+@Composable
+fun StyledArticleLead() {
+    val lead = buildAnnotatedString {
+        withStyle(
+            style = ParagraphStyle(
+                textAlign = TextAlign.Start,
+                lineHeight = 26.sp
+            )
+        ) {
+            withStyle(
+                style = SpanStyle(fontWeight = FontWeight.Bold)
+            ) {
+                append("Compose ")
+            }
+
+            append("помогает описывать интерфейс как функцию состояния.")
+        }
+    }
+
+    Text(text = lead)
+}
+```
+
+## Выделение текста
+
+По умолчанию `Text` не всегда ведет себя как редактируемое или выделяемое поле. Чтобы разрешить пользователю выделять и копировать текст, используй `SelectionContainer`.
+
+```kotlin
+import androidx.compose.foundation.text.SelectionContainer
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun CopyableCodeExplanation() {
+    SelectionContainer {
+        Text(
+            text = "Modifier.padding(16.dp) добавляет внутренний отступ вокруг содержимого."
+        )
+    }
+}
+```
+
+Если внутри выделяемого блока есть текст, который не должен выделяться, используй `DisableSelection`.
+
+```kotlin
+import androidx.compose.foundation.text.DisableSelection
+import androidx.compose.foundation.text.SelectionContainer
+
+@Composable
+fun PartiallyCopyableText() {
+    SelectionContainer {
+        Column {
+            Text(text = "Эту строку можно выделить.")
+
+            DisableSelection {
+                Text(text = "Эта служебная подпись не выделяется.")
+            }
+        }
+    }
+}
+```
+
+## Ссылки в тексте
+
+Для ссылок внутри текста используй annotations и отдельную обработку клика. В простом UI часто удобнее сделать ссылку отдельной кнопкой, но в длинном тексте `AnnotatedString` сохраняет естественную структуру фразы.
+
+```kotlin
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
+
+@Composable
+fun TermsText(
+    onTermsClick: () -> Unit
+) {
+    val tag = "terms"
+    val text = buildAnnotatedString {
+        append("Продолжая обучение, вы принимаете ")
+
+        pushStringAnnotation(
+            tag = tag,
+            annotation = "terms"
+        )
+        withStyle(
+            style = SpanStyle(
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline
+            )
+        ) {
+            append("условия курса")
+        }
+        pop()
+    }
+
+    ClickableText(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        onClick = { offset ->
+            val annotations = text.getStringAnnotations(
+                tag = tag,
+                start = offset,
+                end = offset
+            )
+
+            if (annotations.isNotEmpty()) {
+                onTermsClick()
+            }
+        }
+    )
+}
+```
+
+`ClickableText` находится в foundation и является более низкоуровневым API. Для обычной кнопки или отдельной ссылки на экране часто лучше использовать Material-компонент, но внутри абзаца этот инструмент полезен.
+
+## Полный пример: карточка статьи с типографикой
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.SelectionContainer
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class ArticleIntroState(
+    val eyebrow: String,
+    val title: String,
+    val lead: String,
+    val emphasizedWord: String
+)
+
+@Composable
+fun ArticleIntro(
+    state: ArticleIntroState,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = state.eyebrow.uppercase(),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Text(
+                modifier = Modifier.semantics {
+                    // Заголовок нужен не только визуально, но и для навигации screen reader.
+                    heading()
+                },
+                text = state.title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            SelectionContainer {
+                Text(
+                    text = buildLeadText(
+                        lead = state.lead,
+                        emphasizedWord = state.emphasizedWord
+                    ),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun buildLeadText(
+    lead: String,
+    emphasizedWord: String
+): androidx.compose.ui.text.AnnotatedString {
+    val primary = MaterialTheme.colorScheme.primary
+
+    return buildAnnotatedString {
+        val startIndex = lead.indexOf(emphasizedWord)
+
+        if (startIndex == -1) {
+            append(lead)
+            return@buildAnnotatedString
+        }
+
+        append(lead.substring(startIndex = 0, endIndex = startIndex))
+
+        withStyle(
+            style = SpanStyle(
+                color = primary,
+                fontWeight = FontWeight.Bold
+            )
+        ) {
+            append(emphasizedWord)
+        }
+
+        append(lead.substring(startIndex = startIndex + emphasizedWord.length))
+    }
+}
+```
+
+Разбор:
+
+- `eyebrow` использует `labelLarge`, потому что это метка контекста;
+- `title` использует `headlineMedium` и semantics heading;
+- `lead` выделяемый, потому что это содержательный текст;
+- `buildLeadText` возвращает `AnnotatedString`, а не набор отдельных `Text`;
+- цвет выделения берется из темы;
+- если слово не найдено, функция возвращает полный lead без падения.
+
+## Типичные ошибки
+
+### Случайные размеры вместо type scale
+
+Если каждый экран использует свои `17.sp`, `21.sp`, `23.sp`, приложение теряет визуальную систему. Начинай с `MaterialTheme.typography`.
+
+### `TextAlign.Right` вместо `TextAlign.End`
+
+`Right` всегда означает правую сторону. `End` учитывает направление письма. Для локализованного UI почти всегда нужен `Start`/`End`.
+
+### Жесткая высота вокруг текста
+
+Контейнер с фиксированной высотой может сломаться при крупном font scale. Лучше использовать padding, min height и адаптивные constraints.
+
+### Строка разбита на несколько `Text` ради одного bold-слова
+
+Если фраза должна переноситься как единое предложение, используй `AnnotatedString`.
+
+### Аннотации стабильности на mutable-модели
+
+`@Immutable` на типе с `MutableList` не делает список неизменяемым. Это ложный контракт для Compose compiler.
+
+## Итоги
+
+Типографика в Compose строится слоями:
+
+- `TextStyle` описывает конкретный стиль;
+- `Typography` собирает роли дизайн-системы;
+- `MaterialTheme.typography` распространяет стили по дереву;
+- Material 3 type scale дает 15 стартовых ролей;
+- `AnnotatedString` нужен для смешанных стилей внутри одной строки;
+- `SpanStyle` меняет фрагмент, `ParagraphStyle` меняет параграф;
+- `SelectionContainer` разрешает выделение текста;
+- шрифты лучше подключать как `FontFamily` и использовать через тему;
+- стиль должен иметь смысловую роль, а не имя по пикселям.

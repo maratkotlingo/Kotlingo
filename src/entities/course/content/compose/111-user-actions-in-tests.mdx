@@ -1,0 +1,525 @@
+---
+title: "User actions in tests"
+description: "Разбираем пользовательские действия в Compose UI tests: performClick, text input, scroll, gestures, touch input, keyboard input, focus requests, ime actions, assertions after actions, fake state holders и тестирование real user flows."
+order: 111
+category: "Compose: Testing and quality"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем тестировать действия пользователя
+
+UI test становится полезным, когда проверяет не только "текст есть на экране", но и user flow:
+
+- пользователь нажал кнопку;
+- ввел текст;
+- выбрал checkbox;
+- проскроллил список;
+- сделал swipe;
+- нажал клавишу;
+- получил error;
+- увидел новое состояние.
+
+Compose test actions работают через semantics actions. Если node не имеет click/text/scroll semantics, тест не сможет выполнить действие так же, как пользователь.
+
+```kotlin
+@Composable
+fun SaveButton(
+    enabled: Boolean,
+    onSave: () -> Unit
+) {
+    Button(
+        enabled = enabled,
+        onClick = onSave
+    ) {
+        Text(text = "Сохранить")
+    }
+}
+```
+
+Тест:
+
+```kotlin
+composeRule
+    .onNodeWithText("Сохранить")
+    .performClick()
+```
+
+<CatTip>
+Если тест не может нажать элемент через semantics, это часто не проблема теста, а слабый accessibility contract элемента.
+</CatTip>
+
+## `performClick`
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import com.google.common.truth.Truth.assertThat
+import org.junit.Rule
+import org.junit.Test
+
+class SaveButtonTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun click_callsOnSave() {
+        var saved = false
+
+        composeRule.setContent {
+            SaveButton(
+                enabled = true,
+                onSave = {
+                    saved = true
+                }
+            )
+        }
+
+        composeRule
+            .onNodeWithText("Сохранить")
+            .performClick()
+
+        assertThat(saved).isTrue()
+    }
+}
+```
+
+Перед click можно явно проверить enabled:
+
+```kotlin
+composeRule
+    .onNodeWithText("Сохранить")
+    .assertIsEnabled()
+    .performClick()
+```
+
+## Disabled actions
+
+Если button disabled, action не должна происходить.
+
+```kotlin
+@Test
+fun disabledButton_doesNotSave() {
+    var saved = false
+
+    composeRule.setContent {
+        SaveButton(
+            enabled = false,
+            onSave = {
+                saved = true
+            }
+        )
+    }
+
+    composeRule
+        .onNodeWithText("Сохранить")
+        .assertIsNotEnabled()
+
+    assertThat(saved).isFalse()
+}
+```
+
+Не вызывайте `performClick` на disabled node и не ожидайте production-like behavior. Проверяйте, что node disabled и callback не был вызван.
+
+## Text input
+
+`performTextInput` вводит текст в focused text field.
+
+```kotlin
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTextInput
+
+@Test
+fun emailInput_acceptsText() {
+    composeRule.setContent {
+        var email by remember {
+            mutableStateOf("")
+        }
+
+        OutlinedTextField(
+            value = email,
+            onValueChange = {
+                email = it
+            },
+            label = {
+                Text(text = "Email")
+            }
+        )
+    }
+
+    composeRule
+        .onNodeWithText("Email")
+        .performTextInput("test@example.com")
+
+    composeRule
+        .onNodeWithText("test@example.com")
+        .assertExists()
+}
+```
+
+Если поле не найдено по label, проверьте semantics tree: Material text field может объединять label/value/error.
+
+## Text replacement and clearing
+
+```kotlin
+composeRule
+    .onNodeWithText("Email")
+    .performTextInput("old@example.com")
+
+composeRule
+    .onNodeWithText("old@example.com")
+    .performTextClearance()
+
+composeRule
+    .onNodeWithText("Email")
+    .performTextInput("new@example.com")
+```
+
+Если тест нестабилен, лучше искать text field по tag:
+
+```kotlin
+OutlinedTextField(
+    value = email,
+    onValueChange = onEmailChange,
+    label = {
+        Text(text = "Email")
+    },
+    modifier = Modifier.testTag("email-field")
+)
+```
+
+```kotlin
+composeRule
+    .onNodeWithTag("email-field")
+    .performTextInput("new@example.com")
+```
+
+## IME actions
+
+`performImeAction` проверяет action клавиатуры.
+
+```kotlin
+@Composable
+fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        label = {
+            Text(text = "Поиск")
+        },
+        keyboardOptions = KeyboardOptions(
+            imeAction = ImeAction.Search
+        ),
+        keyboardActions = KeyboardActions(
+            onSearch = {
+                onSearch()
+            }
+        )
+    )
+}
+```
+
+Тест:
+
+```kotlin
+composeRule
+    .onNodeWithText("Поиск")
+    .performTextInput("Compose")
+
+composeRule
+    .onNodeWithText("Compose")
+    .performImeAction()
+
+assertThat(searchSubmitted).isTrue()
+```
+
+IME action отличается от hardware Enter. Проверяйте оба, если app поддерживает keyboard-first UI.
+
+## Scroll actions
+
+Для lazy lists:
+
+```kotlin
+composeRule
+    .onNodeWithTag("lesson-list")
+    .performScrollToNode(
+        hasText("Screenshot testing")
+    )
+
+composeRule
+    .onNodeWithText("Screenshot testing")
+    .assertIsDisplayed()
+```
+
+Для обычного scrollable:
+
+```kotlin
+composeRule
+    .onNodeWithTag("settings-scroll")
+    .performScrollTo()
+```
+
+`performScrollTo` работает для node, если parent поддерживает scroll semantics.
+
+## Swipe and gestures
+
+`performTouchInput` позволяет делать gestures.
+
+```kotlin
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+
+composeRule
+    .onNodeWithTag("dismiss-card")
+    .performTouchInput {
+        swipeLeft()
+    }
+```
+
+Custom gesture:
+
+```kotlin
+composeRule
+    .onNodeWithTag("slider")
+    .performTouchInput {
+        down(centerLeft)
+        moveTo(centerRight)
+        up()
+    }
+```
+
+Gesture tests могут быть хрупкими, если завязаны на точные coordinates. Если есть semantics action, лучше использовать ее.
+
+<MouseTrap>
+Не тестируйте простую кнопку через координатный tap. `performClick` ближе к пользовательскому и accessibility behavior.
+</MouseTrap>
+
+## Long click and double click
+
+```kotlin
+composeRule
+    .onNodeWithText("Файл")
+    .performTouchInput {
+        longClick()
+    }
+
+composeRule
+    .onNodeWithText("Открыть")
+    .assertExists()
+```
+
+Если component использует `combinedClickable`, проверьте:
+
+- click;
+- long click;
+- semantics labels;
+- fallback menu/action для accessibility.
+
+## Keyboard input
+
+Keyboard actions важны для tablets, ChromeOS, desktop windowing и accessibility.
+
+```kotlin
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.requestFocus
+
+@OptIn(ExperimentalTestApi::class)
+@Test
+fun ctrlS_saves() {
+    var saved = false
+
+    composeRule.setContent {
+        ShortcutRoot(
+            onSave = {
+                saved = true
+            }
+        ) {
+            Text(
+                text = "Документ",
+                modifier = Modifier.focusable()
+            )
+        }
+    }
+
+    composeRule
+        .onNodeWithText("Документ")
+        .requestFocus()
+
+    composeRule
+        .onNodeWithText("Документ")
+        .performKeyInput {
+            keyDown(Key.CtrlLeft)
+            keyDown(Key.S)
+            keyUp(Key.S)
+            keyUp(Key.CtrlLeft)
+        }
+
+    assertThat(saved).isTrue()
+}
+```
+
+Keyboard event приходит focused node/subtree. Если shortcut не работает, сначала проверьте focus.
+
+## Focus actions
+
+`requestFocus` полезен для tests:
+
+```kotlin
+composeRule
+    .onNodeWithTag("search-field")
+    .requestFocus()
+
+composeRule
+    .onNodeWithTag("search-field")
+    .assertIsFocused()
+```
+
+Focus tests особенно важны для TV/desktop/keyboard-first UI.
+
+## Assertions after actions
+
+После действия проверяйте user-visible результат:
+
+```kotlin
+composeRule
+    .onNodeWithText("Добавить")
+    .performClick()
+
+composeRule
+    .onNodeWithText("Новый элемент")
+    .assertIsDisplayed()
+```
+
+Не ограничивайтесь проверкой callback, если feature должна изменить UI. И наоборот, не заставляйте UI test проверять внутренний repository, если достаточно callback contract.
+
+## State update pattern
+
+Пример flow:
+
+```kotlin
+@Test
+fun addTodo_addsItemToList() {
+    composeRule.setContent {
+        var todos by remember {
+            mutableStateOf(emptyList<String>())
+        }
+        var draft by remember {
+            mutableStateOf("")
+        }
+
+        TodoScreen(
+            todos = todos,
+            draft = draft,
+            onDraftChange = {
+                draft = it
+            },
+            onAdd = {
+                todos = todos + draft
+                draft = ""
+            }
+        )
+    }
+
+    composeRule
+        .onNodeWithText("Новая задача")
+        .performTextInput("Написать тесты")
+
+    composeRule
+        .onNodeWithText("Добавить")
+        .performClick()
+
+    composeRule
+        .onNodeWithText("Написать тесты")
+        .assertIsDisplayed()
+}
+```
+
+Так тест проверяет всю UI цепочку: input → state → button → list.
+
+## Testing error flows
+
+```kotlin
+@Test
+fun emptyPassword_submitShowsError() {
+    composeRule.setContent {
+        var state by remember {
+            mutableStateOf(LoginUiState(email = "test@example.com"))
+        }
+
+        LoginScreen(
+            state = state,
+            onEmailChange = {
+                state = state.copy(email = it)
+            },
+            onPasswordChange = {
+                state = state.copy(password = it)
+            },
+            onSubmit = {
+                state = state.copy(
+                    errorMessage = "Введите пароль"
+                )
+            }
+        )
+    }
+
+    composeRule
+        .onNodeWithText("Войти")
+        .performClick()
+
+    composeRule
+        .onNodeWithText("Введите пароль")
+        .assertIsDisplayed()
+}
+```
+
+Ошибка должна быть не только callback side effect, но и observable UI state.
+
+## Типичные ошибки
+
+### Делать coordinate gestures вместо semantics actions
+
+Тест становится хрупким и хуже отражает accessibility behavior.
+
+### Не проверять результат после действия
+
+Click без assertion ничего не доказывает.
+
+### Забывать focus для keyboard tests
+
+Key event может уходить не туда.
+
+### Искать lazy item без scroll
+
+Невидимый item не composed.
+
+### Тестировать IME action как Enter
+
+Soft keyboard action и hardware key — разные paths.
+
+### Использовать реальные задержки
+
+Не пишите `Thread.sleep`; используйте synchronization APIs.
+
+## Итоги
+
+User actions в Compose tests должны повторять смысл пользовательского поведения:
+
+- `performClick` проверяет click semantics;
+- `performTextInput`, `performTextClearance`, `performImeAction` тестируют text fields;
+- scroll actions работают через scroll semantics;
+- `performTouchInput` нужен для gestures, когда нет более высокого API;
+- keyboard tests требуют focus;
+- assertions after actions обязательны;
+- fake state holder помогает проверить stateful user flow;
+- coordinates и sleeps делают тесты хрупкими;
+- если action недоступна тесту через semantics, проверьте accessibility contract компонента.

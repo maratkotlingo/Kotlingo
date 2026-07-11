@@ -1,0 +1,913 @@
+---
+title: "Modular Compose"
+description: "Разбираем модульную архитектуру Compose-приложений: feature modules, core modules, design system, navigation API, api/impl разделение, preview fixtures, public composable APIs и правила зависимостей."
+order: 59
+category: "Compose: Navigation and architecture"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое modularization
+
+Modularization — это организация codebase в набор слабосвязанных Gradle-модулей. Каждый модуль имеет понятную ответственность, собственные зависимости и публичный API. В Compose это особенно полезно, потому что UI легко разрастается: screens, previews, design system, navigation destinations, fixtures и state holders быстро превращают один `app` module в тяжелую точку сборки.
+
+Модульность помогает:
+
+- ускорять incremental build;
+- держать feature boundaries;
+- переиспользовать design system;
+- изолировать data layer;
+- уменьшать accidental dependencies;
+- делать публичные UI API явными;
+- подключать dynamic features;
+- облегчать работу нескольких команд;
+- тестировать части приложения отдельно.
+
+Но модульность не бесплатна. Она добавляет Gradle-сложность, требует правил зависимостей и дисциплины API. Поэтому маленький проект не обязан начинать с десятков модулей.
+
+<CatTip>
+Модульность должна решать реальную боль: долгие сборки, смешанные ответственности, командные границы, переиспользование feature или динамическую доставку. Делить проект на модули только ради схемы — не лучший обмен.
+</CatTip>
+
+## Типичная структура Compose-проекта
+
+Один из практичных вариантов:
+
+```text
+:app
+:core:model
+:core:common
+:core:designsystem
+:core:ui
+:core:data
+:core:domain
+:core:database
+:core:network
+:feature:feed:api
+:feature:feed:impl
+:feature:profile:api
+:feature:profile:impl
+:feature:settings:api
+:feature:settings:impl
+:testing:fixtures
+```
+
+Назначение модулей:
+
+- `:app`: Activity, root NavHost, dependency injection wiring, app theme setup;
+- `:core:model`: общие domain/UI-neutral модели;
+- `:core:common`: dispatchers, result types, small utilities;
+- `:core:designsystem`: тема, tokens, icons, базовые branded components;
+- `:core:ui`: общие UI patterns без product-specific feature logic;
+- `:core:data`: repositories implementations и orchestration data sources;
+- `:core:domain`: use cases;
+- `:core:database`: Room database, DAO, entities;
+- `:core:network`: Retrofit/Ktor API, DTO, network mappers;
+- `:feature:*:api`: route types, navigation functions, публичные contracts feature;
+- `:feature:*:impl`: screens, ViewModels, feature graph implementation;
+- `:testing:fixtures`: sample data для previews и tests.
+
+Это не единственная схема. Главное — не названия, а направление зависимостей.
+
+## Правила зависимостей
+
+Модульные зависимости должны идти в одну сторону. Например:
+
+```text
+:app
+  -> :feature:feed:impl
+  -> :feature:profile:impl
+  -> :feature:settings:impl
+  -> :core:designsystem
+
+:feature:feed:impl
+  -> :feature:feed:api
+  -> :feature:profile:api
+  -> :core:ui
+  -> :core:domain
+  -> :core:designsystem
+
+:core:domain
+  -> :core:model
+
+:core:data
+  -> :core:domain
+  -> :core:database
+  -> :core:network
+```
+
+Что важно:
+
+- `core` modules не зависят от `feature` modules;
+- `feature:impl` может зависеть от `feature:api`;
+- `feature:api` должен быть легким;
+- `app` собирает feature implementations;
+- UI module не должен зависеть от data implementation без необходимости;
+- design system не должен зависеть от feature;
+- избегайте circular dependencies.
+
+<MouseTrap>
+Если `:core:designsystem` зависит от `:feature:profile`, а `:feature:profile` зависит от `:core:designsystem`, проект превращается в узел. В Android Gradle такие циклы обычно невозможны технически, но архитектурно похожий цикл можно создать через слишком широкие API.
+</MouseTrap>
+
+## app module
+
+`:app` должен быть тонким composition root. Он соединяет зависимости, запускает Activity и собирает root navigation graph.
+
+```kotlin
+package com.example.app
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.Composable
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.rememberNavController
+import com.example.core.designsystem.AppTheme
+import com.example.feature.feed.api.FeedGraph
+import com.example.feature.feed.impl.feedGraph
+import com.example.feature.profile.impl.profileGraph
+import com.example.feature.settings.impl.settingsGraph
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        enableEdgeToEdge()
+
+        setContent {
+            AppTheme {
+                AppRoot()
+            }
+        }
+    }
+}
+
+@Composable
+fun AppRoot() {
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = FeedGraph
+    ) {
+        feedGraph(
+            navController = navController
+        )
+        profileGraph(
+            navController = navController
+        )
+        settingsGraph(
+            navController = navController
+        )
+    }
+}
+```
+
+`:app` знает implementations feature-модулей. Но feature-модуль не должен знать о `MainActivity` или root app graph.
+
+## core:designsystem
+
+Design system module содержит визуальный язык приложения:
+
+- `AppTheme`;
+- colors;
+- typography;
+- shapes;
+- component wrappers;
+- icons;
+- dimensions;
+- preview themes;
+- branded loading/error components.
+
+```kotlin
+package com.example.core.designsystem
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+private val LightColors = lightColorScheme(
+    primary = Color(0xFF2563EB),
+    onPrimary = Color.White,
+    surface = Color(0xFFFFFBFE),
+    onSurface = Color(0xFF1C1B1F)
+)
+
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFF9DBBFF),
+    onPrimary = Color(0xFF003062),
+    surface = Color(0xFF1C1B1F),
+    onSurface = Color(0xFFE6E1E5)
+)
+
+@Immutable
+data class AppSpacing(
+    val xs: Dp = 4.dp,
+    val sm: Dp = 8.dp,
+    val md: Dp = 16.dp,
+    val lg: Dp = 24.dp,
+    val xl: Dp = 32.dp
+)
+
+val LocalAppSpacing = staticCompositionLocalOf {
+    AppSpacing()
+}
+
+object AppThemeTokens {
+    val spacing: AppSpacing
+        @Composable
+        get() = LocalAppSpacing.current
+}
+
+@Composable
+fun AppTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    colorScheme: ColorScheme = if (darkTheme) DarkColors else LightColors,
+    content: @Composable () -> Unit
+) {
+    MaterialTheme(
+        colorScheme = colorScheme,
+        content = content
+    )
+}
+```
+
+Design system module не должен импортировать feature screens. Он предоставляет строительные блоки, а не знает конкретные user flows.
+
+## Component wrappers
+
+В Compose легко переиспользовать компоненты напрямую, но branded wrappers помогают сохранить единый стиль.
+
+```kotlin
+package com.example.core.designsystem.component
+
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+
+@Immutable
+enum class AppButtonStyle {
+    Primary,
+    Secondary,
+    Danger
+}
+
+@Composable
+fun AppButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    style: AppButtonStyle = AppButtonStyle.Primary,
+    fillWidth: Boolean = false
+) {
+    val resolvedModifier = if (fillWidth) {
+        modifier.fillMaxWidth()
+    } else {
+        modifier
+    }
+
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = resolvedModifier,
+        colors = when (style) {
+            AppButtonStyle.Primary -> ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+
+            AppButtonStyle.Secondary -> ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+
+            AppButtonStyle.Danger -> ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            )
+        }
+    ) {
+        Text(text = text)
+    }
+}
+```
+
+Feature screen теперь говорит языком продукта:
+
+```kotlin
+AppButton(
+    text = "Удалить профиль",
+    onClick = onDeleteClick,
+    style = AppButtonStyle.Danger,
+    fillWidth = true
+)
+```
+
+Экран не выбирает случайный красный цвет и не копирует параметры Material Button.
+
+## core:ui
+
+`:core:ui` содержит переиспользуемые UI patterns, которые не являются частью бренда или конкретной feature:
+
+- `LoadingContent`;
+- `ErrorContent`;
+- `EmptyState`;
+- `PullToRefreshScaffold`;
+- `PermissionRationale`;
+- `ScreenHeader`;
+- preview annotations.
+
+```kotlin
+package com.example.core.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LoadingErrorContent(
+    loading: Boolean,
+    errorMessage: String?,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    when {
+        loading -> {
+            Column(
+                modifier = modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+
+        errorMessage != null -> {
+            Column(
+                modifier = modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(text = errorMessage)
+                Button(
+                    onClick = onRetry
+                ) {
+                    Text(text = "Повторить")
+                }
+            }
+        }
+
+        else -> {
+            content()
+        }
+    }
+}
+```
+
+Если компонент использует брендовые цвета, он может зависеть от `core:designsystem`. Если он только описывает pattern, его можно держать более нейтральным.
+
+## feature:api и feature:impl
+
+Для больших проектов удобно делить feature на `api` и `impl`.
+
+`feature:profile:api` содержит:
+
+- route types;
+- navigation extension functions;
+- публичные contracts;
+- минимальные модели, которые нужны другим feature.
+
+`feature:profile:impl` содержит:
+
+- screens;
+- ViewModels;
+- internal routes;
+- feature graph builder;
+- DI bindings;
+- previews.
+
+```kotlin
+package com.example.feature.profile.api
+
+import androidx.navigation.NavController
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class ProfileRoute(
+    val userId: String
+)
+
+fun NavController.navigateToProfile(
+    userId: String
+) {
+    navigate(
+        ProfileRoute(userId = userId)
+    )
+}
+```
+
+```kotlin
+package com.example.feature.profile.impl
+
+import androidx.navigation.NavController
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
+import com.example.feature.profile.api.ProfileRoute
+
+fun NavGraphBuilder.profileGraph(
+    navController: NavController
+) {
+    composable<ProfileRoute> { backStackEntry ->
+        val route = backStackEntry.toRoute<ProfileRoute>()
+
+        ProfileRouteContent(
+            userId = route.userId,
+            onNavigateBack = {
+                navController.popBackStack()
+            }
+        )
+    }
+}
+```
+
+```kotlin
+package com.example.feature.profile.impl
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Immutable
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+@Immutable
+internal data class ProfileUiState(
+    val displayName: String,
+    val subtitle: String,
+    val following: Boolean,
+    val loading: Boolean
+)
+
+internal class ProfileViewModel(
+    userId: String
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(
+        ProfileUiState(
+            displayName = "Пользователь $userId",
+            subtitle = "Профиль открыт из feature graph",
+            following = false,
+            loading = false
+        )
+    )
+    val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
+
+    fun follow() {
+        _uiState.value = _uiState.value.copy(
+            following = true
+        )
+    }
+
+    companion object {
+        fun factory(userId: String) = viewModelFactory {
+            initializer {
+                ProfileViewModel(userId)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ProfileRouteContent(
+    userId: String,
+    onNavigateBack: () -> Unit
+) {
+    val viewModel: ProfileViewModel = viewModel(
+        factory = ProfileViewModel.factory(userId)
+    )
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    ProfileScreen(
+        state = state,
+        onNavigateBack = onNavigateBack,
+        onFollowClick = viewModel::follow
+    )
+}
+```
+
+Такой split позволяет другим feature зависеть от `profile:api`, но не видеть внутренности `profile:impl`.
+
+## Public composable APIs
+
+Публичный composable API модуля должен быть стабильным и понятным. Особенно если компонент используется многими feature.
+
+Хороший API:
+
+- принимает `modifier`;
+- принимает immutable state;
+- exposes events as lambdas;
+- не требует ViewModel;
+- не создает скрытых side effects;
+- имеет default parameters только там, где они безопасны;
+- документирует ownership state.
+
+```kotlin
+package com.example.feature.profile.impl
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+
+@Immutable
+data class ProfileUiState(
+    val displayName: String,
+    val subtitle: String,
+    val following: Boolean,
+    val loading: Boolean
+)
+
+@Composable
+internal fun ProfileScreen(
+    state: ProfileUiState,
+    onNavigateBack: () -> Unit,
+    onFollowClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+    ) {
+        Text(text = state.displayName)
+        Text(text = state.subtitle)
+
+        Button(
+            onClick = onFollowClick,
+            enabled = !state.loading
+        ) {
+            Text(
+                text = if (state.following) {
+                    "Вы подписаны"
+                } else {
+                    "Подписаться"
+                }
+            )
+        }
+
+        Button(
+            onClick = onNavigateBack
+        ) {
+            Text(text = "Назад")
+        }
+    }
+}
+```
+
+`ProfileScreen` internal, потому что наружу feature отдает navigation API, а не сам screen. Для design system компонентов, наоборот, public composable API является основной ценностью модуля.
+
+## Preview fixtures
+
+Previews не должны требовать production database, network или DI graph. Для больших проектов удобно иметь fixtures.
+
+```kotlin
+package com.example.testing.fixtures
+
+import com.example.feature.profile.impl.ProfileUiState
+
+object ProfileFixtures {
+    val RegularUser = ProfileUiState(
+        displayName = "Мария Смирнова",
+        subtitle = "Android-разработчик",
+        following = false,
+        loading = false
+    )
+
+    val FollowedUser = ProfileUiState(
+        displayName = "Антон Орлов",
+        subtitle = "Compose enthusiast",
+        following = true,
+        loading = false
+    )
+}
+```
+
+```kotlin
+package com.example.feature.profile.impl
+
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.core.designsystem.AppTheme
+import com.example.testing.fixtures.ProfileFixtures
+
+@Preview(showBackground = true)
+@Composable
+private fun ProfileScreenRegularPreview() {
+    AppTheme {
+        ProfileScreen(
+            state = ProfileFixtures.RegularUser,
+            onNavigateBack = {},
+            onFollowClick = {}
+        )
+    }
+}
+```
+
+Если `testing:fixtures` зависит от `feature:impl`, следите, чтобы production modules не начали зависеть от fixtures. Часто fixtures подключают только в debug/test source sets.
+
+## Gradle convention plugins
+
+В multi-module проекте быстро появляется повторение Gradle-конфигурации. Convention plugins помогают вынести общие настройки.
+
+```kotlin
+// build-logic/convention/src/main/kotlin/AndroidComposeConventionPlugin.kt
+import com.android.build.api.dsl.LibraryExtension
+import org.gradle.api.artifacts.VersionCatalogsExtension
+import org.gradle.api.Plugin
+import org.gradle.api.Project
+import org.gradle.kotlin.dsl.configure
+import org.gradle.kotlin.dsl.getByType
+
+class AndroidComposeConventionPlugin : Plugin<Project> {
+    override fun apply(target: Project) {
+        with(target) {
+            val libs = extensions
+                .getByType<VersionCatalogsExtension>()
+                .named("libs")
+
+            pluginManager.apply("com.android.library")
+            pluginManager.apply("org.jetbrains.kotlin.android")
+            pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
+
+            extensions.configure<LibraryExtension> {
+                buildFeatures {
+                    compose = true
+                }
+            }
+
+            dependencies.add(
+                "implementation",
+                dependencies.platform(
+                    libs.findLibrary("androidx-compose-bom").get()
+                )
+            )
+            dependencies.add(
+                "implementation",
+                libs.findLibrary("androidx-compose-ui").get()
+            )
+            dependencies.add(
+                "implementation",
+                libs.findLibrary("androidx-compose-material3").get()
+            )
+        }
+    }
+}
+```
+
+Идея: feature modules не копируют одну и ту же Compose-настройку. Они применяют convention plugin:
+
+```kotlin
+plugins {
+    id("com.example.android.compose.library")
+}
+```
+
+Так Gradle-структура остается однообразной.
+
+## Navigation в multi-module проекте
+
+Navigation API feature должен быть маленьким.
+
+```kotlin
+package com.example.feature.feed.api
+
+import androidx.navigation.NavController
+import kotlinx.serialization.Serializable
+
+@Serializable
+data object FeedGraph
+
+@Serializable
+data class ArticleDetailsRoute(
+    val articleId: String
+)
+
+fun NavController.navigateToArticleDetails(
+    articleId: String
+) {
+    navigate(
+        ArticleDetailsRoute(articleId = articleId)
+    )
+}
+```
+
+Feature implementation добавляет graph:
+
+```kotlin
+package com.example.feature.feed.impl
+
+import androidx.navigation.NavController
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.navigation
+import androidx.navigation.toRoute
+import com.example.feature.feed.api.ArticleDetailsRoute
+import com.example.feature.feed.api.FeedGraph
+import com.example.feature.profile.api.navigateToProfile
+import kotlinx.serialization.Serializable
+
+@Serializable
+internal data object FeedListRoute
+
+fun NavGraphBuilder.feedGraph(
+    navController: NavController
+) {
+    navigation<FeedGraph>(
+        startDestination = FeedListRoute
+    ) {
+        composable<FeedListRoute> {
+            FeedListRouteContent(
+                onArticleClick = { articleId ->
+                    navController.navigateToArticleDetails(articleId)
+                },
+                onAuthorClick = { userId ->
+                    navController.navigateToProfile(userId)
+                }
+            )
+        }
+
+        composable<ArticleDetailsRoute> { backStackEntry ->
+            val route = backStackEntry.toRoute<ArticleDetailsRoute>()
+
+            ArticleDetailsRouteContent(
+                articleId = route.articleId,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+    }
+}
+```
+
+`feed:impl` может зависеть от `profile:api`, чтобы открыть профиль автора, но не обязан зависеть от `profile:impl`.
+
+## Dynamic feature modules
+
+Если feature должна доставляться on demand через Play Feature Delivery, модульные границы становятся еще важнее. Обычно base app содержит:
+
+- route contract;
+- entry point;
+- загрузку dynamic module;
+- fallback UI, если модуль не установлен.
+
+Compose UI внутри dynamic feature может оставаться обычным composable graph, но root app должен учитывать asynchronous installation.
+
+```kotlin
+sealed interface DynamicFeatureState {
+    data object NotInstalled : DynamicFeatureState
+    data object Installing : DynamicFeatureState
+    data object Installed : DynamicFeatureState
+    data class Error(val message: String) : DynamicFeatureState
+}
+```
+
+```kotlin
+@Composable
+fun DynamicFeatureGate(
+    state: DynamicFeatureState,
+    onInstallClick: () -> Unit,
+    installedContent: @Composable () -> Unit
+) {
+    when (state) {
+        DynamicFeatureState.NotInstalled -> {
+            AppButton(
+                text = "Загрузить раздел",
+                onClick = onInstallClick
+            )
+        }
+
+        DynamicFeatureState.Installing -> {
+            androidx.compose.material3.CircularProgressIndicator()
+        }
+
+        DynamicFeatureState.Installed -> {
+            installedContent()
+        }
+
+        is DynamicFeatureState.Error -> {
+            androidx.compose.material3.Text(text = state.message)
+        }
+    }
+}
+```
+
+Dynamic delivery — отдельная большая тема, но architectural principle тот же: feature должна иметь четкий вход и не протекать внутренностями в app module.
+
+## Тестирование модулей
+
+Модульная структура помогает тестировать точечно:
+
+- `core:domain`: unit tests use cases;
+- `core:data`: repository tests with fake data sources;
+- `core:designsystem`: screenshot tests компонентов;
+- `feature:impl`: ViewModel tests и screen tests;
+- `app`: navigation graph smoke tests.
+
+```kotlin
+class ProfileScreenContractTest {
+
+    @org.junit.Test
+    fun followButtonTextReflectsState() {
+        val state = ProfileUiState(
+            displayName = "Мария",
+            subtitle = "Android",
+            following = true,
+            loading = false
+        )
+
+        kotlin.test.assertEquals(
+            expected = "Вы подписаны",
+            actual = if (state.following) {
+                "Вы подписаны"
+            } else {
+                "Подписаться"
+            }
+        )
+    }
+}
+```
+
+Для UI лучше использовать Compose UI tests или screenshot tests, но даже простые contract tests помогают фиксировать mapping state.
+
+## Типичные ошибки
+
+### Делать слишком много модулей слишком рано
+
+Если проект маленький, модульность может замедлить разработку. Начните с понятных packages и выделяйте modules по мере роста.
+
+### Складывать все общее в core:common
+
+`common` легко становится свалкой. Лучше иметь специализированные modules: `core:model`, `core:ui`, `core:designsystem`, `core:network`.
+
+### Давать feature:api слишком много знаний
+
+API module должен быть маленьким. Если он содержит половину UI state и внутренние шаги flow, encapsulation не работает.
+
+### Завязывать design system на feature
+
+Design system должен быть фундаментом. Он не должен импортировать конкретные feature screens или ViewModel.
+
+### Публиковать ViewModel как API feature
+
+Другие modules обычно должны зависеть от navigation contract feature, а не от ее ViewModel.
+
+### Делать preview зависимым от production DI
+
+Preview должен работать на fixtures и чистых screen composables.
+
+## Итоги
+
+Модульный Compose-проект строится вокруг явных границ:
+
+- `:app` собирает приложение и root navigation;
+- `:core:designsystem` хранит тему и branded components;
+- `:core:ui` содержит общие UI patterns;
+- `:core:data`, `:core:domain`, `:core:model` отделяют данные и бизнес-логику от UI;
+- `feature:api` публикует route contracts и navigation functions;
+- `feature:impl` содержит screens, ViewModels и graph implementation;
+- public composable API должен принимать state, callbacks и `modifier`;
+- previews должны использовать fixtures, а не production ViewModel;
+- направление зависимостей важнее количества модулей;
+- модульность должна снижать сложность codebase, а не создавать декоративную архитектуру.

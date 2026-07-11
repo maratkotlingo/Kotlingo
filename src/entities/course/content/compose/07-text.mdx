@@ -1,0 +1,530 @@
+---
+title: "Text: вывод текста"
+description: "Подробно разбираем Text в Jetpack Compose: параметры, стили, переносы, overflow, строки из ресурсов, onTextLayout, доступность и production-подход к тексту в UI."
+order: 07
+category: "Compose: UI Fundamentals"
+difficulty: "Начальный"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему `Text` важнее, чем кажется
+
+`Text` — один из самых частых composable-компонентов в Android-приложении. Заголовки, подписи, кнопки, ошибки, пустые состояния, пункты меню, бейджи, даты, цены, проценты, статусы доступности — почти все это текст. Если текст сделан небрежно, интерфейс быстро становится хрупким: строки обрезаются в локализациях, screen reader получает бессмысленное описание, размеры не выдерживают user font scale, а layout рассыпается на маленьких экранах.
+
+В Compose `Text` — это high-level Material-компонент для вывода текста. Он использует Compose text engine, поддерживает стили, переносы, constraints, `AnnotatedString`, `TextLayoutResult`, accessibility semantics и Material typography. Для обычного Android UI лучше начинать именно с `androidx.compose.material3.Text`, а не с низкоуровневого `BasicText`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LessonTitle(title: String) {
+    Text(text = title)
+}
+```
+
+Этот пример кажется элементарным, но уже содержит важную идею: текст является частью Composition. Когда параметр `title` меняется, Compose может пересчитать этот участок UI и обновить отображение.
+
+## Два overload `Text`
+
+В Material 3 есть два основных способа передать содержимое в `Text`.
+
+Первый вариант принимает обычную строку:
+
+```kotlin
+@Composable
+fun PlainTitle() {
+    Text(text = "Jetpack Compose")
+}
+```
+
+Второй вариант принимает `AnnotatedString`, когда внутри одной строки нужны разные стили, ссылки или annotations:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+
+@Composable
+fun AnnotatedTitle() {
+    val title = buildAnnotatedString {
+        append("Jetpack ")
+
+        withStyle(
+            style = SpanStyle(fontWeight = FontWeight.Bold)
+        ) {
+            append("Compose")
+        }
+    }
+
+    Text(text = title)
+}
+```
+
+Если весь текст имеет один стиль, используй `String`. Если разные участки строки должны отличаться по цвету, весу, ссылке или annotation, используй `AnnotatedString`.
+
+## Основные параметры `Text`
+
+Ниже практическая карта параметров `Text`. Почти все они имеют значения по умолчанию, поэтому в production-коде лучше указывать только то, что действительно меняет смысл компонента.
+
+### `text`
+
+Содержимое. Может быть `String` или `AnnotatedString`.
+
+```kotlin
+Text(text = "Урок доступен")
+```
+
+### `modifier`
+
+Цепочка layout, draw, input и semantics-инструкций. Передается вызывающим кодом или задается внутри компонента, если это внутренняя структура.
+
+```kotlin
+Text(
+    modifier = Modifier.padding(horizontal = 16.dp),
+    text = "Раздел курса"
+)
+```
+
+### `color`
+
+Цвет текста. Если не задан, `Text` использует `LocalContentColor`, который обычно приходит от Material-компонента или темы.
+
+```kotlin
+Text(
+    text = "Ошибка загрузки",
+    color = MaterialTheme.colorScheme.error
+)
+```
+
+### `fontSize`
+
+Размер шрифта. Для текста используется `sp`, потому что `sp` учитывает пользовательский font scale.
+
+```kotlin
+Text(
+    text = "Крупный заголовок",
+    fontSize = 28.sp
+)
+```
+
+### `fontStyle`
+
+Наклон шрифта: например, `FontStyle.Italic`.
+
+```kotlin
+Text(
+    text = "Черновик",
+    fontStyle = FontStyle.Italic
+)
+```
+
+### `fontWeight`
+
+Вес шрифта: `FontWeight.Normal`, `FontWeight.Medium`, `FontWeight.Bold`, числовые веса.
+
+```kotlin
+Text(
+    text = "Важный урок",
+    fontWeight = FontWeight.Bold
+)
+```
+
+### `fontFamily`
+
+Семейство шрифта. Может быть системным или кастомным.
+
+```kotlin
+Text(
+    text = "Моноширинный фрагмент",
+    fontFamily = FontFamily.Monospace
+)
+```
+
+### `letterSpacing`
+
+Расстояние между символами. Используется осторожно, чаще для label-стилей, капса и брендовой типографики.
+
+```kotlin
+Text(
+    text = "COMPOSE",
+    letterSpacing = 1.2.sp
+)
+```
+
+### `textDecoration`
+
+Украшение текста: подчеркивание, зачеркивание.
+
+```kotlin
+Text(
+    text = "Старая цена",
+    textDecoration = TextDecoration.LineThrough
+)
+```
+
+### `textAlign`
+
+Выравнивание текста внутри доступной ширины. Для локализованных интерфейсов чаще используй `TextAlign.Start` и `TextAlign.End`, а не `Left` и `Right`.
+
+```kotlin
+Text(
+    modifier = Modifier.fillMaxWidth(),
+    text = "Выравнивание по началу строки",
+    textAlign = TextAlign.Start
+)
+```
+
+### `lineHeight`
+
+Высота строки. Помогает управлять вертикальным ритмом многострочного текста.
+
+```kotlin
+Text(
+    text = "Длинное описание урока, которое занимает несколько строк.",
+    lineHeight = 24.sp
+)
+```
+
+### `overflow`
+
+Поведение, когда текст не помещается: `TextOverflow.Clip`, `TextOverflow.Ellipsis`, `TextOverflow.Visible`.
+
+```kotlin
+Text(
+    text = "Очень длинное название урока по Jetpack Compose",
+    maxLines = 1,
+    overflow = TextOverflow.Ellipsis
+)
+```
+
+### `softWrap`
+
+Разрешает мягкие переносы по словам. Если `false`, текст не переносится автоматически.
+
+```kotlin
+Text(
+    text = "Длинная строка без мягкого переноса",
+    softWrap = false,
+    maxLines = 1,
+    overflow = TextOverflow.Ellipsis
+)
+```
+
+### `maxLines`
+
+Максимальное количество строк.
+
+```kotlin
+Text(
+    text = "Описание курса может быть длинным, поэтому ограничиваем его двумя строками.",
+    maxLines = 2,
+    overflow = TextOverflow.Ellipsis
+)
+```
+
+### `minLines`
+
+Минимальное количество строк. Полезно, когда карточки должны сохранять одинаковую высоту.
+
+```kotlin
+Text(
+    text = "Короткое описание",
+    minLines = 2
+)
+```
+
+### `onTextLayout`
+
+Callback с `TextLayoutResult`. Нужен, когда нужно узнать, был ли текст обрезан, сколько строк получилось, где находится символ или какой размер занял текст.
+
+```kotlin
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextLayoutResult
+
+@Composable
+fun CollapsedDescription(description: String) {
+    var hasVisualOverflow by remember { mutableStateOf(false) }
+
+    Text(
+        text = description,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+        onTextLayout = { result: TextLayoutResult ->
+            // Запоминаем, не поместился ли текст в заданные ограничения.
+            hasVisualOverflow = result.hasVisualOverflow
+        }
+    )
+
+    if (hasVisualOverflow) {
+        Text(
+            text = "Описание не поместилось полностью",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+```
+
+### `style`
+
+Объект `TextStyle`, который объединяет типографические настройки. Обычно берется из `MaterialTheme.typography`.
+
+```kotlin
+Text(
+    text = "Заголовок раздела",
+    style = MaterialTheme.typography.titleLarge
+)
+```
+
+Если одновременно заданы `style` и отдельные параметры вроде `color`, отдельные параметры переопределяют соответствующие поля стиля.
+
+## Текст из ресурсов
+
+В production Android-приложении видимые строки не должны жить прямо в Kotlin-коде, если они предназначены для локализации. Используй `stringResource`.
+
+`res/values/strings.xml`:
+
+```xml
+<resources>
+    <string name="lesson_title">Что такое Jetpack Compose</string>
+    <string name="lesson_progress">Пройдено %1$d из %2$d уроков</string>
+</resources>
+```
+
+Kotlin:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.kotlingo.reader.R
+
+@Composable
+fun LocalizedLessonHeader(
+    completedLessons: Int,
+    totalLessons: Int
+) {
+    Text(text = stringResource(R.string.lesson_title))
+
+    Text(
+        text = stringResource(
+            id = R.string.lesson_progress,
+            completedLessons,
+            totalLessons
+        )
+    )
+}
+```
+
+`stringResource` является composable-функцией, потому что результат зависит от configuration: locale, layout direction, resources и context.
+
+<MouseTrap title="Мышеловка: хардкод строк ломает локализацию">
+  Строка `"Start"` в Kotlin-коде кажется безобидной, пока приложение не получает
+  русский, арабский или немецкий перевод. Перевод может стать длиннее, поменять
+  порядок параметров и направление письма. Ресурсы дают Android-инструментам
+  шанс обработать это правильно.
+</MouseTrap>
+
+## Многострочный текст и overflow
+
+Самый частый production-баг с текстом — строка не помещается. Для карточек, списков и панелей нужно явно решить, что делать с длинным текстом.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LessonSummaryCard(
+    title: String,
+    description: String,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+```
+
+Правило: если текст находится в ограниченном компоненте, например карточке списка, задай `maxLines` и `overflow`. Если текст является основным содержимым статьи, дай ему нормальную ширину, line height и возможность переноситься.
+
+## Accessibility и текст
+
+`Text` обычно сам попадает в semantics tree, и screen reader может его прочитать. Но есть нюансы:
+
+- декоративный текст не должен отвлекать пользователя;
+- текст внутри кнопки обычно становится label кнопки;
+- если визуальный текст не поместился полностью, смысловая подпись может потребовать отдельного `contentDescription`;
+- не заменяй настоящий текст картинкой с текстом;
+- не полагайся только на цвет для передачи смысла.
+
+Пример с семантически ясным статусом:
+
+```kotlin
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+
+@Composable
+fun ScoreText(score: Int) {
+    val label = when {
+        score >= 90 -> "Отлично"
+        score >= 70 -> "Хорошо"
+        else -> "Нужно повторить"
+    }
+
+    Text(
+        modifier = Modifier.semantics {
+            // Screen reader получает полный смысл, а не только число.
+            contentDescription = "Результат: $score процентов. $label"
+        },
+        text = "$score%",
+        color = if (score >= 70) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.error
+        },
+        style = MaterialTheme.typography.titleLarge
+    )
+}
+```
+
+## Полный пример: production-ready блок текста
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class LessonTextBlockState(
+    val moduleTitle: String,
+    val lessonTitle: String,
+    val description: String,
+    val minutes: Int
+)
+
+@Composable
+fun LessonTextBlock(
+    state: LessonTextBlockState,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = state.moduleTitle,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Text(
+                modifier = Modifier.semantics {
+                    // Помогаем accessibility-сервисам понять, что это заголовок.
+                    heading()
+                },
+                text = state.lessonTitle,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = state.description,
+                style = MaterialTheme.typography.bodyLarge,
+                lineHeight = MaterialTheme.typography.bodyLarge.lineHeight,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = "Время чтения: ${state.minutes} мин.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+```
+
+Разбор:
+
+- `LessonTextBlockState` immutable и полностью описывает данные;
+- `moduleTitle` использует label-стиль, потому что это служебный контекст;
+- `lessonTitle` помечен как heading для accessibility;
+- `maxLines` и `overflow` защищают карточку от длинных переводов;
+- `description` использует body-стиль и line height из темы;
+- цвет служебной подписи взят из `onSurfaceVariant`, а не из случайного серого.
+
+## Когда использовать `BasicText`
+
+`BasicText` — foundation-компонент более низкого уровня. Он полезен, когда ты строишь собственную дизайн-систему без Material или создаешь компонент, где Material defaults мешают. Для большинства экранов на Material 3 используй `Text`: он лучше соответствует Android-ожиданиям и theme model.
+
+## Итоги
+
+`Text` кажется маленьким компонентом, но вокруг него много production-решений:
+
+- используй `androidx.compose.material3.Text` для обычного Material 3 UI;
+- передавай `String`, если строка однотипная, и `AnnotatedString`, если стили смешаны внутри одной строки;
+- бери стили из `MaterialTheme.typography`;
+- используй `sp` для размеров текста;
+- задавай `maxLines` и `overflow` в ограниченных контейнерах;
+- предпочитай `TextAlign.Start` и `TextAlign.End` для локализованных интерфейсов;
+- выноси пользовательские строки в resources;
+- проверяй длинные переводы и крупный font scale;
+- не прячь смысл только в цвете;
+- используй `onTextLayout`, когда UI реально зависит от результата раскладки текста.

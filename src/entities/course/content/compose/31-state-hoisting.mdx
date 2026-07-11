@@ -1,0 +1,772 @@
+---
+title: "State hoisting"
+description: "Разбираем state hoisting в Jetpack Compose: stateful и stateless composables, value/onValueChange, lowest common ancestor, unidirectional data flow, UI element state, screen UI state и production-паттерны API."
+order: 31
+category: "Compose: State, snapshots и управление данными UI"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое state hoisting
+
+State hoisting — это паттерн, при котором состояние переносится из composable-компонента к его вызывающему коду. Компонент перестает сам владеть состоянием и получает два типа параметров:
+
+- текущее значение;
+- события, которые просят это значение изменить.
+
+Классическая форма:
+
+```kotlin
+@Composable
+fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit
+) {
+    // Компонент показывает query и сообщает наружу о новом тексте.
+}
+```
+
+Состояние идет вниз, события идут вверх:
+
+- parent хранит `query`;
+- child получает `query`;
+- пользователь вводит текст;
+- child вызывает `onQueryChange`;
+- parent решает, принять ли изменение;
+- parent передает новый `query` вниз;
+- UI перерисовывается из нового состояния.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SearchScreen() {
+    var query by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        SearchField(
+            query = query,
+            onQueryChange = { nextQuery ->
+                query = nextQuery
+            }
+        )
+
+        Text(text = "Запрос: $query")
+    }
+}
+
+@Composable
+fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = { nextQuery ->
+            onQueryChange(nextQuery)
+        },
+        modifier = modifier,
+        label = {
+            Text(text = "Поиск")
+        }
+    )
+}
+```
+
+`SearchField` теперь не знает, где хранится текст. Это может быть `rememberSaveable`, `ViewModel`, `StateFlow`, navigation argument или тестовая переменная.
+
+<CatTip>
+State hoisting делает composable похожим на чистую функцию UI: он получает данные, показывает их и сообщает о событиях. Поэтому такой компонент легче тестировать, переиспользовать и открывать в Preview.
+</CatTip>
+
+## Stateful и stateless composables
+
+Stateful composable хранит состояние внутри себя.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Composable
+fun StatefulNameField() {
+    var name by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    OutlinedTextField(
+        value = name,
+        onValueChange = { nextName ->
+            name = nextName
+        },
+        label = {
+            Text(text = "Имя")
+        }
+    )
+}
+```
+
+Плюсы:
+
+- удобно вызвать;
+- не надо думать о состоянии снаружи;
+- подходит для маленьких автономных элементов.
+
+Минусы:
+
+- parent не может прочитать значение;
+- parent не может валидировать изменение до записи;
+- компонент труднее тестировать;
+- компонент труднее синхронизировать с другими частями UI;
+- состояние сложнее сохранить на уровне экрана.
+
+Stateless composable не хранит состояние, а получает его через параметры.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun StatelessNameField(
+    name: String,
+    onNameChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = name,
+        onValueChange = { nextName ->
+            onNameChange(nextName)
+        },
+        modifier = modifier,
+        label = {
+            Text(text = "Имя")
+        }
+    )
+}
+```
+
+Плюсы:
+
+- состояние контролируется снаружи;
+- компонент легко связать с ViewModel;
+- компонент легко тестировать;
+- компонент можно использовать в разных сценариях;
+- parent может фильтровать, логировать и валидировать события.
+
+Минусы:
+
+- вызывающий код должен хранить состояние;
+- для простых случаев появляется больше параметров.
+
+## Controlled и uncontrolled API
+
+В design system часто удобно предоставить две версии:
+
+- stateless controlled component;
+- stateful wrapper для простого использования.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+
+@Composable
+fun TagInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { nextValue ->
+            onValueChange(nextValue)
+        },
+        modifier = modifier,
+        label = {
+            Text(text = "Тег")
+        }
+    )
+}
+
+@Composable
+fun TagInput(
+    modifier: Modifier = Modifier
+) {
+    var value by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    TagInput(
+        value = value,
+        onValueChange = { nextValue ->
+            value = nextValue
+        },
+        modifier = modifier
+    )
+}
+```
+
+Такой подход удобен, но в product-коде обычно важнее stateless-версия. Именно она позволяет экрану быть предсказуемым.
+
+<MouseTrap>
+Не делайте только stateful-версию компонента, если его значение нужно экрану. Иначе данные окажутся заперты внутри UI-детали, а родитель начнет обходить архитектуру через неприятные обратные связи.
+</MouseTrap>
+
+## value и onValueChange
+
+`value` и `onValueChange` — стандартная пара для простого редактируемого значения.
+
+```kotlin
+@Composable
+fun RatingSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit
+) {
+    // value показывает текущее значение.
+    // onValueChange просит владельца состояния записать новое значение.
+}
+```
+
+Когда использовать именно `onValueChange`:
+
+- значение одно;
+- событие означает просьбу заменить текущее значение;
+- тип значения понятен из параметра `value`;
+- поведение похоже на `TextField`, `Slider`, `Switch`.
+
+Когда лучше назвать событие конкретнее:
+
+- событие не является прямой записью значения;
+- есть бизнес-смысл;
+- нужно передать id;
+- parent должен различать несколько действий.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun PermissionRow(
+    permissionId: String,
+    title: String,
+    granted: Boolean,
+    onPermissionToggled: (permissionId: String, granted: Boolean) -> Unit
+) {
+    Row {
+        Checkbox(
+            checked = granted,
+            onCheckedChange = { checked ->
+                onPermissionToggled(permissionId, checked)
+            }
+        )
+
+        Text(text = title)
+    }
+}
+```
+
+Здесь `onPermissionToggled` лучше, чем абстрактный `onValueChange`, потому что событие доменное и включает id.
+
+## Событие не обязано быть командой
+
+Callback в stateless composable обычно описывает то, что произошло или чего пользователь хочет. Он не обязан гарантировать, что state изменится.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LimitedCommentField(
+    comment: String,
+    onCommentChangeRequested: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = comment,
+        onValueChange = { nextComment ->
+            onCommentChangeRequested(nextComment)
+        },
+        label = {
+            Text(text = "Комментарий")
+        },
+        supportingText = {
+            Text(text = "${comment.length}/200")
+        }
+    )
+}
+```
+
+Parent может принять или отклонить изменение:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Composable
+fun LimitedCommentScreen() {
+    var comment by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    LimitedCommentField(
+        comment = comment,
+        onCommentChangeRequested = { nextComment ->
+            if (nextComment.length <= 200) {
+                comment = nextComment
+            }
+        }
+    )
+}
+```
+
+Это полезно для масок ввода, лимитов, фильтрации символов и валидации.
+
+## Lowest common ancestor
+
+Состояние нужно поднять минимум до ближайшего общего родителя всех composable, которые:
+
+- читают это состояние;
+- меняют это состояние;
+- должны синхронно реагировать на одно и то же изменение.
+
+Пример: поле поиска и список результатов зависят от одного `query`.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Composable
+fun SearchResultsScreen(
+    allItems: List<String>
+) {
+    var query by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    val visibleItems = allItems.filter { item ->
+        item.contains(query, ignoreCase = true)
+    }
+
+    Column {
+        SearchField(
+            query = query,
+            onQueryChange = { nextQuery ->
+                query = nextQuery
+            }
+        )
+
+        SearchResultsList(items = visibleItems)
+    }
+}
+
+@Composable
+fun SearchResultsList(
+    items: List<String>
+) {
+    Column {
+        items.forEach { item ->
+            ListItem(
+                headlineContent = {
+                    Text(text = item)
+                }
+            )
+        }
+    }
+}
+```
+
+`query` живет в `SearchResultsScreen`, потому что и поле, и список должны согласованно видеть одно значение.
+
+## Три правила hoisting
+
+### Поднять минимум до общего читателя
+
+Если два компонента читают одно состояние, оно должно жить у их общего родителя или выше.
+
+### Поднять минимум до самого высокого писателя
+
+Если состояние может менять parent, оно не должно жить глубоко внутри child.
+
+### Поднимать вместе состояния, которые меняются одним событием
+
+Если одно событие должно обновить несколько значений, эти значения часто должны жить рядом.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Immutable
+data class CheckoutSelection(
+    val deliveryMethodId: String,
+    val paymentMethodId: String
+)
+
+@Composable
+fun CheckoutScreen() {
+    var selection by remember {
+        mutableStateOf(
+            CheckoutSelection(
+                deliveryMethodId = "courier",
+                paymentMethodId = "card"
+            )
+        )
+    }
+
+    Column {
+        Text(text = "Доставка: ${selection.deliveryMethodId}")
+        Text(text = "Оплата: ${selection.paymentMethodId}")
+
+        Button(
+            onClick = {
+                selection = CheckoutSelection(
+                    deliveryMethodId = "pickup",
+                    paymentMethodId = "cash"
+                )
+            }
+        ) {
+            Text(text = "Выбрать самовывоз и оплату при получении")
+        }
+    }
+}
+```
+
+Если доставка и оплата меняются одним пользовательским действием, хранить их в одной UI-модели проще и безопаснее.
+
+## UI element state и screen UI state
+
+UI element state — состояние отдельного элемента интерфейса:
+
+- текст в поле;
+- раскрыта ли секция;
+- выбранная вкладка;
+- позиция скролла;
+- состояние focus;
+- локальное состояние drag.
+
+Screen UI state — состояние всего экрана:
+
+- список товаров;
+- loading/error/content;
+- текущий пользователь;
+- доступные фильтры;
+- результат бизнес-правил;
+- разрешенные действия.
+
+UI element state может жить:
+
+- внутри composable через `remember`;
+- через `rememberSaveable`;
+- в plain state holder;
+- в ViewModel, если оно нужно бизнес-логике.
+
+Screen UI state обычно живет:
+
+- в ViewModel;
+- в state holder экрана;
+- в observable holder вроде `StateFlow`;
+- как immutable data class.
+
+<MouseTrap>
+Не поднимайте каждую мелочь сразу в ViewModel. Если состояние нужно только маленькому визуальному элементу и не влияет на бизнес-логику, оно может жить локально. Слишком высокий hoisting делает ViewModel шумной и хрупкой.
+</MouseTrap>
+
+## State down, events up
+
+Unidirectional data flow в Compose строится по циклу:
+
+1. Пользователь или внешний слой создает событие.
+2. Владелец состояния обрабатывает событие.
+3. Владелец состояния создает новое состояние.
+4. UI получает новое состояние через параметры.
+5. Compose перерисовывает зависимые участки.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ProfileUiState(
+    val name: String,
+    val saving: Boolean,
+    val saveEnabled: Boolean
+)
+
+@Composable
+fun ProfileScreen(
+    state: ProfileUiState,
+    onNameChange: (String) -> Unit,
+    onSaveClick: () -> Unit
+) {
+    Column {
+        StatelessNameField(
+            name = state.name,
+            onNameChange = onNameChange
+        )
+
+        Button(
+            enabled = state.saveEnabled && !state.saving,
+            onClick = onSaveClick
+        ) {
+            Text(
+                text = if (state.saving) {
+                    "Сохраняем"
+                } else {
+                    "Сохранить"
+                }
+            )
+        }
+    }
+}
+```
+
+`ProfileScreen` не знает, где выполняется сохранение. Он показывает state и отправляет события.
+
+## Production-пример: фильтры каталога
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class CatalogFilterOption(
+    val id: String,
+    val title: String
+)
+
+@Immutable
+data class CatalogFiltersUiState(
+    val onlyAvailable: Boolean,
+    val selectedCategoryIds: Set<String>
+)
+
+@Composable
+fun CatalogFilters(
+    state: CatalogFiltersUiState,
+    categories: List<CatalogFilterOption>,
+    onOnlyAvailableChange: (Boolean) -> Unit,
+    onCategoryToggle: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(16.dp)) {
+        Text(text = "Фильтры")
+
+        Switch(
+            checked = state.onlyAvailable,
+            onCheckedChange = { checked ->
+                onOnlyAvailableChange(checked)
+            }
+        )
+
+        FlowRow {
+            categories.forEach { category ->
+                val selected = category.id in state.selectedCategoryIds
+
+                FilterChip(
+                    selected = selected,
+                    onClick = {
+                        onCategoryToggle(category.id)
+                    },
+                    label = {
+                        Text(text = category.title)
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Владелец состояния:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun CatalogFiltersRoute(
+    categories: List<CatalogFilterOption>
+) {
+    var state by remember {
+        mutableStateOf(
+            CatalogFiltersUiState(
+                onlyAvailable = false,
+                selectedCategoryIds = emptySet()
+            )
+        )
+    }
+
+    CatalogFilters(
+        state = state,
+        categories = categories,
+        onOnlyAvailableChange = { checked ->
+            state = state.copy(
+                onlyAvailable = checked
+            )
+        },
+        onCategoryToggle = { categoryId ->
+            val nextSelectedIds = if (categoryId in state.selectedCategoryIds) {
+                state.selectedCategoryIds - categoryId
+            } else {
+                state.selectedCategoryIds + categoryId
+            }
+
+            state = state.copy(
+                selectedCategoryIds = nextSelectedIds
+            )
+        }
+    )
+}
+```
+
+Почему это production-паттерн:
+
+- `CatalogFilters` stateless;
+- состояние immutable;
+- события называются по смыслу;
+- `Set<String>` не допускает дубликатов;
+- route может позже заменить локальный `remember` на ViewModel без изменения UI-компонента.
+
+## Когда не надо hoist
+
+Не каждое состояние нужно выносить наружу.
+
+Локально можно оставить:
+
+- раскрытие декоративного тултипа;
+- hover-состояние desktop-компонента;
+- временное состояние pressed interaction;
+- локальный animation progress;
+- промежуточное состояние жеста;
+- внутренний state компонента, который не интересен родителю.
+
+Пример:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun HelpHint(
+    text: String
+) {
+    var expanded by remember {
+        mutableStateOf(false)
+    }
+
+    Column {
+        Button(
+            onClick = {
+                expanded = !expanded
+            }
+        ) {
+            Text(text = "Подсказка")
+        }
+
+        if (expanded) {
+            Text(text = text)
+        }
+    }
+}
+```
+
+Если родитель не должен управлять раскрытием подсказки, локальное состояние нормально.
+
+## Типичные ошибки
+
+### Дублировать один state в двух местах
+
+Если child хранит копию значения, а parent хранит оригинал, они могут разойтись. Делайте один источник истины.
+
+### Передавать MutableState вниз без необходимости
+
+`MutableState<T>` дает child право читать и писать. Чаще лучше передать `value` и callback.
+
+### Делать слишком общий callback
+
+`onEvent(String)` хуже, чем `onCategoryToggle(categoryId)`, если событие имеет конкретный смысл.
+
+### Обновлять state вне event handler
+
+Запись state прямо в тело composable может создать бесконечные recomposition или трудноуловимые баги. State меняется в обработчиках событий, эффектах или state holders.
+
+### Поднимать state выше, чем нужно
+
+Если локальная визуальная деталь попала в ViewModel, экран становится сложнее без реальной пользы.
+
+## Итоги
+
+State hoisting делает UI предсказуемым:
+
+- stateful composable хранит состояние внутри;
+- stateless composable получает состояние и события снаружи;
+- стандартная пара параметров — `value` и `onValueChange`;
+- для доменных событий лучше давать конкретные имена;
+- состояние поднимают минимум до общего читателя и писателя;
+- состояния, меняющиеся одним событием, часто стоит хранить вместе;
+- UI element state и screen UI state имеют разный жизненный цикл;
+- state идет вниз, events идут вверх;
+- переиспользуемый UI должен быть stateless, а удобная stateful-обертка может быть дополнительным API.

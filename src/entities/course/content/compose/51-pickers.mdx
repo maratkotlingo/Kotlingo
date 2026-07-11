@@ -1,0 +1,618 @@
+---
+title: "Pickers"
+description: "Разбираем Material 3 pickers в Compose: DatePicker, DatePickerDialog, DateRangePicker, TimePicker, TimeInput, rememberDatePickerState, rememberTimePickerState, dialogs, state objects и production-конвертацию дат."
+order: 51
+category: "Compose: Material 3 components and app structure"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое picker
+
+Picker — это компонент выбора значения из ограниченной предметной области. В Material 3 Compose чаще всего нужны:
+
+- date picker: выбор даты;
+- date range picker: выбор диапазона дат;
+- time picker: выбор времени через циферблат;
+- time input: ввод времени с клавиатуры.
+
+Pickers помогают избежать ручного ввода там, где значение должно быть валидным: дата доставки, период отчета, время напоминания, время бронирования.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun PickerEntryPoint() {
+    var showPicker by remember {
+        mutableStateOf(false)
+    }
+
+    Button(
+        onClick = {
+            showPicker = true
+        }
+    ) {
+        Text(text = "Выбрать дату")
+    }
+
+    if (showPicker) {
+        BirthdayDatePickerDialog(
+            onDateSelected = { selectedDateMillis ->
+                showPicker = false
+            },
+            onDismiss = {
+                showPicker = false
+            }
+        )
+    }
+}
+```
+
+<CatTip>
+Picker выбирает значение, но не должен решать бизнес-правила. Например, "можно ли доставить в эту дату" лучше моделировать через state и `SelectableDates`, а не прятать в UI после выбора.
+</CatTip>
+
+## DatePickerDialog
+
+`DatePickerDialog` — container для modal date picker.
+
+```kotlin
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BirthdayDatePickerDialog(
+    onDateSelected: (Long?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val datePickerState = rememberDatePickerState()
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onDateSelected(datePickerState.selectedDateMillis)
+                }
+            ) {
+                Text(text = "Выбрать")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Отмена")
+            }
+        }
+    ) {
+        DatePicker(state = datePickerState)
+    }
+}
+```
+
+`selectedDateMillis` может быть `null`, если пользователь еще не выбрал дату.
+
+## DatePickerState
+
+`rememberDatePickerState` создает state для `DatePicker`.
+
+Ключевые данные:
+
+- `selectedDateMillis`: выбранная дата в миллисекундах UTC;
+- `displayedMonthMillis`: месяц, который сейчас отображается;
+- `displayMode`: режим календаря или ввода;
+- `selectableDates`: правила доступности дат;
+- `yearRange`: допустимый диапазон лет.
+
+```kotlin
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DatePickerWithInitialDate(
+    initialDateMillis: Long
+) {
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = initialDateMillis,
+        yearRange = 2020..2035
+    )
+
+    DatePicker(state = state)
+}
+```
+
+## Конвертация selectedDateMillis
+
+`selectedDateMillis` — это миллисекунды. В приложении часто удобнее работать с `LocalDate`.
+
+```kotlin
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
+fun millisToLocalDate(
+    millis: Long,
+    zoneId: ZoneId = ZoneId.systemDefault()
+): LocalDate {
+    return Instant
+        .ofEpochMilli(millis)
+        .atZone(zoneId)
+        .toLocalDate()
+}
+
+fun localDateToStartOfDayMillis(
+    date: LocalDate,
+    zoneId: ZoneId = ZoneId.systemDefault()
+): Long {
+    return date
+        .atStartOfDay(zoneId)
+        .toInstant()
+        .toEpochMilli()
+}
+```
+
+Важный нюанс: дата без времени и timezone-sensitive timestamp — разные понятия. Для дня рождения, даты доставки или периода отчета обычно храните доменную `LocalDate`, а не случайный timestamp.
+
+<MouseTrap>
+Не храните `selectedDateMillis` как бизнес-дату без понимания timezone. Для "2026-07-11" лучше доменный тип даты, а миллисекунды использовать как формат обмена с DatePicker.
+</MouseTrap>
+
+## SelectableDates
+
+`SelectableDates` позволяет запретить выбор отдельных дат или лет.
+
+```kotlin
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.Composable
+import java.time.Instant
+import java.time.ZoneOffset
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FutureOnlyDatePicker() {
+    val todayStartMillis = java.time.LocalDate
+        .now()
+        .atStartOfDay(ZoneOffset.UTC)
+        .toInstant()
+        .toEpochMilli()
+
+    val state = rememberDatePickerState(
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                return utcTimeMillis >= todayStartMillis
+            }
+
+            override fun isSelectableYear(year: Int): Boolean {
+                return year >= java.time.LocalDate.now().year
+            }
+        }
+    )
+
+    DatePicker(state = state)
+}
+```
+
+Используйте `SelectableDates`, если пользователь не должен даже выбрать недопустимую дату. Если дата допустима технически, но требует предупреждения, лучше разрешить выбор и показать validation message.
+
+## DateRangePicker
+
+`DateRangePicker` выбирает начало и конец диапазона.
+
+```kotlin
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDateRangePickerState
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReportRangePickerDialog(
+    onRangeSelected: (startMillis: Long, endMillis: Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val state = rememberDateRangePickerState()
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            val start = state.selectedStartDateMillis
+            val end = state.selectedEndDateMillis
+
+            TextButton(
+                enabled = start != null && end != null,
+                onClick = {
+                    if (start != null && end != null) {
+                        onRangeSelected(start, end)
+                    }
+                }
+            ) {
+                Text(text = "Применить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Отмена")
+            }
+        }
+    ) {
+        DateRangePicker(
+            state = state,
+            title = {
+                Text(text = "Период отчета")
+            },
+            headline = {
+                Text(text = "Выберите начало и конец")
+            }
+        )
+    }
+}
+```
+
+Кнопка подтверждения выключена, пока пользователь не выбрал обе даты.
+
+## Docked date picker
+
+Docked picker можно показать рядом с полем. Это удобно для компактной формы, где dialog выглядит слишком тяжелым.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DockedDatePickerField(
+    label: String
+) {
+    var expanded by remember {
+        mutableStateOf(false)
+    }
+    val state = rememberDatePickerState()
+
+    Column {
+        OutlinedTextField(
+            value = state.selectedDateMillis?.let { millis ->
+                millisToLocalDate(millis).toString()
+            } ?: "",
+            onValueChange = {},
+            readOnly = true,
+            label = {
+                Text(text = label)
+            }
+        )
+
+        androidx.compose.material3.TextButton(
+            onClick = {
+                expanded = !expanded
+            }
+        ) {
+            Text(
+                text = if (expanded) {
+                    "Скрыть календарь"
+                } else {
+                    "Открыть календарь"
+                }
+            )
+        }
+
+        if (expanded) {
+            DatePicker(state = state)
+        }
+    }
+}
+```
+
+Для сложной формы лучше добавить явные confirm/cancel actions, чтобы пользователь понимал, когда значение применено.
+
+## TimePicker
+
+`TimePicker` показывает dial picker.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.runtime.Composable
+import java.util.Calendar
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DialTimePicker(
+    onConfirm: (hour: Int, minute: Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val currentTime = Calendar.getInstance()
+    val state = rememberTimePickerState(
+        initialHour = currentTime.get(Calendar.HOUR_OF_DAY),
+        initialMinute = currentTime.get(Calendar.MINUTE),
+        is24Hour = true
+    )
+
+    Column {
+        TimePicker(state = state)
+
+        Button(
+            onClick = {
+                onConfirm(state.hour, state.minute)
+            }
+        ) {
+            Text(text = "Выбрать")
+        }
+
+        Button(onClick = onDismiss) {
+            Text(text = "Отмена")
+        }
+    }
+}
+```
+
+`TimePickerState` содержит выбранные `hour` и `minute`.
+
+## TimeInput
+
+`TimeInput` подходит для клавиатурного ввода времени.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.TimeInput
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.runtime.Composable
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun InputTimePicker(
+    initialHour: Int,
+    initialMinute: Int,
+    onConfirm: (hour: Int, minute: Int) -> Unit
+) {
+    val state = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = true
+    )
+
+    Column {
+        TimeInput(state = state)
+
+        Button(
+            onClick = {
+                onConfirm(state.hour, state.minute)
+            }
+        ) {
+            Text(text = "Применить")
+        }
+    }
+}
+```
+
+Time input удобен, если пользователь часто знает точное время и хочет набрать его быстрее, чем крутить dial.
+
+## Time picker dialog
+
+Material time picker часто показывают в dialog. Можно сделать reusable dialog.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import java.util.Calendar
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TimePickerDialog(
+    onConfirm: (hour: Int, minute: Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val currentTime = Calendar.getInstance()
+    val state = rememberTimePickerState(
+        initialHour = currentTime.get(Calendar.HOUR_OF_DAY),
+        initialMinute = currentTime.get(Calendar.MINUTE),
+        is24Hour = true
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(state.hour, state.minute)
+                }
+            ) {
+                Text(text = "ОК")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Отмена")
+            }
+        },
+        title = {
+            Text(text = "Выберите время")
+        },
+        text = {
+            Column(
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                TimePicker(state = state)
+            }
+        }
+    )
+}
+```
+
+## Production-пример: планировщик напоминания
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import java.time.LocalDate
+import java.time.LocalTime
+
+@Immutable
+data class ReminderDraft(
+    val date: LocalDate?,
+    val time: LocalTime?
+)
+
+@Composable
+fun ReminderPickerSection(
+    draft: ReminderDraft,
+    onDraftChange: (ReminderDraft) -> Unit
+) {
+    var showDatePicker by remember {
+        mutableStateOf(false)
+    }
+    var showTimePicker by remember {
+        mutableStateOf(false)
+    }
+
+    Column {
+        Text(
+            text = "Дата: ${draft.date?.toString() ?: "не выбрана"}"
+        )
+        Text(
+            text = "Время: ${draft.time?.toString() ?: "не выбрано"}"
+        )
+
+        Button(
+            onClick = {
+                showDatePicker = true
+            }
+        ) {
+            Text(text = "Выбрать дату")
+        }
+
+        Button(
+            onClick = {
+                showTimePicker = true
+            }
+        ) {
+            Text(text = "Выбрать время")
+        }
+    }
+
+    if (showDatePicker) {
+        BirthdayDatePickerDialog(
+            onDateSelected = { millis ->
+                if (millis != null) {
+                    onDraftChange(
+                        draft.copy(
+                            date = millisToLocalDate(millis)
+                        )
+                    )
+                }
+                showDatePicker = false
+            },
+            onDismiss = {
+                showDatePicker = false
+            }
+        )
+    }
+
+    if (showTimePicker) {
+        TimePickerDialog(
+            onConfirm = { hour, minute ->
+                onDraftChange(
+                    draft.copy(
+                        time = LocalTime.of(hour, minute)
+                    )
+                )
+                showTimePicker = false
+            },
+            onDismiss = {
+                showTimePicker = false
+            }
+        )
+    }
+}
+```
+
+Здесь UI хранит только флаги видимости dialogs. Доменное значение `ReminderDraft` приходит снаружи и отправляется наружу через callback.
+
+## Типичные ошибки
+
+### Хранить millis как доменную дату
+
+Для date-only значений используйте `LocalDate` или собственный доменный тип.
+
+### Не проверять null selectedDateMillis
+
+Пользователь может закрыть dialog или нажать confirm без выбора, если кнопка не заблокирована.
+
+### Делать picker единственным местом валидации
+
+Валидация должна существовать на уровне state holder или domain layer.
+
+### Игнорировать input mode
+
+Для точных дат и времени клавиатурный ввод может быть быстрее, чем календарь или dial.
+
+### Не учитывать локаль и часовой пояс
+
+Дата и время должны форматироваться по локали пользователя и храниться в правильной доменной форме.
+
+## Итоги
+
+Pickers помогают выбирать валидные значения:
+
+- `DatePicker` показывает календарь;
+- `DatePickerDialog` оборачивает modal date picker;
+- `rememberDatePickerState` хранит выбранную дату и отображаемый месяц;
+- `DateRangePicker` выбирает период;
+- `SelectableDates` запрещает отдельные даты и годы;
+- `TimePicker` дает dial-ввод времени;
+- `TimeInput` дает keyboard-ввод времени;
+- `rememberTimePickerState` хранит hour/minute;
+- picker state лучше преобразовывать в доменные `LocalDate` и `LocalTime`;
+- для production UX нужны confirm/cancel, null-handling, validation и понятное форматирование.

@@ -1,0 +1,698 @@
+---
+title: "Brush, gradients and color filters"
+description: "Разбираем Brush в Jetpack Compose: SolidColor, linear, horizontal, vertical, radial, sweep и mesh gradients, TileMode, colorStops, Brush в Canvas, background, border, TextStyle, ColorFilter.tint, ColorMatrix и production-паттерны."
+order: 73
+category: "Compose: Graphics, Canvas and drawing"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `Brush`
+
+`Brush` — это объект, который говорит Compose, как закрашивать пиксели внутри области рисования. `Color` отвечает за один сплошной цвет, а `Brush` может описывать сплошной цвет, градиент, shader-based заливку или более сложную цветовую поверхность.
+
+В Compose `Brush` встречается в нескольких местах:
+
+- `Modifier.background(brush = brush)`;
+- `BorderStroke(width, brush)`;
+- `DrawScope.drawRect(brush = brush)`;
+- `DrawScope.drawCircle(brush = brush)`;
+- `DrawScope.drawRoundRect(brush = brush)`;
+- `DrawScope.drawPath(brush = brush)`;
+- `TextStyle(brush = brush)`;
+- `Modifier.drawBehind`;
+- `Modifier.drawWithCache`;
+- `Modifier.paint`, когда brush завернут в painter.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun GradientTile() {
+    val brush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF1565C0),
+            Color(0xFF00ACC1),
+            Color(0xFF43A047)
+        )
+    )
+
+    Box(
+        modifier = Modifier
+            .size(120.dp)
+            .background(brush = brush)
+    )
+}
+```
+
+Здесь `Box` получает обычные layout bounds, а `Brush` заполняет эти bounds цветовым переходом.
+
+<CatTip>
+Думайте о `Brush` как о стратегии закраски. Один и тот же shape, path или text может быть нарисован обычным `Color`, а может быть заполнен brush-ем с направлением, центром, радиусом и повторением.
+</CatTip>
+
+## `Color` против `Brush`
+
+`Color` дешевле и понятнее, когда нужен один цвет. `Brush` нужен, когда цвет зависит от координаты пикселя:
+
+- фон переходит слева направо;
+- круг светится от центра к краю;
+- border идет по цветовому кольцу;
+- текст заполнен градиентом;
+- поверх изображения применяется сложная маска;
+- custom drawing должен выглядеть как тепловая карта, диаграмма или освещенная поверхность.
+
+```kotlin
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SolidColorCanvas() {
+    Canvas(
+        modifier = Modifier.size(96.dp)
+    ) {
+        drawCircle(
+            // Для одной краски обычный Color проще, чем Brush.
+            color = Color(0xFF2E7D32),
+            radius = size.minDimension / 2f
+        )
+    }
+}
+```
+
+Если вы создаете `Brush.solidColor`, вы явно показываете, что API ожидает brush, но фактически используете сплошную заливку.
+
+```kotlin
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SolidBrushCanvas() {
+    Canvas(
+        modifier = Modifier.size(96.dp)
+    ) {
+        drawCircle(
+            // Сплошной brush удобен, когда общий вспомогательный код принимает Brush.
+            brush = Brush.solidColor(Color(0xFF2E7D32)),
+            radius = size.minDimension / 2f
+        )
+    }
+}
+```
+
+<MouseTrap>
+Не заменяйте каждый `Color` на `Brush`. Градиент — это не бесплатная декоративная приправа, а дополнительная работа для rendering pipeline и дополнительная сложность для дизайна, контраста и тестирования.
+</MouseTrap>
+
+## Основные фабрики `Brush`
+
+В production-коде чаще всего используются такие фабрики:
+
+- `Brush.solidColor(color)`: сплошная заливка через brush API;
+- `Brush.linearGradient(colors, start, end, tileMode)`: линейный градиент между двумя точками;
+- `Brush.linearGradient(vararg colorStops, start, end, tileMode)`: линейный градиент с точными позициями цветов;
+- `Brush.horizontalGradient(colors, startX, endX, tileMode)`: частный случай линейного градиента по X;
+- `Brush.verticalGradient(colors, startY, endY, tileMode)`: частный случай линейного градиента по Y;
+- `Brush.radialGradient(colors, center, radius, tileMode)`: градиент от центра к окружности;
+- `Brush.radialGradient(vararg colorStops, center, radius, tileMode)`: radial gradient с точными остановками;
+- `Brush.sweepGradient(colors, center)`: градиент по углу вокруг центра;
+- `Brush.sweepGradient(vararg colorStops, center)`: angular gradient с точными остановками;
+- `ShaderBrush`: базовый класс для custom shader brush;
+- `MeshGradientPainter`: painter для mesh gradients, когда нужен многоточечный цветовой переход.
+
+`colors` распределяет цвета равномерно. `colorStops` дает точный контроль: `0f` означает начало, `1f` означает конец, значения между ними задают позицию конкретного цвета.
+
+## `linearGradient`
+
+`linearGradient` строит цветовой переход вдоль линии от `start` к `end`. Если `start` и `end` не заданы, Compose использует границы области рисования: начало около верхнего левого угла, конец около нижнего правого угла.
+
+```kotlin
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LinearGradientBanner() {
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+    ) {
+        val brush = Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF0D47A1),
+                Color(0xFF00838F),
+                Color(0xFF2E7D32)
+            ),
+            start = Offset.Zero,
+            end = Offset(
+                x = size.width,
+                y = size.height
+            )
+        )
+
+        drawRect(brush = brush)
+    }
+}
+```
+
+Внутри `Canvas` размеры уже известны, поэтому можно вычислить `start` и `end` от `size`. В composable body такой информации обычно нет, поэтому для size-dependent brush лучше использовать `drawWithCache`.
+
+## `colorStops`
+
+`colorStops` нужны, когда цвета должны распределяться не равномерно, а по дизайнерской шкале.
+
+```kotlin
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun HealthScaleGradient() {
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(18.dp)
+    ) {
+        val brush = Brush.linearGradient(
+            0.00f to Color(0xFFD32F2F),
+            0.35f to Color(0xFFF9A825),
+            0.55f to Color(0xFFFFF176),
+            0.80f to Color(0xFF66BB6A),
+            1.00f to Color(0xFF2E7D32),
+            start = Offset.Zero,
+            end = Offset(x = size.width, y = 0f)
+        )
+
+        drawRoundRect(
+            brush = brush,
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                x = 9.dp.toPx(),
+                y = 9.dp.toPx()
+            )
+        )
+    }
+}
+```
+
+Такой подход удобен для risk indicators, charts, progress scales и heatmaps. Главное — не забыть текстовую альтернативу или semantics, если цвет несет смысл.
+
+## `horizontalGradient` и `verticalGradient`
+
+`horizontalGradient` и `verticalGradient` читаются проще, когда градиент строго горизонтальный или вертикальный.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun GradientHeader(
+    title: String,
+    subtitle: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF263238),
+                        Color(0xFF455A64)
+                    )
+                )
+            )
+            .padding(20.dp)
+    ) {
+        Text(
+            text = title,
+            color = Color.White
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = subtitle,
+            color = Color(0xFFECEFF1)
+        )
+    }
+}
+```
+
+Если направление градиента является частью смысла, называйте brush явно: `successToWarningBrush`, `topScrimBrush`, `leftFadeBrush`.
+
+## `TileMode`
+
+`TileMode` определяет, что делать за пределами области, в которой задан shader:
+
+- `TileMode.Clamp`: растягивает крайний цвет;
+- `TileMode.Repeated`: повторяет градиент;
+- `TileMode.Mirror`: повторяет градиент зеркально;
+- `TileMode.Decal`: рисует прозрачность за пределами shader bounds, если режим поддерживается платформой;
+- `TileMode.isSupported()`: позволяет проверить поддержку режима на текущей платформе.
+
+```kotlin
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun RepeatedWarningStripes() {
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+    ) {
+        val stripeWidth = 32.dp.toPx()
+
+        val brush = Brush.linearGradient(
+            0.00f to Color(0xFFFFCA28),
+            0.49f to Color(0xFFFFCA28),
+            0.50f to Color(0xFF263238),
+            1.00f to Color(0xFF263238),
+            start = Offset.Zero,
+            end = Offset(x = stripeWidth, y = stripeWidth),
+            tileMode = TileMode.Repeated
+        )
+
+        drawRect(brush = brush)
+    }
+}
+```
+
+`TileMode.Repeated` и `TileMode.Mirror` полезны для patterns. Для обычных backgrounds чаще достаточно `Clamp`.
+
+## `radialGradient`
+
+`radialGradient` расходится от центра к краю. Он подходит для glow, spotlight, attention focus, skeleton highlight и мягких декоративных пятен, когда они действительно помогают интерфейсу.
+
+```kotlin
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun RadialStatusGlow(
+    healthy: Boolean
+) {
+    Canvas(
+        modifier = Modifier.size(96.dp)
+    ) {
+        val centerColor = if (healthy) {
+            Color(0xFF66BB6A)
+        } else {
+            Color(0xFFFF7043)
+        }
+
+        val brush = Brush.radialGradient(
+            colors = listOf(
+                centerColor.copy(alpha = 0.90f),
+                centerColor.copy(alpha = 0.20f),
+                Color.Transparent
+            ),
+            center = Offset(
+                x = size.width / 2f,
+                y = size.height / 2f
+            ),
+            radius = size.minDimension / 2f
+        )
+
+        drawCircle(
+            brush = brush,
+            radius = size.minDimension / 2f
+        )
+    }
+}
+```
+
+Не используйте glow как единственный признак состояния. Для accessibility состояние должно быть доступно через текст, semantics или компонентную структуру.
+
+## `sweepGradient`
+
+`sweepGradient` распределяет цвета по окружности. Он особенно удобен для circular progress, color wheels и gradient borders.
+
+```kotlin
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SweepGradientAvatarFrame() {
+    val frameBrush = remember {
+        Brush.sweepGradient(
+            colors = listOf(
+                Color(0xFF7E57C2),
+                Color(0xFF26C6DA),
+                Color(0xFFFFCA28),
+                Color(0xFFEC407A),
+                Color(0xFF7E57C2)
+            )
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .size(96.dp)
+            .border(
+                border = BorderStroke(
+                    width = 4.dp,
+                    brush = frameBrush
+                ),
+                shape = CircleShape
+            )
+    )
+}
+```
+
+Если первый и последний цвет совпадают, переход на стыке круга выглядит мягче.
+
+## Brush в `drawWithCache`
+
+Если brush зависит от размера, создавайте его в `drawWithCache`. Cache block будет пересоздан, когда изменятся size или прочитанное state.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+fun Modifier.bottomFadeOverlay(): Modifier {
+    return drawWithCache {
+        val fadeBrush = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.55f)
+            ),
+            startY = size.height * 0.45f,
+            endY = size.height
+        )
+
+        onDrawWithContent {
+            drawContent()
+            drawRect(brush = fadeBrush)
+        }
+    }
+}
+
+@Composable
+fun PosterFadeExample() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .bottomFadeOverlay()
+    )
+}
+```
+
+Такой modifier не знает ничего о конкретном контенте. Он просто добавляет визуальный fade поверх любого composable.
+
+## Brush в тексте
+
+`TextStyle` может принимать `brush`. Это позволяет заливать glyphs градиентом.
+
+```kotlin
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+
+@Composable
+fun GradientTitle(
+    text: String
+) {
+    val titleBrush = remember {
+        Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF1565C0),
+                Color(0xFF00897B)
+            )
+        )
+    }
+
+    Text(
+        text = text,
+        style = MaterialTheme.typography.headlineMedium.merge(
+            TextStyle(brush = titleBrush)
+        )
+    )
+}
+```
+
+Градиентный текст должен оставаться читаемым на всех темах. Проверяйте dark mode, font scale, контраст и screenshots.
+
+## Mesh gradients
+
+Mesh gradient — это многоточечный градиент, который интерполирует цвета по сетке. В отличие от линейного или radial gradient, у него нет одного направления или одного центра. Он полезен для fluid backgrounds, expressive surfaces и сложных цветовых переходов.
+
+Современный Compose предоставляет `MeshGradientPainter`. Он задается количеством строк и колонок patches, а вершины устанавливаются через `setVertex`.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.MeshGradientPainter
+import androidx.compose.ui.draw.paint
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CalmMeshGradientPanel(
+    modifier: Modifier = Modifier
+) {
+    val meshPainter = remember {
+        MeshGradientPainter(
+            rows = 2,
+            columns = 2
+        ) {
+            // Координаты задаются в нормализованном пространстве от 0f до 1f.
+            setVertex(0, 0, Offset(0f, 0f), Color(0xFF0D47A1))
+            setVertex(0, 1, Offset(0.5f, 0f), Color(0xFF26C6DA))
+            setVertex(0, 2, Offset(1f, 0f), Color(0xFF80CBC4))
+
+            setVertex(1, 0, Offset(0f, 0.55f), Color(0xFF3949AB))
+            setVertex(1, 1, Offset(0.45f, 0.45f), Color(0xFFFFCA28))
+            setVertex(1, 2, Offset(1f, 0.50f), Color(0xFF43A047))
+
+            setVertex(2, 0, Offset(0f, 1f), Color(0xFF5E35B1))
+            setVertex(2, 1, Offset(0.55f, 1f), Color(0xFFEC407A))
+            setVertex(2, 2, Offset(1f, 1f), Color(0xFF2E7D32))
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .padding(16.dp)
+            .aspectRatio(16f / 9f)
+            .fillMaxWidth()
+            .paint(meshPainter)
+    )
+}
+```
+
+Mesh gradients выразительны, но ими легко перегрузить приложение. Используйте их как surface-level artwork, а не как фон под плотными таблицами, формами и длинным текстом.
+
+## `ColorFilter`
+
+`ColorFilter` изменяет цвета уже нарисованного изображения. Он не задает фон, а преобразует пиксели painter-а или image.
+
+Основные варианты:
+
+- `ColorFilter.tint(color)`: применяет tint, чаще всего для monochrome icons;
+- `ColorFilter.tint(color, blendMode)`: tint с явным `BlendMode`;
+- `ColorFilter.colorMatrix(matrix)`: преобразует каналы через `ColorMatrix`;
+- `ColorMatrix.setToSaturation(value)`: меняет насыщенность;
+- `ColorMatrix.setToScale(redScale, greenScale, blueScale, alphaScale)`: масштабирует каналы;
+- `ColorMatrix.setToRotateRed(degrees)`, `setToRotateGreen`, `setToRotateBlue`: вращает цветовые каналы;
+- `ColorMatrix.timesAssign(other)`: объединяет преобразования.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun TintedIcon(
+    selected: Boolean
+) {
+    Image(
+        painter = painterResource(id = R.drawable.ic_bookmark),
+        contentDescription = null,
+        colorFilter = ColorFilter.tint(
+            color = if (selected) {
+                Color(0xFFFFA000)
+            } else {
+                Color(0xFF607D8B)
+            }
+        ),
+        modifier = Modifier.size(24.dp)
+    )
+}
+```
+
+Для Material icons обычно лучше использовать `Icon`, потому что он уже встроен в Material color system. `Image` с `ColorFilter` нужен для более общего painter API.
+
+## Grayscale через `ColorMatrix`
+
+`ColorMatrix` полезен, когда картинку нужно показать как disabled, archived или unavailable state.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun DesaturatedPreview(
+    enabled: Boolean
+) {
+    val grayscaleFilter = remember {
+        val matrix = ColorMatrix()
+        matrix.setToSaturation(0f)
+        ColorFilter.colorMatrix(matrix)
+    }
+
+    Image(
+        painter = painterResource(id = R.drawable.preview_cover),
+        contentDescription = null,
+        colorFilter = if (enabled) {
+            null
+        } else {
+            grayscaleFilter
+        },
+        modifier = Modifier.size(140.dp)
+    )
+}
+```
+
+Не делайте disabled state только серым. Добавьте semantics, disabled interaction или текстовую причину, если это важное действие.
+
+## Brush и performance
+
+Brush сам по себе обычно дешевле, чем bitmap background, но ошибки все равно возможны:
+
+- не создавайте сложные brush-и на каждый frame без причины;
+- используйте `remember`, если brush не зависит от size;
+- используйте `drawWithCache`, если brush зависит от `size`;
+- не анимируйте десятки heavy gradients в lazy list;
+- проверяйте контраст поверх gradients;
+- не используйте прозрачный gradient там, где достаточно `alpha`;
+- не рисуйте mesh gradient под каждым item списка;
+- не путайте decorative gradient и meaningful color scale.
+
+## Типичные ошибки
+
+### Создавать size-dependent brush в body
+
+Если для brush нужен `size.width`, создавайте его внутри `Canvas` или `drawWithCache`.
+
+### Использовать `TileMode.Repeated` без ограниченной области shader
+
+Если `end` равен бесконечной границе drawing area, повторение может не дать ожидаемый pattern.
+
+### Тонировать полноцветные фотографии
+
+`ColorFilter.tint` хорошо подходит для icons и vectors. Для фотографий tint может разрушить оттенки кожи, предметов и бренда.
+
+### Делать gradient text для длинного текста
+
+Градиентные glyphs быстро утомляют. Для paragraph content используйте обычный цвет.
+
+### Не проверять dark mode
+
+Градиент, красивый в light theme, может стать нечитаемым в dark theme.
+
+## Итоги
+
+`Brush` расширяет цветовую модель Compose:
+
+- `Color` подходит для одного цвета;
+- `Brush.solidColor` нужен, когда API ожидает brush;
+- `linearGradient`, `horizontalGradient`, `verticalGradient`, `radialGradient` и `sweepGradient` покрывают большинство production-задач;
+- `colorStops` дают точное распределение цветов;
+- `TileMode` управляет поведением за пределами shader bounds;
+- `drawWithCache` помогает кешировать size-dependent brush-и;
+- `TextStyle(brush = titleBrush)` заливает текст градиентом;
+- `MeshGradientPainter` подходит для сложных многоточечных переходов;
+- `ColorFilter` меняет пиксели изображения, а не фон composable;
+- градиенты требуют проверки accessibility, контраста и performance.

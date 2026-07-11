@@ -1,0 +1,616 @@
+---
+title: "State in Compose"
+description: "Подробно изучаем состояние в Jetpack Compose: State<T>, MutableState<T>, mutableStateOf, snapshot-система, mutation policies, SnapshotStateList, SnapshotStateMap и правила безопасного обновления UI."
+order: 28
+category: "Compose: State, recomposition и архитектура"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое состояние
+
+Состояние — это данные, изменение которых должно изменить UI.
+
+В Compose интерфейс описывается как функция от состояния:
+
+```kotlin
+UI = f(state)
+```
+
+Если состояние изменилось, Compose заново выполняет только те composable-участки, которые зависят от измененных данных. Этот процесс называется recomposition.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun CounterButton() {
+    var count by remember {
+        mutableStateOf(0)
+    }
+
+    Button(
+        onClick = {
+            count += 1
+        }
+    ) {
+        Text(text = "Нажато: $count")
+    }
+}
+```
+
+Что происходит:
+
+- `mutableStateOf(0)` создает observable state;
+- `remember` сохраняет объект state между recomposition;
+- `Text` читает `count`;
+- Compose запоминает, что этот участок composition зависит от `count`;
+- при изменении `count` Compose помечает зависимый участок как invalid;
+- во время следующей recomposition Compose заново выполнит нужный composable-код.
+
+<CatTip>
+В Compose вы не ищете `TextView` и не вызываете `setText`. Вы меняете state, а UI сам переописывается из новых данных.
+</CatTip>
+
+## State<T>
+
+`State<T>` — read-only интерфейс состояния. Он предоставляет значение через свойство `value`.
+
+```kotlin
+import androidx.compose.runtime.State
+
+fun renderTitleState(titleState: State<String>): String {
+    return titleState.value
+}
+```
+
+`State<T>` удобно передавать туда, где код должен только читать значение и не должен менять его.
+
+Свойства:
+
+- `value`: текущее значение состояния.
+
+Особенности:
+
+- чтение `value` внутри composable отслеживается Compose;
+- если значение изменится, зависимый composable может быть recomposed;
+- сам `State<T>` не обязан быть изменяемым для вызывающего кода.
+
+## MutableState<T>
+
+`MutableState<T>` расширяет `State<T>` и позволяет менять `value`.
+
+```kotlin
+import androidx.compose.runtime.MutableState
+
+fun increment(counter: MutableState<Int>) {
+    counter.value = counter.value + 1
+}
+```
+
+Свойства:
+
+- `value`: текущее значение, которое можно читать и записывать.
+
+В Compose часто используют Kotlin delegation:
+
+```kotlin
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+var count by mutableStateOf(0)
+```
+
+Это синтаксический сахар:
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+
+val countState = mutableStateOf(0)
+countState.value = countState.value + 1
+```
+
+Оба варианта работают одинаково. Delegation делает код короче, но важно помнить, что за переменной все равно стоит `MutableState<Int>`.
+
+## mutableStateOf
+
+`mutableStateOf` создает `MutableState<T>`.
+
+```kotlin
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+
+val nameState: MutableState<String> = mutableStateOf("Мария")
+```
+
+Основные параметры:
+
+- `value`: начальное значение;
+- `policy`: политика сравнения значений.
+
+По умолчанию используется structural equality: если новое значение равно старому через `==`, Compose не будет считать state измененным.
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.structuralEqualityPolicy
+
+val selectedCategory = mutableStateOf(
+    value = "compose",
+    policy = structuralEqualityPolicy()
+)
+```
+
+## Mutation policies
+
+Mutation policy определяет, когда запись в `MutableState` считается реальным изменением.
+
+### structuralEqualityPolicy
+
+`structuralEqualityPolicy()` сравнивает значения через `==`.
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.structuralEqualityPolicy
+
+data class UserName(
+    val value: String
+)
+
+val userNameState = mutableStateOf(
+    value = UserName("Анна"),
+    policy = structuralEqualityPolicy()
+)
+```
+
+Если записать новый `UserName("Анна")`, значение будет structurally equal старому. Compose может не запускать recomposition для читателей этого state.
+
+### referentialEqualityPolicy
+
+`referentialEqualityPolicy()` сравнивает ссылки через `===`.
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.referentialEqualityPolicy
+
+class SessionToken(
+    val rawValue: String
+)
+
+val tokenState = mutableStateOf(
+    value = SessionToken("access-token"),
+    policy = referentialEqualityPolicy()
+)
+```
+
+Используйте осторожно. Эта policy полезна, когда identity объекта важнее содержимого.
+
+### neverEqualPolicy
+
+`neverEqualPolicy()` считает каждую запись изменением.
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
+
+val refreshSignal = mutableStateOf(
+    value = 0,
+    policy = neverEqualPolicy()
+)
+```
+
+Такой подход полезен для редких сигналов, где одинаковое значение все равно должно уведомить читателей. Но для обычной модели экрана это может создавать лишние recomposition.
+
+<MouseTrap>
+Не используйте `neverEqualPolicy` как простой способ "починить" UI. Если экран обновляется только с этой policy, сначала проверьте, не мутируете ли вы обычный `MutableList`, `MutableMap` или объект с `var` внутри state.
+</MouseTrap>
+
+## Почему обычный mutableListOf не обновляет UI надежно
+
+Compose отслеживает изменения observable state. Обычный `MutableList` сам по себе не сообщает Compose, что его содержимое изменилось.
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+
+val namesState = mutableStateOf(
+    mutableListOf("Анна", "Борис")
+)
+
+fun addNameWrong(name: String) {
+    namesState.value.add(name)
+}
+```
+
+Проблема:
+
+- `namesState.value` остается тем же объектом списка;
+- `mutableStateOf` не видит запись нового значения;
+- UI может не узнать о внутренней мутации.
+
+Правильный вариант с immutable update:
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+
+val namesState = mutableStateOf(
+    listOf("Анна", "Борис")
+)
+
+fun addNameCorrect(name: String) {
+    namesState.value = namesState.value + name
+}
+```
+
+Здесь state получает новый список, и Compose видит запись нового значения.
+
+## SnapshotStateList
+
+Если нужен изменяемый список, который сам уведомляет Compose, используйте `mutableStateListOf`.
+
+```kotlin
+import androidx.compose.runtime.mutableStateListOf
+
+val selectedIds = mutableStateListOf<String>()
+
+fun toggleSelection(id: String) {
+    if (id in selectedIds) {
+        selectedIds.remove(id)
+    } else {
+        selectedIds.add(id)
+    }
+}
+```
+
+Связанные APIs:
+
+- `mutableStateListOf()`: создает observable список;
+- `toMutableStateList()`: превращает обычный список в state-list;
+- стандартные операции `add`, `remove`, `clear`, `set`, `removeAt` уведомляют Compose;
+- чтение размера и элементов внутри composable отслеживается.
+
+Пример UI:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun StateListDemo() {
+    val selectedNames = remember {
+        mutableStateListOf<String>()
+    }
+
+    Column {
+        listOf("Анна", "Борис", "Вера").forEach { name ->
+            val selected = name in selectedNames
+
+            Checkbox(
+                checked = selected,
+                onCheckedChange = { checked ->
+                    if (checked) {
+                        selectedNames.add(name)
+                    } else {
+                        selectedNames.remove(name)
+                    }
+                }
+            )
+
+            Text(text = "Выбрано: ${selectedNames.joinToString()}")
+        }
+    }
+}
+```
+
+## SnapshotStateMap
+
+`mutableStateMapOf` создает observable map.
+
+```kotlin
+import androidx.compose.runtime.mutableStateMapOf
+
+val quantities = mutableStateMapOf<String, Int>()
+
+fun setQuantity(productId: String, quantity: Int) {
+    if (quantity <= 0) {
+        quantities.remove(productId)
+    } else {
+        quantities[productId] = quantity
+    }
+}
+```
+
+Когда использовать:
+
+- корзина товаров по id;
+- состояние раскрытия секций;
+- кэш UI-данных по ключу;
+- быстрый доступ к состоянию элемента без поиска в списке.
+
+Когда не использовать:
+
+- как основное хранилище бизнес-данных вместо repository;
+- для огромных коллекций без архитектурного слоя;
+- если проще хранить immutable `Map` в `StateFlow`.
+
+## Snapshot-система
+
+Compose state построен поверх snapshot-системы. Упрощенно ее можно представить так:
+
+- чтения state фиксируются в текущем snapshot;
+- записи state создают новые версии значений;
+- Compose знает, какие группы composition читали какие state-объекты;
+- при записи Compose инвалидирует только зависящие от измененного state участки;
+- изменения применяются согласованно, чтобы UI не видел половину старых и половину новых данных.
+
+Внутри runtime у state-объекта есть история записей. Это позволяет snapshot-системе изолировать чтения и записи, а Compose может безопасно работать с параллельными процессами вроде recomposition и apply changes.
+
+Важно:
+
+- Compose отслеживает чтения state внутри composition;
+- чтения вне composition не создают UI-зависимость;
+- запись state из background thread возможна только с учетом snapshot-правил и архитектуры приложения;
+- обычному приложению чаще достаточно `MutableState`, `StateFlow` и ViewModel.
+
+<CatTip>
+Snapshot-система — причина, почему Compose может обновлять UI точечно. Он не сравнивает весь экран вручную. Он знает, какие state-объекты были прочитаны конкретными группами composition.
+</CatTip>
+
+## Recomposition scope
+
+Когда composable читает state, Compose связывает чтение с ближайшей restartable group. При изменении state именно эта группа становится кандидатом на повторное выполнение.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun RecompositionScopeDemo() {
+    var title by remember {
+        mutableStateOf("Профиль")
+    }
+
+    var counter by remember {
+        mutableStateOf(0)
+    }
+
+    Column {
+        Text(text = title)
+        CounterText(value = counter)
+    }
+}
+
+@Composable
+fun CounterText(value: Int) {
+    Text(text = "Счетчик: $value")
+}
+```
+
+Если меняется `counter`, Compose не обязан заново пересобирать весь экран как один монолит. Он может повторно выполнить только нужные restartable-участки. Реальная граница зависит от структуры composable, стабильности параметров и оптимизаций compiler/runtime.
+
+## Стабильность и state
+
+Compose compiler анализирует параметры composable-функций. Если параметры стабильны и не изменились, Compose может пропустить выполнение части UI.
+
+Стабильный тип — это тип, для которого Compose может предсказуемо понять, изменилось ли значение.
+
+Хорошие признаки:
+
+- immutable data class с `val`;
+- примитивы и `String`;
+- state передается явно;
+- коллекции не мутируются внутри без observable wrapper;
+- model-класс помечен `@Immutable`, если вы гарантируете неизменяемость.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ProfileHeaderUi(
+    val name: String,
+    val subtitle: String,
+    val avatarUrl: String
+)
+```
+
+`@Immutable` — это обещание разработчика. Если внутри такого класса спрятать изменяемый список и мутировать его без state, Compose может получить неверные предположения.
+
+## Production-пример: экран фильтров
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class FilterItem(
+    val id: String,
+    val title: String
+)
+
+@Immutable
+data class FilterUiState(
+    val onlyAvailable: Boolean,
+    val selectedCategoryIds: Set<String>
+)
+
+@Composable
+fun ProductFilters(
+    categories: List<FilterItem>,
+    modifier: Modifier = Modifier
+) {
+    var state by remember {
+        mutableStateOf(
+            FilterUiState(
+                onlyAvailable = false,
+                selectedCategoryIds = emptySet()
+            )
+        )
+    }
+
+    Column(modifier = modifier.padding(16.dp)) {
+        Row {
+            Checkbox(
+                checked = state.onlyAvailable,
+                onCheckedChange = { checked ->
+                    state = state.copy(
+                        onlyAvailable = checked
+                    )
+                }
+            )
+
+            Text(text = "Только товары в наличии")
+        }
+
+        categories.forEach { category ->
+            val selected = category.id in state.selectedCategoryIds
+
+            FilterChip(
+                selected = selected,
+                onClick = {
+                    val nextSelectedIds = if (selected) {
+                        state.selectedCategoryIds - category.id
+                    } else {
+                        state.selectedCategoryIds + category.id
+                    }
+
+                    state = state.copy(
+                        selectedCategoryIds = nextSelectedIds
+                    )
+                },
+                label = {
+                    Text(text = category.title)
+                }
+            )
+        }
+    }
+}
+```
+
+Почему это хороший паттерн:
+
+- UI state immutable;
+- изменения выполняются через `copy`;
+- `Set<String>` выражает выбор категорий без дубликатов;
+- composable читает один state-объект;
+- доменные id отделены от пользовательского текста.
+
+## State не должен хранить все подряд
+
+В state стоит хранить:
+
+- выбранные элементы;
+- введенный текст;
+- состояние раскрытия;
+- текущую страницу;
+- флаги загрузки;
+- данные, пришедшие из ViewModel;
+- UI-модель, готовую для отображения.
+
+В state не стоит хранить:
+
+- `Context` Activity;
+- тяжелые bitmap без жизненного цикла;
+- ссылки на View;
+- coroutine scope, если он не создан специальным API;
+- временные вычисления, которые можно получить из других state;
+- бизнес-объекты с неочевидной мутацией.
+
+## Типичные ошибки
+
+### Создавать mutableStateOf без remember внутри composable
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+
+@Composable
+fun WrongCounter() {
+    val count = mutableStateOf(0)
+}
+```
+
+При каждой recomposition создается новый state-объект. Значение будет сбрасываться.
+
+### Мутировать объект внутри state
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+
+data class Draft(
+    var title: String
+)
+
+val draftState = mutableStateOf(Draft(title = "Черновик"))
+
+fun changeTitleWrong() {
+    draftState.value.title = "Новый заголовок"
+}
+```
+
+Compose не видит запись нового `draftState.value`. Лучше сделать `Draft` immutable и записывать новый экземпляр.
+
+### Передавать MutableState глубоко вниз
+
+Если дочерний компонент получает `MutableState`, он получает слишком много власти. Обычно лучше передать `value` и callback.
+
+```kotlin
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.Composable
+
+@Composable
+fun AvailabilitySwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange
+    )
+}
+```
+
+### Считать recomposition ошибкой
+
+Recomposition — нормальная часть работы Compose. Проблема не в самом повторном выполнении, а в тяжелой работе внутри composable, нестабильных параметрах и лишних чтениях state.
+
+## Итоги
+
+State — центральная идея Compose:
+
+- UI является функцией от состояния;
+- `State<T>` дает read-only доступ;
+- `MutableState<T>` позволяет менять `value`;
+- `mutableStateOf` создает observable state;
+- mutation policies определяют, когда запись считается изменением;
+- обычные mutable collections не уведомляют Compose о внутренних изменениях;
+- `mutableStateListOf` и `mutableStateMapOf` подходят для observable коллекций;
+- snapshot-система отслеживает чтения и записи;
+- стабильные immutable модели помогают Compose пропускать лишнюю работу;
+- state лучше обновлять явно, предсказуемо и через новые immutable значения.

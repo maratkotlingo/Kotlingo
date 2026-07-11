@@ -1,0 +1,428 @@
+---
+title: "Preview-driven development"
+description: "Разбираем preview-driven development в Jetpack Compose: @Preview, multipreview, preview parameters, fake data, fixtures, state matrices, interactive previews, limitations, screenshot связь и production-паттерны разработки через состояния."
+order: 115
+category: "Compose: Testing and quality"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое preview-driven development
+
+Preview-driven development — это привычка проектировать Compose UI через набор явных состояний, которые можно быстро увидеть в Android Studio без запуска полного приложения. В Compose это особенно естественно: composable получает state и callbacks, значит его можно показать в preview с fake data.
+
+Previews помогают:
+
+- быстро видеть layout;
+- проверять empty/loading/error/content states;
+- ловить long text;
+- проверять dark theme;
+- проверять adaptive widths;
+- проверять font scale;
+- документировать component states;
+- создавать fixtures для screenshot tests;
+- уменьшать зависимость UI разработки от backend и navigation.
+
+```kotlin
+data class LessonCardState(
+    val title: String,
+    val description: String,
+    val progressText: String,
+    val completed: Boolean
+)
+```
+
+Если component можно показать в preview без ViewModel, сети и базы данных, он обычно хорошо спроектирован.
+
+<CatTip>
+Preview — это не просто картинка в IDE. Это тест на архитектуру: может ли ваш UI существовать как функция состояния?
+</CatTip>
+
+## Базовый `@Preview`
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+
+@Preview(
+    name = "Lesson card",
+    widthDp = 360,
+    showBackground = true
+)
+@Composable
+fun LessonCardPreview() {
+    AppTheme {
+        LessonCard(
+            state = LessonCardState(
+                title = "Compose UI testing basics",
+                description = "Проверяем semantics, actions и assertions",
+                progressText = "109 из 120",
+                completed = false
+            ),
+            onClick = {}
+        )
+    }
+}
+```
+
+Preview должен использовать тот же theme wrapper, что и production UI. Иначе вы смотрите на компонент в другой визуальной системе.
+
+## Preview content wrapper
+
+Чтобы не повторять theme, создайте preview wrapper:
+
+```kotlin
+@Composable
+fun PreviewSurface(
+    darkTheme: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    AppTheme(darkTheme = darkTheme) {
+        Surface {
+            content()
+        }
+    }
+}
+```
+
+Использование:
+
+```kotlin
+@Preview(showBackground = true)
+@Composable
+fun LessonCardDarkPreview() {
+    PreviewSurface(darkTheme = true) {
+        LessonCard(
+            state = LessonCardFixtures.default,
+            onClick = {}
+        )
+    }
+}
+```
+
+Wrapper держит previews близкими к реальному экрану и уменьшает копипасту.
+
+## Fixtures
+
+Fixture — это стабильный набор fake data для previews, screenshot tests и UI tests.
+
+```kotlin
+object LessonCardFixtures {
+
+    val default = LessonCardState(
+        title = "State in Compose",
+        description = "Разбираем mutableStateOf, snapshots и recomposition",
+        progressText = "28 из 120",
+        completed = false
+    )
+
+    val completed = LessonCardState(
+        title = "Accessibility semantics",
+        description = "Roles, state descriptions и custom actions",
+        progressText = "84 из 120",
+        completed = true
+    )
+
+    val longText = LessonCardState(
+        title = "Очень длинное название темы, которое должно переноситься на несколько строк",
+        description = "Описание тоже может быть длинным, особенно в переводах и на маленьких экранах",
+        progressText = "115 из 120",
+        completed = false
+    )
+}
+```
+
+Fixtures лучше держать рядом с feature или design-system компонентом. Они становятся общей библиотекой состояний для команды.
+
+## Multipreview
+
+Multipreview annotation позволяет показать один component в нескольких конфигурациях.
+
+```kotlin
+@Preview(
+    name = "phone",
+    widthDp = 360,
+    heightDp = 720
+)
+@Preview(
+    name = "tablet",
+    widthDp = 900,
+    heightDp = 720
+)
+@Preview(
+    name = "dark",
+    widthDp = 360,
+    heightDp = 720,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
+)
+annotation class ScreenPreviewMatrix
+```
+
+Использование:
+
+```kotlin
+@ScreenPreviewMatrix
+@Composable
+fun LessonDetailsScreenPreview() {
+    PreviewSurface {
+        LessonDetailsScreen(
+            state = LessonDetailsFixtures.content,
+            onBack = {},
+            onComplete = {}
+        )
+    }
+}
+```
+
+Multipreview особенно полезен для screen-level UI и adaptive states.
+
+## Preview parameters
+
+`PreviewParameterProvider` удобен для набора состояний.
+
+```kotlin
+import androidx.compose.ui.tooling.preview.PreviewParameter
+import androidx.compose.ui.tooling.preview.PreviewParameterProvider
+
+class LessonCardStateProvider :
+    PreviewParameterProvider<LessonCardState> {
+
+    override val values: Sequence<LessonCardState> = sequenceOf(
+        LessonCardFixtures.default,
+        LessonCardFixtures.completed,
+        LessonCardFixtures.longText
+    )
+}
+```
+
+Preview:
+
+```kotlin
+@Preview(showBackground = true)
+@Composable
+fun LessonCardStatesPreview(
+    @PreviewParameter(LessonCardStateProvider::class)
+    state: LessonCardState
+) {
+    PreviewSurface {
+        LessonCard(
+            state = state,
+            onClick = {}
+        )
+    }
+}
+```
+
+Provider должен быть быстрым и deterministic. Не создавайте там network clients, databases, random values или текущую дату.
+
+<MouseTrap>
+Если preview data случайная, вы не сможете понять: UI изменился из-за кода или из-за нового fake state.
+</MouseTrap>
+
+## State matrix
+
+Для screen лучше иметь явную matrix:
+
+```kotlin
+sealed interface LessonDetailsPreviewCase {
+    val name: String
+    val state: LessonDetailsState
+
+    data object Loading : LessonDetailsPreviewCase {
+        override val name = "loading"
+        override val state = LessonDetailsState.loading()
+    }
+
+    data object Error : LessonDetailsPreviewCase {
+        override val name = "error"
+        override val state = LessonDetailsState.error(
+            message = "Не удалось загрузить урок"
+        )
+    }
+
+    data object Content : LessonDetailsPreviewCase {
+        override val name = "content"
+        override val state = LessonDetailsFixtures.content
+    }
+}
+```
+
+Такая matrix помогает не забывать неосновные состояния. Loading и error не должны быть визуальными сиротами.
+
+## Interactive previews
+
+Interactive preview может помочь проверить simple state transitions.
+
+```kotlin
+@Preview(showBackground = true)
+@Composable
+fun ExpandableCardInteractivePreview() {
+    PreviewSurface {
+        var expanded by remember {
+            mutableStateOf(false)
+        }
+
+        ExpandableLessonCard(
+            state = LessonCardFixtures.default,
+            expanded = expanded,
+            onToggle = {
+                expanded = !expanded
+            }
+        )
+    }
+}
+```
+
+Interactive preview не заменяет UI test. Он помогает быстро почувствовать behavior во время разработки.
+
+## Preview and ViewModel boundary
+
+Плохо:
+
+```kotlin
+@Preview
+@Composable
+fun BadPreview() {
+    val viewModel: LessonViewModel = viewModel()
+
+    LessonRoute(viewModel = viewModel)
+}
+```
+
+Preview не должен создавать production ViewModel. Лучше разделять route и screen:
+
+```kotlin
+@Composable
+fun LessonRoute(
+    viewModel: LessonViewModel
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    LessonScreen(
+        state = state,
+        onRetry = viewModel::retry,
+        onComplete = viewModel::complete
+    )
+}
+```
+
+Preview:
+
+```kotlin
+@Preview
+@Composable
+fun LessonScreenPreview() {
+    PreviewSurface {
+        LessonScreen(
+            state = LessonDetailsFixtures.content,
+            onRetry = {},
+            onComplete = {}
+        )
+    }
+}
+```
+
+Route занимается integration, screen занимается UI.
+
+## Preview limitations
+
+Previews не подходят для всего:
+
+- real navigation;
+- Activity results;
+- permissions;
+- camera/maps/video;
+- complex platform services;
+- real lifecycle edge cases;
+- performance measurement;
+- screenshot baselines сами по себе;
+- accessibility manual review.
+
+Если preview не может показать компонент из-за platform dependency, это повод вынести dependency за boundary.
+
+## Preview and screenshot tests
+
+Fixture content можно переиспользовать:
+
+```kotlin
+@Composable
+fun LessonCardVisualFixture(
+    state: LessonCardState = LessonCardFixtures.default,
+    darkTheme: Boolean = false
+) {
+    PreviewSurface(darkTheme = darkTheme) {
+        LessonCard(
+            state = state,
+            onClick = {}
+        )
+    }
+}
+```
+
+Preview:
+
+```kotlin
+@Preview(showBackground = true)
+@Composable
+fun LessonCardVisualPreview() {
+    LessonCardVisualFixture()
+}
+```
+
+Screenshot test может использовать тот же `LessonCardVisualFixture`. Это уменьшает расхождение между тем, что видит разработчик, и тем, что проверяет CI.
+
+## Team workflow
+
+Полезные правила:
+
+- каждый новый reusable component имеет preview;
+- каждый screen имеет loading/error/content previews;
+- long text fixture обязателен для карточек и list items;
+- adaptive screen имеет compact/expanded preview;
+- preview data живет рядом с feature;
+- preview wrapper использует production theme;
+- previews не ходят в сеть и не создают ViewModel;
+- screenshot tests используют те же fixtures.
+
+## Типичные ошибки
+
+### Preview без темы
+
+Компонент выглядит иначе, чем в приложении.
+
+### Только happy path
+
+Error/loading/empty states ломаются незаметно.
+
+### Random fake data
+
+Preview перестает быть воспроизводимым.
+
+### ViewModel в preview
+
+Preview становится медленным, хрупким и зависимым от DI.
+
+### Нет long text
+
+Переводы и accessibility font scale ломают layout уже после релиза.
+
+### Preview как замена тестам
+
+Preview помогает видеть, но не защищает автоматически от regression.
+
+## Итоги
+
+Preview-driven development делает Compose UI управляемым:
+
+- preview проверяет, что UI является функцией state;
+- theme wrapper обязателен;
+- fixtures дают стабильные состояния;
+- multipreview покрывает размеры, темы и конфигурации;
+- preview parameters показывают state matrix;
+- route и screen нужно разделять;
+- preview не должен зависеть от ViewModel, network или database;
+- interactive preview полезен для разработки, но не заменяет tests;
+- fixtures можно переиспользовать в screenshot tests;
+- preview workflow помогает команде видеть edge states до запуска приложения.

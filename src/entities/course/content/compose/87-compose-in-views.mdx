@@ -1,0 +1,579 @@
+---
+title: "Compose in Views"
+description: "Разбираем Compose внутри существующей View-системы: ComposeView, setContent, ViewCompositionStrategy, Fragment view lifecycle, ViewTree owners, saved state, RecyclerView pitfalls, theming, state ownership и testing mixed screens."
+order: 87
+category: "Compose: Interoperability and migration"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем вставлять Compose в Views
+
+Миграция большого Android-приложения редко выглядит как "переписали весь UI за один релиз". Обычно Compose появляется внутри существующего View-based экрана:
+
+- новый виджет в старом XML layout;
+- card в `RecyclerView`;
+- bottom sheet внутри Fragment;
+- новый empty state;
+- experimental feature в одном блоке;
+- переиспользуемый Compose component в нескольких legacy screens.
+
+`ComposeView` позволяет разместить Compose subtree внутри обычной View hierarchy. Это bridge между двумя мирами: Android View lifecycle, XML, Fragment, RecyclerView, ViewModel и Compose runtime.
+
+```kotlin
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.platform.ComposeView
+
+class LegacyHostActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val composeView = ComposeView(this).apply {
+            setContent {
+                MaterialTheme {
+                    Text(text = "Compose внутри View hierarchy")
+                }
+            }
+        }
+
+        setContentView(composeView)
+    }
+}
+```
+
+Для полноценного Compose-first приложения лучше использовать `setContent` activity напрямую. `ComposeView` нужен именно для interop и постепенной миграции.
+
+<CatTip>
+`ComposeView` — это не "маленькая Activity внутри View". Это View-контейнер, который держит Composition и обязан корректно завершить ее вместе с нужным lifecycle.
+</CatTip>
+
+## `ComposeView` в XML
+
+Самый простой migration path — добавить `ComposeView` в XML layout и затем вызвать `setContent`.
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/legacy_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/profile" />
+
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/compose_profile_summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+</LinearLayout>
+```
+
+В Fragment:
+
+```kotlin
+import android.os.Bundle
+import android.view.View
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.fragment.app.Fragment
+
+class ProfileFragment : Fragment(R.layout.profile_fragment) {
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        val summary = view.findViewById<ComposeView>(
+            R.id.compose_profile_summary
+        )
+
+        summary.setViewCompositionStrategy(
+            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+        )
+        summary.setContent {
+            MaterialTheme {
+                Text(text = "Сводка профиля на Compose")
+            }
+        }
+    }
+}
+```
+
+В Fragment важно привязать Composition к lifecycle View, а не к lifecycle самого Fragment. `onDestroyView` может случиться раньше `onDestroy`, и старая View hierarchy должна отпустить Composition.
+
+## `ViewCompositionStrategy`
+
+`ViewCompositionStrategy` определяет, когда Composition должна быть уничтожена.
+
+На практике встречаются такие варианты:
+
+- `DisposeOnDetachedFromWindowOrReleasedFromPool`: default strategy, подходит для обычного View и pooling containers;
+- `DisposeOnViewTreeLifecycleDestroyed`: хороший выбор для Fragment view;
+- `DisposeOnLifecycleDestroyed`: когда lifecycle известен явно;
+- `DisposeOnDetachedFromWindow`: старый вариант, обычно заменяется default strategy.
+
+```kotlin
+composeView.setViewCompositionStrategy(
+    ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+)
+```
+
+Если выбрать неправильную стратегию, вы получите один из двух классов проблем:
+
+- Composition уничтожается слишком рано, и пользователь теряет state;
+- Composition живет слишком долго, и screen держит ссылки на старые Views, Context или callbacks.
+
+<MouseTrap>
+Самая частая ошибка во Fragment — привязать Compose к lifecycle Fragment, хотя View уже уничтожена. Для XML screen внутри Fragment почти всегда думайте про view lifecycle.
+</MouseTrap>
+
+## ViewTree owners
+
+Compose внутри View hierarchy использует owner-ы из дерева:
+
+- `ViewTreeLifecycleOwner`;
+- `ViewTreeViewModelStoreOwner`;
+- `ViewTreeSavedStateRegistryOwner`;
+- `ViewTreeOnBackPressedDispatcherOwner` через activity/fragment integration.
+
+Обычно Fragment/Activity настраивают их автоматически. Проблемы появляются в custom host containers, dialog wrappers, manually inflated views и тестовых harness.
+
+Если `ComposeView` не видит owner-ов, могут ломаться:
+
+- `viewModel()`;
+- `rememberSaveable`;
+- lifecycle-aware collection;
+- saved state;
+- back handling;
+- testing assumptions.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun ProfileComposeEntry(
+    viewModel: ProfileViewModel
+) {
+    val state = viewModel.state.collectAsStateWithLifecycle()
+
+    ProfileSummary(
+        state = state.value,
+        onRetry = viewModel::retry
+    )
+}
+```
+
+Лучше передавать `ViewModel` из Fragment явно, если экран еще живет в View architecture. Это уменьшает магию и делает границу миграции заметной.
+
+## State ownership
+
+Не надо превращать `ComposeView` в место, где внезапно заводится новый источник истины. Если старый экран уже имеет ViewModel, presenter или state holder, Compose subtree должен получать state и отдавать events.
+
+```kotlin
+class ProfileFragment : Fragment(R.layout.profile_fragment) {
+
+    private val viewModel: ProfileViewModel by viewModels()
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        val summary = view.findViewById<ComposeView>(
+            R.id.compose_profile_summary
+        )
+
+        summary.setViewCompositionStrategy(
+            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+        )
+        summary.setContent {
+            ProfileTheme {
+                ProfileComposeEntry(
+                    viewModel = viewModel
+                )
+            }
+        }
+    }
+}
+```
+
+Composable entry:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun ProfileComposeEntry(
+    viewModel: ProfileViewModel
+) {
+    val state = viewModel.state.collectAsStateWithLifecycle()
+
+    ProfileSummary(
+        state = state.value,
+        onEditClick = viewModel::openEditor,
+        onLogoutClick = viewModel::logout
+    )
+}
+```
+
+`ProfileSummary` остается pure UI:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+data class ProfileSummaryState(
+    val name: String,
+    val email: String,
+    val loading: Boolean
+)
+
+@Composable
+fun ProfileSummary(
+    state: ProfileSummaryState,
+    onEditClick: () -> Unit,
+    onLogoutClick: () -> Unit
+) {
+    Column {
+        Text(text = state.name)
+        Text(text = state.email)
+
+        Button(
+            enabled = !state.loading,
+            onClick = onEditClick
+        ) {
+            Text(text = "Редактировать")
+        }
+
+        Button(
+            enabled = !state.loading,
+            onClick = onLogoutClick
+        ) {
+            Text(text = "Выйти")
+        }
+    }
+}
+```
+
+Такой component потом легко вынести в Compose-first экран.
+
+## Theme bridge
+
+View screen может жить в XML theme, а Compose subtree должен получить Compose theme. Не оставляйте Material components без темы.
+
+```kotlin
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LegacyProfileComposeTheme(
+    darkTheme: Boolean,
+    content: @Composable () -> Unit
+) {
+    val colors = if (darkTheme) {
+        darkColorScheme()
+    } else {
+        lightColorScheme()
+    }
+
+    MaterialTheme(
+        colorScheme = colors,
+        content = content
+    )
+}
+```
+
+Если у приложения уже есть дизайн-система, лучше создать Compose theme adapter, который читает те же design tokens, что и View layer. Иначе во время миграции экран будет выглядеть как два разных продукта.
+
+## Передача событий в View layer
+
+Compose component не должен напрямую дергать `findNavController()`, `requireActivity()` или legacy binding, если его можно оставить независимым.
+
+```kotlin
+@Composable
+fun PaywallBanner(
+    title: String,
+    onSubscribeClick: () -> Unit,
+    onDismissClick: () -> Unit
+) {
+    // Интерфейс вызывает события, но не знает, кто является хостом.
+}
+```
+
+Fragment связывает события с legacy navigation:
+
+```kotlin
+composeView.setContent {
+    LegacyProfileComposeTheme(darkTheme = false) {
+        PaywallBanner(
+            title = "Подписка открывает архив",
+            onSubscribeClick = {
+                findNavController().navigate(
+                    R.id.action_profile_to_paywall
+                )
+            },
+            onDismissClick = viewModel::dismissPaywall
+        )
+    }
+}
+```
+
+Это важная привычка миграции: Compose component должен пережить переезд в новую архитектуру.
+
+## `ComposeView` в RecyclerView
+
+`ComposeView` можно использовать внутри `RecyclerView.ViewHolder`, но здесь легко получить jank, потерю state или неправильный reuse.
+
+```kotlin
+import android.view.ViewGroup
+import androidx.compose.ui.platform.ComposeView
+import androidx.recyclerview.widget.RecyclerView
+
+class ComposeArticleViewHolder(
+    private val composeView: ComposeView
+) : RecyclerView.ViewHolder(composeView) {
+
+    fun bind(
+        item: ArticleListItem,
+        onClick: (ArticleListItem) -> Unit
+    ) {
+        composeView.setContent {
+            ArticleRow(
+                item = item,
+                onClick = {
+                    onClick(item)
+                }
+            )
+        }
+    }
+}
+
+class ArticleAdapter(
+    private val onClick: (ArticleListItem) -> Unit
+) : RecyclerView.Adapter<ComposeArticleViewHolder>() {
+
+    private val items = mutableListOf<ArticleListItem>()
+
+    override fun onCreateViewHolder(
+        parent: ViewGroup,
+        viewType: Int
+    ): ComposeArticleViewHolder {
+        return ComposeArticleViewHolder(
+            ComposeView(parent.context)
+        )
+    }
+
+    override fun onBindViewHolder(
+        holder: ComposeArticleViewHolder,
+        position: Int
+    ) {
+        holder.bind(
+            item = items[position],
+            onClick = onClick
+        )
+    }
+
+    override fun getItemCount(): Int = items.size
+}
+```
+
+В item UI не храните важный state через `remember`, если этот state должен пережить recycle/rebind. State должен быть в item model, ViewModel или adapter state.
+
+```kotlin
+data class ArticleListItem(
+    val id: String,
+    val title: String,
+    val selected: Boolean
+)
+```
+
+Правильный row:
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ArticleRow(
+    item: ArticleListItem,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Checkbox(
+            checked = item.selected,
+            onCheckedChange = null
+        )
+        Text(text = item.title)
+    }
+}
+```
+
+<MouseTrap>
+`remember { mutableStateOf(...) }` внутри row в `RecyclerView` почти всегда подозрителен. Когда ViewHolder переиспользуется, локальное состояние может начать описывать старый item.
+</MouseTrap>
+
+## RecyclerView pitfalls
+
+Проверьте эти пункты до релиза:
+
+- adapter имеет stable IDs, если это важно для item identity;
+- `DiffUtil` сравнивает state, который влияет на UI;
+- click callbacks не захватывают старый `position`;
+- `setContent` получает актуальный item;
+- expensive objects remembered внутри Composition, а не создаются при каждом recomposition;
+- nested scroll между RecyclerView и Compose component не конфликтует;
+- accessibility order понятен;
+- `ComposeView` не держит старый Fragment view после `onDestroyView`.
+
+Если значительная часть списка уже на Compose, лучше рассмотреть миграцию всего списка на `LazyColumn`, а не бесконечно смешивать две модели recycling.
+
+## Saved state
+
+`rememberSaveable` внутри `ComposeView` работает только при корректных saved state owner и уникальных IDs View. Если в XML несколько `ComposeView`, задавайте стабильные `android:id`.
+
+```xml
+<androidx.compose.ui.platform.ComposeView
+    android:id="@+id/compose_filter_panel"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content" />
+
+<androidx.compose.ui.platform.ComposeView
+    android:id="@+id/compose_footer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content" />
+```
+
+Если создать несколько `ComposeView` программно без ID, saved state может стать непредсказуемым.
+
+```kotlin
+import android.view.View
+import androidx.compose.ui.platform.ComposeView
+
+fun createFilterComposeView(parent: ViewGroup): ComposeView {
+    return ComposeView(parent.context).apply {
+        id = View.generateViewId()
+        setViewCompositionStrategy(
+            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+        )
+    }
+}
+```
+
+Для state, который влияет на business behavior, все равно лучше использовать ViewModel, а не надеяться только на `rememberSaveable`.
+
+## Performance
+
+Interop не бесплатен. `ComposeView` создает Composition, участвует в measure/layout, синхронизируется с View hierarchy и может попасть в старые performance antipatterns.
+
+Что держать под контролем:
+
+- не создавайте сотни сложных `ComposeView`, если можно мигрировать список целиком;
+- не пересоздавайте тяжелые painter/formatter без `remember`;
+- не передавайте нестабильные mutable models;
+- не держите большие bitmap внутри item Composition;
+- профилируйте release build;
+- сравнивайте jank до и после миграции;
+- проверяйте first draw и scroll.
+
+## Testing mixed screens
+
+Экран с Views и Compose можно тестировать на двух уровнях:
+
+- View assertions для legacy widgets;
+- Compose semantics для Compose subtree;
+- end-to-end тесты для общего user flow.
+
+```kotlin
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class ProfileInteropTest {
+
+    @get:Rule
+    val composeRule = createAndroidComposeRule<ProfileActivity>()
+
+    @Test
+    fun composeSummary_opensEditor() {
+        composeRule
+            .onNodeWithText("Редактировать")
+            .performClick()
+
+        composeRule
+            .onNodeWithText("Редактирование профиля")
+            .assertExists()
+    }
+}
+```
+
+Если тесты не видят Compose nodes, проверьте, что `ComposeView` действительно вызвал `setContent`, экран находится в resumed state, а текст не скрыт условным state.
+
+## Типичные ошибки
+
+### Не задавать `ViewCompositionStrategy` во Fragment
+
+Composition может пережить View hierarchy и держать старые ссылки.
+
+### Создавать state внутри `ComposeView`, который должен жить выше
+
+После миграции state будет трудно перенести и тестировать.
+
+### Использовать `ComposeView` как вечный adapter item
+
+Если весь список уже Compose-like, `LazyColumn` может быть проще и быстрее.
+
+### Не давать `ComposeView` стабильный ID
+
+`rememberSaveable` и saved state могут работать неожиданно.
+
+### Делать Compose component зависимым от Fragment
+
+Такой component сложно переиспользовать в Compose-first navigation.
+
+### Забывать theme bridge
+
+Material components без общей темы выглядят чужеродно внутри legacy screen.
+
+## Итоги
+
+Compose in Views — ключевой инструмент постепенной миграции:
+
+- `ComposeView` вставляет Compose subtree в View hierarchy;
+- в XML каждому `ComposeView` нужен стабильный ID;
+- во Fragment обычно используйте `DisposeOnViewTreeLifecycleDestroyed`;
+- ViewTree owners нужны для lifecycle, saved state и ViewModel;
+- state лучше hoist-ить в существующий ViewModel/state holder;
+- Compose component должен принимать state и callbacks, а не знать legacy host;
+- в `RecyclerView` опасайтесь локального `remember` state и старых positions;
+- theme bridge нужен для визуальной целостности;
+- mixed screen тестируется через Compose semantics и legacy View tooling;
+- interop должен быть временным мостом, а не местом для бесконечного усложнения.

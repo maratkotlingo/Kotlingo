@@ -1,0 +1,602 @@
+---
+title: "snapshotFlow"
+description: "Разбираем snapshotFlow в Jetpack Compose: преобразование snapshot reads в cold Flow, distinctUntilChanged-поведение, аналитика скролла, debounce, cancellation, backpressure и отличие от derivedStateOf."
+order: 44
+category: "Compose: Side Effects, coroutines и CompositionLocal"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что делает snapshotFlow
+
+`snapshotFlow` превращает чтение Compose snapshot state в cold `Flow`.
+
+Он нужен, когда:
+
+- есть Compose state;
+- нужно применить Flow operators;
+- результат нужен для side effect, а не только для UI;
+- нужно собрать stream изменений внутри coroutine;
+- нужно отправить аналитику, debounce, filter или combine с другими flows.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+
+interface FeedAnalytics {
+    fun trackScrolledPastFirstItem()
+}
+
+@Composable
+fun TrackFeedScroll(
+    listState: LazyListState,
+    analytics: FeedAnalytics
+) {
+    LaunchedEffect(listState, analytics) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex
+        }
+            .map { index ->
+                index > 0
+            }
+            .distinctUntilChanged()
+            .filter { pastFirstItem ->
+                pastFirstItem
+            }
+            .collect {
+                analytics.trackScrolledPastFirstItem()
+            }
+    }
+}
+```
+
+`snapshotFlow` читает `listState.firstVisibleItemIndex`. Когда это значение меняется, Flow может emit новое значение.
+
+<CatTip>
+Если UI должен просто показать boolean, часто нужен `derivedStateOf`. Если side effect должен обработать stream изменений через Flow operators, нужен `snapshotFlow`.
+</CatTip>
+
+## Cold Flow
+
+`snapshotFlow` создает cold Flow. Блок внутри `snapshotFlow` начинает выполняться только при collection.
+
+```kotlin
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.Flow
+
+fun createCounterFlow(
+    readCounter: () -> Int
+): Flow<Int> {
+    return snapshotFlow {
+        readCounter()
+    }
+}
+```
+
+Пока Flow не собирают через `collect`, блок не работает.
+
+В Compose collection обычно запускается внутри `LaunchedEffect`:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.Flow
+
+@Composable
+fun CollectCounterFlow(
+    flow: Flow<Int>,
+    onCounterChanged: (Int) -> Unit
+) {
+    LaunchedEffect(flow) {
+        flow.collect { counter ->
+            onCounterChanged(counter)
+        }
+    }
+}
+```
+
+## Что можно читать внутри блока
+
+Внутри `snapshotFlow` нужно читать Compose snapshot state:
+
+- `mutableStateOf`;
+- `derivedStateOf`;
+- `LazyListState` snapshot-backed properties;
+- `PagerState` snapshot-backed properties;
+- `SnapshotStateList`;
+- `SnapshotStateMap`;
+- другие state holders на Compose snapshot state.
+
+```kotlin
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+
+class SearchState {
+    var query by mutableStateOf("")
+        private set
+
+    fun updateQuery(nextQuery: String) {
+        query = nextQuery
+    }
+
+    fun queryChanges() = snapshotFlow {
+        query
+    }
+}
+```
+
+Если внутри блока не читается snapshot state, Flow не сможет автоматически реагировать на Compose state changes.
+
+## Equal values и emission
+
+`snapshotFlow` emit-ит новое значение, если результат блока изменился относительно предыдущего emitted value.
+
+```kotlin
+import androidx.compose.foundation.ScrollState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
+
+@Composable
+fun TrackScrollBucket(
+    scrollState: ScrollState,
+    onBucketChanged: (Int) -> Unit
+) {
+    LaunchedEffect(scrollState) {
+        snapshotFlow {
+            scrollState.value / 500
+        }.collectLatest { bucket ->
+            onBucketChanged(bucket)
+        }
+    }
+}
+```
+
+`scrollState.value` может меняться на каждый пиксель, но bucket меняется только каждые 500 пикселей. Одинаковый результат не создает новый meaningful emission.
+
+## Scroll analytics
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+
+interface ArticleListAnalytics {
+    fun firstPageLeft()
+    fun reachedItem(index: Int)
+}
+
+@Composable
+fun ArticleListAnalyticsEffect(
+    listState: LazyListState,
+    analytics: ArticleListAnalytics
+) {
+    LaunchedEffect(listState, analytics) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex
+        }
+            .distinctUntilChanged()
+            .collect { index ->
+                analytics.reachedItem(index)
+            }
+    }
+
+    LaunchedEffect(listState, analytics) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex
+        }
+            .map { index ->
+                index > 0
+            }
+            .distinctUntilChanged()
+            .filter { leftFirstPage ->
+                leftFirstPage
+            }
+            .collect {
+                analytics.firstPageLeft()
+            }
+    }
+}
+```
+
+Здесь два эффекта разделены намеренно:
+
+- первый отправляет событие по каждому новому индексу;
+- второй отправляет событие только при переходе за первый элемент;
+- каждый Flow имеет свою семантику.
+
+## Debounce поискового запроса
+
+Если query хранится в Compose state, а поиск должен запускаться с debounce, `snapshotFlow` может быть удобен.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+
+@Composable
+fun DebouncedSearchField(
+    onSearch: (String) -> Unit
+) {
+    var query by remember {
+        mutableStateOf("")
+    }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            query.trim()
+        }
+            .debounce(350)
+            .distinctUntilChanged()
+            .filter { trimmedQuery ->
+                trimmedQuery.length >= 2
+            }
+            .collect { trimmedQuery ->
+                onSearch(trimmedQuery)
+            }
+    }
+
+    Column {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { nextQuery ->
+                query = nextQuery
+            },
+            label = {
+                Text(text = "Поиск")
+            }
+        )
+
+        Text(text = "Введите минимум 2 символа")
+    }
+}
+```
+
+Для screen-level поиска чаще лучше хранить query во ViewModel и использовать Flow там. Этот пример полезен для локального UI-only поиска.
+
+<MouseTrap>
+Не переносите бизнес-поиск в composable только потому, что `snapshotFlow` умеет debounce. Если поиск влияет на экран, cache, pagination или repository, логика обычно принадлежит ViewModel.
+</MouseTrap>
+
+## snapshotFlow и SnapshotStateList
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+
+interface SelectionAnalytics {
+    fun selectedCountChanged(count: Int)
+}
+
+@Composable
+fun SelectionCountAnalytics(
+    analytics: SelectionAnalytics
+) {
+    val selectedIds = remember {
+        mutableStateListOf<String>()
+    }
+
+    LaunchedEffect(selectedIds, analytics) {
+        snapshotFlow {
+            selectedIds.size
+        }
+            .distinctUntilChanged()
+            .collect { count ->
+                analytics.selectedCountChanged(count)
+            }
+    }
+}
+```
+
+Чтение `selectedIds.size` внутри snapshotFlow создает зависимость от размера snapshot collection.
+
+## snapshotFlow против derivedStateOf
+
+`derivedStateOf`:
+
+- возвращает Compose `State<T>`;
+- используется UI для чтения derived value;
+- помогает ограничить recomposition;
+- остается внутри Compose state model.
+
+`snapshotFlow`:
+
+- возвращает `Flow<T>`;
+- собирается в coroutine;
+- применяет Flow operators;
+- подходит для side effects;
+- удобен для analytics, debounce, throttle, filter, combine.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+
+@Composable
+fun rememberShowScrollToTop(
+    listState: LazyListState
+): Boolean {
+    val showButton by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0
+        }
+    }
+
+    return showButton
+}
+```
+
+Это UI-derived state. Для аналитики по тому же условию:
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+
+@Composable
+fun TrackScrollToTopVisibility(
+    listState: LazyListState,
+    onBecameVisible: () -> Unit
+) {
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex
+        }
+            .map { index ->
+                index > 0
+            }
+            .distinctUntilChanged()
+            .filter { visible ->
+                visible
+            }
+            .collect {
+                onBecameVisible()
+            }
+    }
+}
+```
+
+## Backpressure и collectLatest
+
+Если обработка emission может занимать время, используйте Flow operators осознанно.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+
+@Composable
+fun PreviewQueryWorker(
+    onBuildPreview: suspend (String) -> Unit
+) {
+    var query by remember {
+        mutableStateOf("")
+    }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            query
+        }
+            .debounce(300)
+            .collectLatest { latestQuery ->
+                delay(100)
+                onBuildPreview(latestQuery)
+            }
+    }
+}
+```
+
+`collectLatest` отменяет обработку предыдущего значения, если пришло новое.
+
+## Важное ограничение: не писать state внутри блока
+
+Блок `snapshotFlow` должен читать snapshot state и возвращать значение. Не используйте его для записи.
+
+Плохо:
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
+
+val counter = mutableStateOf(0)
+
+fun wrongFlow() = snapshotFlow {
+    counter.value = counter.value + 1
+    counter.value
+}
+```
+
+Почему плохо:
+
+- блок должен быть read-oriented;
+- запись во время snapshot read может привести к конфликтам и ошибкам;
+- логика становится непредсказуемой;
+- side effects должны быть в collector, а не внутри snapshot block.
+
+Правильно:
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.Flow
+
+val safeCounter = mutableStateOf(0)
+
+fun counterFlow(): Flow<Int> {
+    return snapshotFlow {
+        safeCounter.value
+    }
+}
+```
+
+## Production-пример: аналитика чтения статьи
+
+```kotlin
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+
+interface ReadingAnalytics {
+    fun reachedHalf(articleId: String)
+    fun reachedEnd(articleId: String)
+}
+
+@Composable
+fun ArticleReader(
+    articleId: String,
+    paragraphs: List<String>,
+    analytics: ReadingAnalytics
+) {
+    val scrollState = rememberScrollState()
+
+    ReadingProgressAnalytics(
+        articleId = articleId,
+        scrollState = scrollState,
+        analytics = analytics
+    )
+
+    Column(
+        modifier = Modifier.verticalScroll(scrollState)
+    ) {
+        paragraphs.forEach { paragraph ->
+            Text(text = paragraph)
+        }
+    }
+}
+
+@Composable
+fun ReadingProgressAnalytics(
+    articleId: String,
+    scrollState: ScrollState,
+    analytics: ReadingAnalytics
+) {
+    LaunchedEffect(articleId, scrollState, analytics) {
+        snapshotFlow {
+            val maxValue = scrollState.maxValue.coerceAtLeast(1)
+            scrollState.value.toFloat() / maxValue.toFloat()
+        }
+            .map { progress ->
+                progress >= 0.5f
+            }
+            .distinctUntilChanged()
+            .filter { reachedHalf ->
+                reachedHalf
+            }
+            .collect {
+                analytics.reachedHalf(articleId)
+            }
+    }
+
+    LaunchedEffect(articleId, scrollState, analytics) {
+        snapshotFlow {
+            val maxValue = scrollState.maxValue.coerceAtLeast(1)
+            scrollState.value.toFloat() / maxValue.toFloat()
+        }
+            .map { progress ->
+                progress >= 0.95f
+            }
+            .distinctUntilChanged()
+            .filter { reachedEnd ->
+                reachedEnd
+            }
+            .collect {
+                analytics.reachedEnd(articleId)
+            }
+    }
+}
+```
+
+Разбор:
+
+- progress вычисляется из `scrollState.value` и `scrollState.maxValue`;
+- `distinctUntilChanged` не дает повторять событие для каждого пикселя;
+- разные analytics events разделены на понятные flows;
+- `articleId` является ключом, потому что смена статьи должна перезапустить аналитику.
+
+## Типичные ошибки
+
+### Использовать snapshotFlow для UI boolean
+
+Если значение нужно только UI, начните с `derivedStateOf`.
+
+### Не собирать Flow
+
+`snapshotFlow` cold. Без `collect` он ничего не делает.
+
+### Читать обычную переменную вместо snapshot state
+
+Flow не будет знать, когда она изменилась.
+
+### Писать state внутри snapshotFlow
+
+Блок должен читать state, а side effects должны быть в collector.
+
+### Забывать ключи LaunchedEffect
+
+Если `listState`, `analytics` или `articleId` используются в collector и должны менять lifecycle collection, добавьте их ключами.
+
+## Итоги
+
+`snapshotFlow` — мост из Compose snapshot state в Flow:
+
+- создает cold `Flow`;
+- отслеживает snapshot reads внутри блока;
+- emit-ит новое значение при изменении результата;
+- похож на `distinctUntilChanged` по смыслу равенства;
+- обычно собирается внутри `LaunchedEffect`;
+- полезен для analytics, debounce, filter и Flow operators;
+- не нужен для простого отображения UI;
+- не должен писать state внутри snapshot block;
+- для UI-derived values используйте `derivedStateOf`;
+- для screen state из ViewModel используйте обычные Flow APIs во ViewModel и `collectAsStateWithLifecycle` в UI.
