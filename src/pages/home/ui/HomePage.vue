@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, BookOpen, Code2, Layers3, Sparkles } from '@lucide/vue'
+import { ArrowRight, BookOpen, Code2, FileCode2, Layers3, Sparkles } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
 import { buttons, layout } from '@/shared/config/ui'
 import { composeCourseStats, courseStats } from '@/entities/course/model/course'
@@ -40,6 +40,14 @@ const tracks = [
     icon: Layers3,
     accent: 'border-violet/35 bg-violet/10 text-violet',
   },
+  {
+    title: 'Kotlin Sandbox',
+    href: '/sandbox',
+    status: 'browser IDE',
+    description: 'Многофайловая песочница с папками, Kotlin-файлами, импортами между файлами, запуском через compiler backend и диагностикой.',
+    icon: FileCode2,
+    accent: 'border-amber/35 bg-amber/10 text-amber',
+  },
 ]
 </script>
 
@@ -69,6 +77,10 @@ const tracks = [
                 <span>Jetpack Compose</span>
                 <ArrowRight :size="18" />
               </RouterLink>
+              <RouterLink :class="buttons.secondary" to="/sandbox">
+                <span>Песочница</span>
+                <ArrowRight :size="18" />
+              </RouterLink>
             </div>
           </div>
 
@@ -78,14 +90,14 @@ const tracks = [
             </div>
             <div>
               <p class="m-0 text-xs font-black uppercase tracking-wide text-muted">Сейчас доступно</p>
-              <strong class="mt-2 block text-5xl font-black">2</strong>
-              <p class="m-0 mt-2 text-sm leading-6 text-muted">reader-курса с MDX-уроками, прогрессом, избранным и оглавлением.</p>
+              <strong class="mt-2 block text-5xl font-black">3</strong>
+              <p class="m-0 mt-2 text-sm leading-6 text-muted">2 reader-курса и browser IDE для многофайловых Kotlin-экспериментов.</p>
             </div>
           </div>
         </div>
       </header>
 
-      <section class="grid gap-4 md:grid-cols-2">
+      <section class="grid gap-4 md:grid-cols-3">
         <RouterLink
           v-for="track in tracks"
           :key="track.title"

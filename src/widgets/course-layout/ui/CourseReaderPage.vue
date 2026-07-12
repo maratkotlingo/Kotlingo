@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Circle,
+  Code2,
   Filter,
   Heart,
   Home,
@@ -340,6 +341,10 @@ function updateActiveHeading() {
         </RouterLink>
         <RouterLink :to="switchLink.to" :class="[buttons.secondary, 'hidden sm:inline-flex']">
           <span>{{ switchLink.label }}</span>
+        </RouterLink>
+        <RouterLink to="/sandbox" :class="[buttons.secondary, 'hidden md:inline-flex']">
+          <Code2 :size="18" />
+          <span>Песочница</span>
         </RouterLink>
         <Button :class="[buttons.icon, 'lg:hidden']" title="Открыть темы" aria-label="Открыть темы"
           @click="mobileNavOpen = true">
