@@ -1,8 +1,8 @@
 ---
-title: "Navigation Compose basics"
+title: "Основы Navigation Compose"
 description: "Разбираем основы Navigation Compose: rememberNavController, NavHost, destinations, routes, navigate, popBackStack, navigateUp, back stack, NavOptions, launchSingleTop, popUpTo и границу route/screen."
 order: 54
-category: "Compose: Navigation and architecture"
+category: "Compose: навигация и архитектура"
 difficulty: "Средний"
 ---
 
@@ -35,7 +35,7 @@ dependencies {
 Версию зависимости лучше брать из version catalog или из BOM-стратегии проекта. В этом уроке показана явная запись, чтобы было понятно, какой артефакт подключает Navigation Compose.
 
 <CatTip>
-Navigation Compose отвечает за переходы между destinations, но не обязан знать бизнес-логику. Хорошая архитектура передает в экран lambdas вроде `onArticleClick`, а не весь `NavController`.
+Navigation Compose отвечает за переходы между destinations, но не обязан знать бизнес-логику. Хорошая архитектура передает в экран лямбды вроде `onArticleClick`, а не весь `NavController`.
 </CatTip>
 
 ## Три главных понятия
@@ -254,7 +254,7 @@ fun AppTopBar(
 }
 ```
 
-Для app bar обычно удобнее передавать не сам `NavController`, а callback `onNavigateBack`. Но этот пример показывает смысл `navigateUp`.
+Для app bar обычно удобнее передавать не сам `NavController`, а обратный вызов `onNavigateBack`. Но этот пример показывает смысл `navigateUp`.
 
 ## Back stack под капотом
 
@@ -303,16 +303,16 @@ Route composable:
 - читает navigation arguments;
 - получает ViewModel;
 - собирает state;
-- передает screen callbacks;
+- передает screen обратные вызовы;
 - запускает navigation effects, если они нужны.
 
 Screen composable:
 
-- получает готовый UI state;
+- получает готовый UI-состояние;
 - не знает о Navigation Compose;
 - не импортирует `NavController`;
-- вызывает callbacks вроде `onArticleClick`;
-- легко preview-ится и тестируется.
+- вызывает обратные вызовы вроде `onArticleClick`;
+- легко предпросмотр-ится и тестируется.
 
 ```kotlin
 import androidx.compose.foundation.clickable
@@ -386,7 +386,7 @@ fun HomeScreen(
 ```
 
 <MouseTrap>
-Не передавайте `NavController` в каждую кнопку, карточку и строку списка. Чем ниже controller уходит в UI-дерево, тем труднее переиспользовать компонент, написать preview и проверить экран в UI-тесте.
+Не передавайте `NavController` в каждую кнопку, карточку и строку списка. Чем ниже controller уходит в UI-дерево, тем труднее переиспользовать компонент, написать предпросмотр и проверить экран в UI-тесте.
 </MouseTrap>
 
 ## Scaffold с NavHost
@@ -541,7 +541,7 @@ private fun NavController.navigateToTopLevel(route: String) {
 }
 ```
 
-Этот пример показывает базовый production-паттерн:
+Этот пример показывает базовый паттерн для боевого кода:
 
 - `rememberNavController` находится в app root;
 - `Scaffold` отвечает за chrome приложения;
@@ -578,7 +578,7 @@ fun ArticleCard(
 }
 ```
 
-Такой пример полезен для изучения, но в production лучше передавать `onClick`:
+Такой пример полезен для изучения, но в боевой среде лучше передавать `onClick`:
 
 ```kotlin
 import androidx.compose.material3.Button
@@ -598,7 +598,7 @@ fun ArticleCard(
 }
 ```
 
-Теперь карточка не зависит от navigation library и может использоваться в preview, тестах, widgets-like UI и других контейнерах.
+Теперь карточка не зависит от navigation library и может использоваться в предпросмотр, тестах, widgets-like UI и других контейнерах.
 
 ## Ошибки при работе с route arguments
 
@@ -606,7 +606,7 @@ Route arguments в строковой навигации требуют дисц
 
 - не вставляйте raw string без `Uri.encode`, если значение может содержать slash, пробел, вопросительный знак или символы другого алфавита;
 - не передавайте большие объекты через route;
-- передавайте идентификатор, а данные загружайте из repository;
+- передавайте идентификатор, а данные загружайте из репозиторий;
 - не храните sensitive data в route;
 - явно задавайте `NavType`;
 - проверяйте nullable arguments;
@@ -771,11 +771,11 @@ fun NavController.switchTab(route: String) {
 
 ### Передавать большие модели через route
 
-Route должен содержать идентификатор или небольшой набор примитивных аргументов. Большие объекты передавайте через repository, shared state holder или сохраненное состояние, если это действительно нужно.
+Route должен содержать идентификатор или небольшой набор примитивных аргументов. Большие объекты передавайте через репозиторий, разделяемое состояние holder или сохраненное состояние, если это действительно нужно.
 
 ### Навигировать прямо из глубокой UI-кнопки
 
-Кнопка должна сообщить о событии через callback. Route решает, что это событие означает для navigation graph.
+Кнопка должна сообщить о событии через обратный вызов. Route решает, что это событие означает для navigation graph.
 
 ### Забывать `launchSingleTop` в bottom navigation
 
@@ -787,7 +787,7 @@ Route должен содержать идентификатор или небо
 
 ### Использовать текущий route как единственный источник истины для сложного UI
 
-Route говорит, где находится пользователь. Он не должен заменять UI state, permissions state, loading state или выбранные фильтры.
+Route говорит, где находится пользователь. Он не должен заменять UI-состояние, permissions state, состояние загрузки или выбранные фильтры.
 
 ## Итоги
 
@@ -801,6 +801,6 @@ Navigation Compose строится вокруг `NavController`, `NavHost` и d
 - `navigateUp()` подходит для app bar navigation;
 - `currentBackStackEntryAsState()` позволяет UI реагировать на текущий route;
 - `launchSingleTop`, `popUpTo`, `saveState` и `restoreState` нужны для чистого back stack;
-- route composable знает о navigation, screen composable получает state и callbacks;
+- route composable знает о navigation, screen composable получает state и обратные вызовы;
 - аргументы лучше держать маленькими, типизированными через `NavType` и безопасно encoded;
 - для top-level navigation используйте helper, который очищает стек до start destination и восстанавливает состояние вкладок.

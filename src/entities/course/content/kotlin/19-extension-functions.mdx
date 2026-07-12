@@ -68,7 +68,7 @@ fun Int.asProgressOf(total: Int): String {
 
 ## Расширение не модифицирует класс
 
-После объявления extension у `String` не появляется новый реальный member в class metadata. Функция компилируется как статическая функция с receiver в качестве дополнительного параметра на поддерживающих это backend.
+После объявления extension у `String` не появляется новый реальный member в class metadata. Функция компилируется как статическая функция с receiver в качестве дополнительного параметра на поддерживающих это бэкенд.
 
 Следствия:
 
@@ -458,7 +458,7 @@ fun String.toDisplayText(maxLength: Int): String {
 }
 ```
 
-Действуют обычные правила overload resolution плюс статический тип receiver.
+Действуют обычные правила перегрузка resolution плюс статический тип receiver.
 
 ```kotlin
 val value: Any = " Kotlin "
@@ -556,7 +556,7 @@ fun String.save() {
 }
 ```
 
-Что именно сохраняется, куда и с каким lifecycle — не видно. Явный repository/service лучше:
+Что именно сохраняется, куда и с каким lifecycle — не видно. Явный репозиторий/service лучше:
 
 ```kotlin
 interface LessonRepository {
@@ -679,7 +679,7 @@ fun main() {
 
 - extension добавляет удобный синтаксис, но не изменяет исходный класс;
 - extension receiver доступен как `this`, но private internals класса недоступны;
-- overload выбирается по статическому типу receiver;
+- перегрузка выбирается по статическому типу receiver;
 - member с подходящей сигнатурой всегда приоритетнее extension;
 - nullable receiver позволяет вызывать функцию прямо на `null`;
 - extension property не имеет backing field;

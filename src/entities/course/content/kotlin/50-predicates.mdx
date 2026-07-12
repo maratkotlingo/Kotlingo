@@ -1,5 +1,5 @@
 ---
-title: "Predicates"
+title: "Предикаты"
 description: "Разбираем any, all и none, vacuous truth на пустых коллекциях, short-circuit, contains/containsAll, in, Map membership, isEmpty/isNotEmpty, equality и сложность проверок."
 order: 50
 category: "Коллекции"
@@ -42,7 +42,7 @@ val result = scores.any { score ->
 println("$result, проверок: $checks")
 ```
 
-Side effect демонстрирует short-circuit, но production predicate лучше pure.
+Побочный эффект демонстрирует short-circuit, но боевой predicate лучше pure.
 
 ## `any()` без predicate
 
@@ -159,9 +159,9 @@ println("Missing" !in lessons)
 Typical:
 
 - List — O(n) linear search;
-- HashSet — average O(1), worst-case depends on hashing/collisions;
+- HashSet — среднее значение O(1), в худшем случае зависит от хеширования/коллизий;
 - sorted tree set — O(log n);
-- custom collection — свой contract.
+- пользовательский collection — свой contract.
 
 Если membership проверяется многократно, преобразование List в Set может окупиться:
 
@@ -234,7 +234,7 @@ if (lessons.isNotEmpty()) {
 }
 ```
 
-Для Collection эти operations используют size/implementation property. Для String также существуют overloads, но String не Collection.
+Для Collection эти operations используют size/implementation property. Для String также существуют перегрузки, но String не Collection.
 
 ## `isNullOrEmpty`
 
@@ -311,7 +311,7 @@ println(scores.none { it < 0 })
 println(85 in scores)
 ```
 
-IntArray avoids element boxing in storage; lambda/backend may still have optimization details.
+IntArray avoids element boxing in storage; лямбда/бэкенд may still have optimization details.
 
 ## Sequence predicates
 
@@ -320,13 +320,13 @@ val result = generateSequence(1) { value -> value + 1 }
     .any { value -> value == 100 }
 ```
 
-Terminal `any` consumes only until match. `all`/`none` over infinite sequence may never terminate if no counterexample/match appears.
+Терминал `any` потребляет только до совпадения. `all`/`none` для бесконечной последовательности может никогда не завершиться, если не появляется контрпример/совпадение.
 
 ```kotlin
 // generateSequence(1) { it + 1 }.all { it > 0 } не завершится.
 ```
 
-## Side effects predicate
+## Побочные эффекты predicate
 
 ```kotlin
 var checked = 0
@@ -339,7 +339,7 @@ val hasLarge = scores.any { score ->
 Number calls зависит от order/short-circuit. Не помещай обязательный audit/mutation в predicate. Выполни отдельный traversal или explicit loop.
 
 <CatTip title="Котосовет: predicate должен быть чистым вопросом">
-`any`/`all` могут остановиться раньше. Side effect внутри не гарантирован для каждого element и усложняет parallel/lazy migration.
+`any`/`all` могут остановиться раньше. Побочный эффект внутри не гарантирован для каждого element и усложняет parallel/lazy migration.
 </CatTip>
 
 ## Expensive predicates
@@ -348,7 +348,7 @@ Number calls зависит от order/short-circuit. Не помещай обя
 val hasAccessible = lessons.any { lesson -> permissionService.canOpen(lesson) }
 ```
 
-Если predicate делает network/database call, N+1 behavior и partial execution скрыты. Batch API лучше:
+Если predicate делает network/база данных call, N+1 behavior и partial execution скрыты. Batch API лучше:
 
 ```kotlin
 val accessibleIds = permissionService.accessibleLessonIds(lessons.map(Lesson::id))
@@ -452,7 +452,7 @@ Empty проверяется отдельно, `any` ищет counterexamples, `
 - `isEmpty`/`isNotEmpty` яснее parameterless any/none для Collection;
 - `isNullOrEmpty` объединяет null и empty;
 - `in map` проверяет keys, values проверяются отдельно;
-- predicates short-circuit, поэтому обязательные side effects внутри опасны;
+- predicates short-circuit, поэтому обязательные побочные эффекты внутри опасны;
 - infinite Sequence terminal predicate может не завершиться;
 - выбирай affirmative operation, которая точнее выражает business rule.
 

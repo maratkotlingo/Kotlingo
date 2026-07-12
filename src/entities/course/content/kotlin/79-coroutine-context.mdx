@@ -1,8 +1,8 @@
 ---
-title: "Coroutine Context"
-description: "CoroutineContext в Kotlin: Job, CoroutineDispatcher, CoroutineName, CoroutineExceptionHandler, composition operator plus, inheritance, debugging и практические правила проектирования scope."
+title: "Контекст корутины"
+description: "CoroutineContext в Kotlin: Job, CoroutineDispatcher, CoroutineName, CoroutineExceptionHandler, composition operator plus, inheritance, отладка и практические правила проектирования scope."
 order: 79
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -16,8 +16,8 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 Обычно в context входят:
 
 - `Job` — lifecycle, cancellation, parent-child relationship;
-- `CoroutineDispatcher` — где выполнять code: CPU pool, I/O pool, UI thread или custom executor;
-- `CoroutineName` — имя для debugging;
+- `CoroutineDispatcher` — где выполнять code: CPU pool, I/O pool, UI thread или пользовательский executor;
+- `CoroutineName` — имя для отладки;
 - `CoroutineExceptionHandler` — last-resort обработчик uncaught exceptions на верхних границах;
 - дополнительные элементы library/framework-level, например transaction context, MDC для logging или test scheduler.
 
@@ -258,7 +258,7 @@ fun parentCancellationExample() = runBlocking {
 - `Dispatchers.IO` — blocking I/O: JDBC, blocking filesystem, old blocking HTTP clients;
 - `Dispatchers.Main` — UI thread на Android/Desktop/JS targets при наличии соответствующего module;
 - `Dispatchers.Unconfined` — starts in current call frame and resumes wherever suspension function decides; advanced tool, не default choice;
-- custom dispatcher — wrapper around executor или limited parallelism для специальных pools.
+- пользовательский dispatcher — wrapper around executor или limited parallelism для специальных pools.
 
 ```kotlin
 import kotlinx.coroutines.Dispatchers
@@ -342,7 +342,7 @@ fun namedCoroutinesExample() = runBlocking(CoroutineName("request-42")) {
 }
 ```
 
-Names полезны при debugging, logs и thread dumps. Для JVM можно включить coroutine debug mode:
+Имена полезны при отладке, логах и thread dumps. Для JVM можно включить coroutine debug mode:
 
 ```bash
 -Dkotlinx.coroutines.debug
@@ -609,6 +609,5 @@ class LessonSyncService(
 ```
 
 <CatTip>
-Практическое правило: suspending APIs наследуют context caller-а, а long-lived background work получает scope от владельца lifecycle.
+Практическое правило: suspending APIs наследуют context вызывающий код-а, а long-lived background work получает scope от владельца lifecycle.
 </CatTip>
-

@@ -1,8 +1,8 @@
 ---
 title: "AnimatedVisibility"
-description: "Разбираем AnimatedVisibility в Jetpack Compose: visible, enter и exit transitions, MutableTransitionState, animateEnterExit, transition внутри content, удаление из composition, state hoisting и production-паттерны."
+description: "Разбираем AnimatedVisibility в Jetpack Compose: visible, enter и exit transitions, MutableTransitionState, animateEnterExit, transition внутри content, удаление из composition, подъем состояния и паттерны для боевого кода."
 order: 62
-category: "Compose: Animation and motion"
+category: "Compose: анимация и движение"
 difficulty: "Средний"
 ---
 
@@ -175,7 +175,7 @@ fun DismissibleHint(
 }
 ```
 
-Если enter или exit не заданы, используются default transitions. В production-коде лучше задавать transitions явно, когда motion является частью UX.
+Если enter или exit не заданы, используются переходы по умолчанию. В боевой коде лучше задавать transitions явно, когда motion является частью UX.
 
 ## Комбинирование transitions
 
@@ -411,9 +411,9 @@ fun VisibilityCard(
 
 Эта анимация знает о том же visibility state, что enter и exit. Это надежнее, чем заводить отдельный `animateDpAsState` с дублирующимся target.
 
-## State hoisting
+## Подъем состояния
 
-`AnimatedVisibility` не должен сам решать, что content видим. Visibility state обычно принадлежит caller или ViewModel, если это часть screen state.
+`AnimatedVisibility` не должен сам решать, что content видим. Visibility state обычно принадлежит вызывающий код или ViewModel, если это часть состояние экрана.
 
 ```kotlin
 import androidx.compose.animation.AnimatedVisibility
@@ -452,7 +452,7 @@ fun FiltersPanel(
 }
 ```
 
-Локальный `remember` допустим, если visibility является purely local UI state: раскрытие подсказки, временный help block, показ inline details внутри карточки.
+Локальный `remember` допустим, если visibility является purely local UI-состояние: раскрытие подсказки, временный help block, показ inline details внутри карточки.
 
 ## Сохранение внутреннего state
 
@@ -520,7 +520,7 @@ fun PersistentCommentForm(
 }
 ```
 
-## Production-пример: undo banner после удаления
+## Боевой-пример: undo banner после удаления
 
 Задача: пользователь удаляет item, item должен проиграть exit animation, затем исчезнуть из списка данных. Для этого UI-модель хранит `visible`.
 
@@ -610,9 +610,9 @@ fun AnimatedTaskRow(
 }
 ```
 
-Такой компонент не удаляет данные сам. Он сообщает владельцу, что exit завершился. ViewModel или state holder после этого убирает item из списка.
+Такой компонент не удаляет данные сам. Он сообщает владельцу, что exit завершился. ViewModel или держатель состояния после этого убирает item из списка.
 
-## Production-пример: collapsible search filters
+## Боевой-пример: collapsible search filters
 
 Фильтры часто раскрываются в верхней части списка. Здесь важны layout animation и сохранение state фильтров.
 
@@ -690,7 +690,7 @@ State фильтров передается извне. Если секция с
 - не скрывайте критическую ошибку слишком быстро;
 - не полагайтесь только на motion для передачи смысла;
 - если появляется важное сообщение, подумайте о semantics или snackbar;
-- content, удаленный из composition, больше не доступен screen reader;
+- content, удаленный из composition, больше не доступен программа чтения с экрана;
 - длительные или сильные animations могут раздражать пользователей с чувствительностью к motion.
 
 ```kotlin
@@ -722,7 +722,7 @@ fun AccessibleErrorMessage(
 }
 ```
 
-Используйте live region осторожно. Если много сообщений будут assertive, screen reader станет перебивать пользователя.
+Используйте live region осторожно. Если много сообщений будут assertive, программа чтения с экрана станет перебивать пользователя.
 
 ## Тестирование
 
@@ -792,11 +792,11 @@ fun contentIsRemovedAfterExitAnimation() {
 
 ### Анимировать layout там, где достаточно alpha
 
-`expandVertically` и `shrinkVertically` меняют layout. Для overlay или scrim часто достаточно fade.
+`expandVertically` и `shrinkVertically` меняют layout. Для наложение или scrim часто достаточно fade.
 
 ### Навигировать из body при исчезновении
 
-Navigation после exit должна идти из event handler, `LaunchedEffect` или callback завершения. Не вызывайте navigation прямо в composable body.
+Navigation после exit должна идти из event handler, `LaunchedEffect` или обратный вызов завершения. Не вызывайте navigation прямо в composable body.
 
 ## Итоги
 

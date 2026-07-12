@@ -1,8 +1,8 @@
 ---
-title: "Animation specs"
+title: "Спецификации анимации"
 description: "Разбираем AnimationSpec в Jetpack Compose: tween, spring, keyframes, keyframesWithSpline, snap, repeatable, infiniteRepeatable, StartOffset, RepeatMode, Easing, dampingRatio, stiffness, visibilityThreshold и выбор motion-кривой."
 order: 68
-category: "Compose: Animation and motion"
+category: "Compose: анимация и движение"
 difficulty: "Средний"
 ---
 
@@ -52,10 +52,10 @@ fun rememberCardAlpha(
 }
 ```
 
-Без spec Compose использует defaults, которые часто хороши. Но production UI обычно требует осознанного motion: одно действие должно быть быстрым, другое мягким, третье физичным.
+Без spec Compose использует значения по умолчанию, которые часто хороши. Но боевой UI обычно требует осознанного motion: одно действие должно быть быстрым, другое мягким, третье физичным.
 
 <CatTip>
-Не подбирайте `durationMillis` наугад. Сначала определите смысл движения: feedback, navigation, reveal, loading, drag release. После этого выбрать spec намного проще.
+Не подбирайте `durationMillis` наугад. Сначала определите смысл движения: обратная связь, navigation, reveal, загрузка, drag release. После этого выбрать spec намного проще.
 </CatTip>
 
 ## Карта основных specs
@@ -67,7 +67,7 @@ fun rememberCardAlpha(
 - `keyframes`: значения в конкретные моменты времени;
 - `keyframesWithSpline`: keyframes с более плавной spline-интерполяцией;
 - `snap`: мгновенная смена;
-- `repeatable`: конечное повторение finite animation;
+- `repeatable`: конечное повторение конечной анимации;
 - `infiniteRepeatable`: бесконечное повторение;
 - `exponentialDecay` и decay specs: затухающее движение для fling-like сценариев.
 
@@ -89,7 +89,7 @@ fun rememberCardAlpha(
 
 - `durationMillis`: длительность;
 - `delayMillis`: задержка перед стартом;
-- `easing`: кривая изменения progress.
+- `easing`: кривая изменения прогресс.
 
 ```kotlin
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -129,7 +129,7 @@ fun TweenPaddingBox(
 
 ## Easing
 
-`Easing` преобразует linear progress от `0f` до `1f` в curved progress. Это меняет ощущение движения.
+`Easing` преобразует linear прогресс от `0f` до `1f` в curved прогресс. Это меняет ощущение движения.
 
 Частые easing:
 
@@ -137,7 +137,7 @@ fun TweenPaddingBox(
 - `FastOutSlowInEasing`: быстро стартует, мягко замедляется;
 - `LinearOutSlowInEasing`: starts linear, ends slow;
 - `FastOutLinearInEasing`: starts fast, ends linear;
-- custom `CubicBezierEasing`.
+- пользовательский `CubicBezierEasing`.
 
 ```kotlin
 import androidx.compose.animation.core.CubicBezierEasing
@@ -174,7 +174,7 @@ fun rememberEmphasizedProgress(
 }
 ```
 
-Custom easing лучше держать в design system или motion tokens, чтобы product motion оставался единым.
+Пользовательский easing лучше держать в design system или motion tokens, чтобы product motion оставался единым.
 
 <MouseTrap>
 Не используйте `LinearEasing` для всех UI-анимаций. Постоянная скорость хорошо подходит для rotation и shimmer, но обычные reveal/transition часто выглядят механически.
@@ -226,7 +226,7 @@ fun SpringScaleBox(
 }
 ```
 
-`spring` подходит для gesture release, cards, sheets, playful feedback. Для строгих enterprise UI часто выбирают менее bouncy damping.
+`spring` подходит для gesture release, cards, sheets, playful обратная связь. Для строгих enterprise UI часто выбирают менее bouncy damping.
 
 ## `dampingRatio`
 
@@ -401,7 +401,7 @@ fun rememberImmediateAlpha(
 
 ## `repeatable`
 
-`repeatable` повторяет finite animation заданное количество раз.
+`repeatable` повторяет конечную анимацию заданное количество раз.
 
 ```kotlin
 import androidx.compose.animation.core.RepeatMode
@@ -472,7 +472,7 @@ fun rememberSpinnerRotation(): Float {
 }
 ```
 
-Не используйте `infiniteRepeatable` для animation, которая должна завершиться сама. Это loading/decorative loop tool.
+Не используйте `infiniteRepeatable` для animation, которая должна завершиться сама. Это загрузка/decorative loop tool.
 
 ## `StartOffset`
 
@@ -598,7 +598,7 @@ val alpha by animateFloatAsState(
 )
 ```
 
-## Production-пример: specs по направлению transition
+## Боевой-пример: specs по направлению transition
 
 В `updateTransition` spec может зависеть от пары states.
 
@@ -665,7 +665,7 @@ fun rememberDetailsPanelHeight(
 
 ### Подбирать duration без смысла
 
-200 мс, 300 мс и 500 мс должны соответствовать роли motion. Быстрый feedback, reveal content и navigation transition не обязаны иметь одинаковую длительность.
+200 мс, 300 мс и 500 мс должны соответствовать роли motion. Быстрый обратная связь, reveal content и navigation transition не обязаны иметь одинаковую длительность.
 
 ### Использовать bouncy spring для системных поверхностей
 
@@ -697,7 +697,7 @@ Linear хорош для бесконечного rotation и shimmer. Для о
 - `snap` меняет значение мгновенно;
 - `repeatable` повторяет animation конечное число раз;
 - `infiniteRepeatable` создает бесконечный loop;
-- `Easing` управляет кривой progress;
+- `Easing` управляет кривой прогресс;
 - `visibilityThreshold` помогает определить завершение;
 - specs лучше выбирать по смыслу motion;
 - в больших приложениях полезны motion tokens в design system.

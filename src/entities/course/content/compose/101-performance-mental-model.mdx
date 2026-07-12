@@ -1,8 +1,8 @@
 ---
-title: "Performance mental model"
-description: "Разбираем performance mental model Jetpack Compose: Composition, Layout и Draw phases, recomposition, skipping, restart scopes, measuring before optimizing, state reads by phase, jank, tracing и production-подход к оптимизации."
+title: "Ментальная модель производительности"
+description: "Разбираем performance mental model Jetpack Compose: Composition, Layout и Draw phases, recomposition, skipping, restart scopes, измерение перед оптимизацией, чтения состояния by phase, jank, tracing и подход к оптимизации для боевого кода."
 order: 101
-category: "Compose: Performance, stability and tooling"
+category: "Compose: производительность, стабильность и инструменты"
 difficulty: "Продвинутый"
 ---
 
@@ -18,7 +18,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - Draw: отрисовка pixels;
 - input/event handling;
 - animations;
-- image loading;
+- image загрузка;
 - main-thread work вне Compose;
 - allocation/GC;
 - синхронизация с Android Views/RenderThread.
@@ -87,7 +87,7 @@ fun CounterLabel(
 
 ## Recomposition boundaries
 
-Compose tracks state reads and can recompose only affected scopes. Чем ниже вы читаете часто меняющийся state, тем меньше дерева нужно пересчитать.
+Compose tracks чтения состояния and can recompose only affected scopes. Чем ниже вы читаете часто меняющийся state, тем меньше дерева нужно пересчитать.
 
 Плохо:
 
@@ -142,7 +142,7 @@ fun Header(
 
 Layout состоит из measurement и placement. State read в layout-фазе может пропустить composition и invalid-ить только layout.
 
-Пример placement lambda:
+Пример placement лямбда:
 
 ```kotlin
 import androidx.compose.foundation.layout.offset
@@ -165,7 +165,7 @@ fun MovingPanel(
 }
 ```
 
-Если `offsetProvider` читает state внутри lambda, Compose может invalid-ить placement, не пересобирая весь composable. Это полезно для scroll/gesture-driven movement.
+Если `offsetProvider` читает state внутри лямбда, Compose может invalid-ить placement, не пересобирая весь composable. Это полезно для scroll/gesture-driven movement.
 
 ## Draw phase
 
@@ -193,10 +193,10 @@ fun ProgressArc(
 }
 ```
 
-Если progress часто меняется, draw-phase read может быть дешевле, чем recomposition целого component.
+Если прогресс часто меняется, draw-phase read может быть дешевле, чем recomposition целого component.
 
 <MouseTrap>
-Перенос state read в layout/draw — это не магическая оптимизация для всего. Делайте это для реально hot values: scroll offset, animation progress, gesture position.
+Перенос state read в layout/draw — это не магическая оптимизация для всего. Делайте это для реально hot values: scroll offset, animation прогресс, gesture position.
 </MouseTrap>
 
 ## Skipping phases
@@ -211,12 +211,12 @@ Compose может пропускать работу:
 
 - стабильности параметров;
 - корректной state model;
-- отсутствия скрытой mutable state;
+- отсутствия скрытой изменяемое состояние;
 - compiler inference;
 - modifier structure;
 - phase-specific reads.
 
-Пример хорошего UI state:
+Пример хорошего UI-состояние:
 
 ```kotlin
 import androidx.compose.runtime.Immutable
@@ -231,14 +231,14 @@ data class ProfileUiState(
 
 Если `ProfileUiState` immutable и equal по значению, Compose получает больше возможностей для skipping.
 
-## Measuring before optimizing
+## Измерение перед оптимизацией
 
 Оптимизация без измерения часто ухудшает код и не улучшает UX.
 
 Сначала измеряйте:
 
 - Layout Inspector recomposition counters;
-- Compose compiler reports;
+- Compose отчеты компилятора;
 - System Trace;
 - Macrobenchmark;
 - JankStats;
@@ -274,7 +274,7 @@ val hypothesis = PerformanceHypothesis(
 Compose performance нужно оценивать в release-like сборке:
 
 - debug build медленнее;
-- tooling hooks добавляют overhead;
+- хуки инструментов добавляют overhead;
 - R8/optimization не включены;
 - Baseline Profiles не применены;
 - debug checks и logging искажают картину.
@@ -291,7 +291,7 @@ Composition становится дорогой, если вы:
 - читаете слишком много state высоко в дереве;
 - строите большие conditional branches;
 - используете unstable mutable parameters;
-- создаете lambdas/objects в hot paths без необходимости.
+- создаете лямбды/objects в hot paths без необходимости.
 
 Плохо:
 
@@ -335,13 +335,13 @@ fun CatalogScreen(
 }
 ```
 
-Еще лучше — выполнять тяжелую фильтрацию в ViewModel/repository, если это business query, а не UI-only decoration.
+Еще лучше — выполнять тяжелую фильтрацию в ViewModel/репозиторий, если это business query, а не UI-only decoration.
 
 ## Expensive layout
 
 Layout может быть дорогим, если:
 
-- custom layout measure-ит children многократно;
+- пользовательская разметка measure-ит children многократно;
 - text measurement происходит слишком часто;
 - nested scroll/layouts слишком глубокие;
 - `IntrinsicSize` используется в больших списках;
@@ -349,7 +349,7 @@ Layout может быть дорогим, если:
 - все items имеют wrap content с дорогим content;
 - image aspect ratios пересчитываются нестабильно.
 
-Пример осторожного custom layout:
+Пример осторожного пользовательская разметка:
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -401,7 +401,7 @@ fun SimpleTwoColumnLayout(
 }
 ```
 
-Custom layout должен измерять child только тогда, когда нужно, и как можно меньше раз.
+Пользовательский layout должен измерять child только тогда, когда нужно, и как можно меньше раз.
 
 ## Expensive draw
 
@@ -434,7 +434,7 @@ Canvas(modifier = Modifier.fillMaxSize()) {
 
 ## Hot state и recomposition
 
-Scroll offset, animation progress, drag position и clock ticks могут меняться каждый frame. Не поднимайте их выше, чем нужно.
+Scroll offset, animation прогресс, drag position и clock ticks могут меняться каждый frame. Не поднимайте их выше, чем нужно.
 
 Плохо:
 
@@ -481,8 +481,8 @@ Lazy lists часто становятся performance hotspot.
 - не читать global hot state в каждом item;
 - не загружать images original size;
 - не создавать nested lazy без необходимости;
-- state hoisting для expanded/collapsed item;
-- placeholder size stable.
+- подъем состояния для expanded/collapsed item;
+- заглушка size stable.
 
 ```kotlin
 LazyColumn {
@@ -516,8 +516,8 @@ LazyColumn {
 - создание lists/maps в composition;
 - создание Path/Brush/Painter в draw;
 - formatting strings в hot frame loop;
-- capturing lambdas в больших списках;
-- temporary objects in custom layout.
+- capturing лямбды в больших списках;
+- temporary objects in пользовательская разметка.
 
 ```kotlin
 @Composable
@@ -539,9 +539,9 @@ fun RememberedGradientBackground() {
 
 Не `remember`-ьте всё подряд. Remember нужен для expensive/stable objects или для objects, identity которых важна.
 
-## Performance workflow
+## Performance рабочий процесс
 
-Практический workflow:
+Практический рабочий процесс:
 
 - определить user-visible проблему;
 - воспроизвести на release-like build;
@@ -551,7 +551,7 @@ fun RememberedGradientBackground() {
 - внести минимальное изменение;
 - повторить измерение;
 - оставить комментарий только если optimization неочевидна;
-- добавить regression test/benchmark, если риск высокий.
+- добавить регрессия test/benchmark, если риск высокий.
 
 ```kotlin
 data class OptimizationResult(
@@ -562,7 +562,7 @@ data class OptimizationResult(
 )
 ```
 
-Без "before/after" performance PR часто превращается в стилистический спор.
+Без "до/после" performance PR часто превращается в стилистический спор.
 
 ## Типичные ошибки
 
@@ -597,10 +597,10 @@ Performance mental model Compose строится на фазах:
 - Composition выполняет composable-код и обновляет tree;
 - Layout измеряет и размещает;
 - Draw рисует pixels;
-- state reads в разных фазах invalid-ят разную работу;
+- чтения состояния в разных фазах invalid-ят разную работу;
 - recomposition сама по себе не является ошибкой;
 - skipping зависит от стабильности inputs и структуры state;
-- measuring before optimizing обязателен;
+- измерение перед оптимизацией обязателен;
 - release-like builds нужны для честной оценки;
 - hot state нужно читать как можно ниже;
 - expensive computation, layout, draw и allocations требуют разных решений;

@@ -1,8 +1,8 @@
 ---
-title: "Modular Compose"
-description: "Разбираем модульную архитектуру Compose-приложений: feature modules, core modules, design system, navigation API, api/impl разделение, preview fixtures, public composable APIs и правила зависимостей."
+title: "Модульный Compose"
+description: "Разбираем модульную архитектуру Compose-приложений: feature modules, core modules, design system, navigation API, api/impl разделение, предпросмотр fixtures, public composable APIs и правила зависимостей."
 order: 59
-category: "Compose: Navigation and architecture"
+category: "Compose: навигация и архитектура"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что такое modularization
 
-Modularization — это организация codebase в набор слабосвязанных Gradle-модулей. Каждый модуль имеет понятную ответственность, собственные зависимости и публичный API. В Compose это особенно полезно, потому что UI легко разрастается: screens, previews, design system, navigation destinations, fixtures и state holders быстро превращают один `app` module в тяжелую точку сборки.
+Modularization — это организация codebase в набор слабосвязанных Gradle-модулей. Каждый модуль имеет понятную ответственность, собственные зависимости и публичный API. В Compose это особенно полезно, потому что UI легко разрастается: screens, предпросмотры, design system, navigation destinations, fixtures и держатели состояния быстро превращают один `app` module в тяжелую точку сборки.
 
 Модульность помогает:
 
@@ -56,18 +56,18 @@ Modularization — это организация codebase в набор слаб
 
 Назначение модулей:
 
-- `:app`: Activity, root NavHost, dependency injection wiring, app theme setup;
+- `:app`: Activity, root NavHost, dependency injection wiring, app theme настройка;
 - `:core:model`: общие domain/UI-neutral модели;
 - `:core:common`: dispatchers, result types, small utilities;
 - `:core:designsystem`: тема, tokens, icons, базовые branded components;
 - `:core:ui`: общие UI patterns без product-specific feature logic;
 - `:core:data`: repositories implementations и orchestration data sources;
-- `:core:domain`: use cases;
-- `:core:database`: Room database, DAO, entities;
+- `:core:domain`: сценарии использования;
+- `:core:database`: Room база данных, DAO, entities;
 - `:core:network`: Retrofit/Ktor API, DTO, network mappers;
 - `:feature:*:api`: route types, navigation functions, публичные contracts feature;
-- `:feature:*:impl`: screens, ViewModels, feature graph implementation;
-- `:testing:fixtures`: sample data для previews и tests.
+- `:feature:*:impl`: экраны, ViewModel и реализация графа фичи;
+- `:testing:fixtures`: sample data для предпросмотры и tests.
 
 Это не единственная схема. Главное — не названия, а направление зависимостей.
 
@@ -180,8 +180,8 @@ Design system module содержит визуальный язык прилож
 - component wrappers;
 - icons;
 - dimensions;
-- preview themes;
-- branded loading/error components.
+- предпросмотр themes;
+- branded загрузка/error components.
 
 ```kotlin
 package com.example.core.designsystem
@@ -333,7 +333,7 @@ AppButton(
 - `PullToRefreshScaffold`;
 - `PermissionRationale`;
 - `ScreenHeader`;
-- preview annotations.
+- предпросмотр annotations.
 
 ```kotlin
 package com.example.core.ui
@@ -409,7 +409,7 @@ fun LoadingErrorContent(
 - internal routes;
 - feature graph builder;
 - DI bindings;
-- previews.
+- предпросмотры.
 
 ```kotlin
 package com.example.feature.profile.api
@@ -535,11 +535,11 @@ internal fun ProfileRouteContent(
 Хороший API:
 
 - принимает `modifier`;
-- принимает immutable state;
-- exposes events as lambdas;
+- принимает неизменяемое состояние;
+- exposes events as лямбды;
 - не требует ViewModel;
-- не создает скрытых side effects;
-- имеет default parameters только там, где они безопасны;
+- не создает скрытых побочные эффекты;
+- имеет параметры по умолчанию только там, где они безопасны;
 - документирует ownership state.
 
 ```kotlin
@@ -597,9 +597,9 @@ internal fun ProfileScreen(
 
 `ProfileScreen` internal, потому что наружу feature отдает navigation API, а не сам screen. Для design system компонентов, наоборот, public composable API является основной ценностью модуля.
 
-## Preview fixtures
+## Предпросмотр fixtures
 
-Previews не должны требовать production database, network или DI graph. Для больших проектов удобно иметь fixtures.
+Предпросмотры не должны требовать боевой база данных, network или DI graph. Для больших проектов удобно иметь fixtures.
 
 ```kotlin
 package com.example.testing.fixtures
@@ -644,7 +644,7 @@ private fun ProfileScreenRegularPreview() {
 }
 ```
 
-Если `testing:fixtures` зависит от `feature:impl`, следите, чтобы production modules не начали зависеть от fixtures. Часто fixtures подключают только в debug/test source sets.
+Если `testing:fixtures` зависит от `feature:impl`, следите, чтобы боевой modules не начали зависеть от fixtures. Часто fixtures подключают только в debug/test source sets.
 
 ## Gradle convention plugins
 
@@ -788,7 +788,7 @@ fun NavGraphBuilder.feedGraph(
 Если feature должна доставляться on demand через Play Feature Delivery, модульные границы становятся еще важнее. Обычно base app содержит:
 
 - route contract;
-- entry point;
+- точка входа;
 - загрузку dynamic module;
 - fallback UI, если модуль не установлен.
 
@@ -839,8 +839,8 @@ Dynamic delivery — отдельная большая тема, но architectu
 
 Модульная структура помогает тестировать точечно:
 
-- `core:domain`: unit tests use cases;
-- `core:data`: repository tests with fake data sources;
+- `core:domain`: unit tests сценарии использования;
+- `core:data`: репозиторий tests with фиктивный data sources;
 - `core:designsystem`: screenshot tests компонентов;
 - `feature:impl`: ViewModel tests и screen tests;
 - `app`: navigation graph smoke tests.
@@ -883,7 +883,7 @@ class ProfileScreenContractTest {
 
 ### Давать feature:api слишком много знаний
 
-API module должен быть маленьким. Если он содержит половину UI state и внутренние шаги flow, encapsulation не работает.
+API module должен быть маленьким. Если он содержит половину UI-состояние и внутренние шаги flow, encapsulation не работает.
 
 ### Завязывать design system на feature
 
@@ -893,9 +893,9 @@ Design system должен быть фундаментом. Он не долже
 
 Другие modules обычно должны зависеть от navigation contract feature, а не от ее ViewModel.
 
-### Делать preview зависимым от production DI
+### Делать предпросмотр зависимым от боевой DI
 
-Preview должен работать на fixtures и чистых screen composables.
+Предпросмотр должен работать на fixtures и чистых screen composables.
 
 ## Итоги
 
@@ -907,7 +907,7 @@ Preview должен работать на fixtures и чистых screen compo
 - `:core:data`, `:core:domain`, `:core:model` отделяют данные и бизнес-логику от UI;
 - `feature:api` публикует route contracts и navigation functions;
 - `feature:impl` содержит screens, ViewModels и graph implementation;
-- public composable API должен принимать state, callbacks и `modifier`;
-- previews должны использовать fixtures, а не production ViewModel;
+- public composable API должен принимать state, обратные вызовы и `modifier`;
+- предпросмотры должны использовать fixtures, а не боевой ViewModel;
 - направление зависимостей важнее количества модулей;
 - модульность должна снижать сложность codebase, а не создавать декоративную архитектуру.

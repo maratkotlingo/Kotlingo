@@ -1,5 +1,5 @@
 ---
-title: "Arrays"
+title: "Массивы"
 description: "Подробно разбираем Array<T>, primitive и unsigned arrays, создание и доступ, invariance, копирование, fill, content equality, sorting, binarySearch, vararg и conversions."
 order: 48
 category: "Коллекции"
@@ -147,7 +147,7 @@ val lessons: Array<Lesson> = arrayOf(Lesson("Arrays"))
 
 Иначе через contents можно записать Quiz в actual `Array<Lesson>`.
 
-Для read-only producer parameter используй projection:
+Для только для чтения producer parameter используй projection:
 
 ```kotlin
 fun titles(values: Array<out Content>): List<String> {
@@ -164,7 +164,7 @@ val array = arrayOf("A", "B")
 array[0] = "C"
 ```
 
-`val` фиксирует reference, array elements mutable. Для snapshot передавай copy/read-only list/immutable model.
+`val` фиксирует reference, array elements mutable. Для snapshot передавай copy/только для чтения list/immutable model.
 
 ## `copyOf`
 
@@ -186,7 +186,7 @@ val larger: Array<String?> = original.copyOf(newSize = 5)
 val smaller: Array<String> = original.copyOf(newSize = 2)
 ```
 
-При увеличении reference array новые slots заполнены null, поэтому result type/overload semantics нужно учитывать. Primitive arrays заполняются zero-like defaults.
+При увеличении reference array новые slots заполнены null, поэтому result type/перегрузка semantics нужно учитывать. Primitive arrays заполняются zero-like значения по умолчанию.
 
 ## `copyOfRange`
 
@@ -267,7 +267,7 @@ println(first.contentEquals(second))
 Generated equals вызывает Array.equals, а не contentEquals. Оберни array в тип с правильной semantics или реализуй equals/hashCode согласованно.
 </MouseTrap>
 
-## Sorting in place
+## Сортировка по месту
 
 ```kotlin
 val scores = intArrayOf(70, 100, 85)
@@ -275,7 +275,7 @@ scores.sort()
 println(scores.contentToString())
 ```
 
-Mutates original. Descending helpers могут возвращать list или выполнять platform-specific operation в зависимости от overload; проверяй return type.
+Mutates original. Descending helpers могут возвращать list или выполнять platform-specific operation в зависимости от перегрузка; проверяй return type.
 
 Reference array:
 
@@ -332,7 +332,7 @@ val indexInRange = ids.binarySearch(
 )
 ```
 
-Custom comparator order должен совпадать с sorting.
+Пользовательский comparator order должен совпадать с sorting.
 
 <CatTip title="Котосовет: binarySearch требует доказанного порядка">
 Храни invariant «array отсортирован» рядом с owner type или сортируй copy перед поиском. Случайный вызов на mutable array после update — тихая logic error.
@@ -421,7 +421,7 @@ val parts = arrayOf("kotlin", "48", "arrays")
 println(join(*parts))
 ```
 
-Spread разворачивает array в vararg call и на JVM часто создаёт защитную copy. В hot path предоставь overload, принимающий Array/List directly.
+Spread разворачивает array в vararg call и на JVM часто создаёт защитную copy. В hot path предоставь перегрузка, принимающий Array/List directly.
 
 Primitive vararg требует primitive array:
 
@@ -494,7 +494,7 @@ Owner копирует input, сортирует до construction, провер
 - Array не является Collection;
 - `arrayOf`, `emptyArray`, `Array(size)` и `arrayOfNulls` создают разные формы;
 - direct index вне bounds бросает exception;
-- arrays invariant, read-only parameter использует `Array<out T>`;
+- arrays invariant, только для чтения parameter использует `Array<out T>`;
 - `copyOf`/`copyOfRange` создают shallow copies;
 - `fill` одним reference не создаёт independent objects;
 - `==` сравнивает array identity, contents — через `contentEquals`;

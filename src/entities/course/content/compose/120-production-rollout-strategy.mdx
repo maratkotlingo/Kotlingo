@@ -1,8 +1,8 @@
 ---
-title: "Production rollout strategy"
-description: "Разбираем production rollout strategy для Compose и Compose Multiplatform: incremental adoption, version upgrades, API deprecation, compatibility policy, feature flags, monitoring regressions, performance budgets, crash monitoring и release governance."
+title: "Стратегия внедрения в боевой код"
+description: "Разбираем боевой rollout strategy для Compose и Compose Multiplatform: incremental adoption, version upgrades, API deprecation, compatibility policy, feature flags, monitoring regressions, performance budgets, crash monitoring и release governance."
 order: 120
-category: "Compose: Multiplatform and advanced ecosystems"
+category: "Compose: Multiplatform и продвинутые экосистемы"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Почему rollout strategy нужна заранее
 
-Compose adoption редко заканчивается на "мы написали экран". В production появляются вопросы:
+Compose adoption редко заканчивается на "мы написали экран". В боевой появляются вопросы:
 
 - как выкатывать новые Compose screens;
 - как мигрировать XML постепенно;
@@ -38,7 +38,7 @@ data class RolloutPlan(
 Если у feature нет owner, metrics и rollback path, это не rollout, а надежда.
 
 <CatTip>
-Production rollout — это не момент релиза. Это весь путь от первого Compose component до поддержки версий, мониторинга и удаления старого кода.
+Боевой rollout — это не момент релиза. Это весь путь от первого Compose component до поддержки версий, мониторинга и удаления старого кода.
 </CatTip>
 
 ## Incremental adoption
@@ -52,7 +52,7 @@ Production rollout — это не момент релиза. Это весь п
 - design system migration;
 - navigation shell migration;
 - multiplatform extraction;
-- full shared UI.
+- full общий UI.
 
 Для существующего Android app часто работает путь:
 
@@ -96,7 +96,7 @@ Flag должен иметь:
 - rollback rule;
 - removal date;
 - dashboards;
-- tests for active paths while both live.
+- тесты на активные пути, пока оба живы.
 
 <MouseTrap>
 Feature flag без даты удаления становится вторым приложением внутри первого. Через полгода никто не помнит, какая ветка настоящая.
@@ -124,7 +124,7 @@ Upgrade plan:
 - запускать unit/UI/screenshot tests;
 - запускать Macrobenchmark для critical flows;
 - проверять compiler warnings/deprecations;
-- проверять previews;
+- проверять предпросмотры;
 - проверить app startup;
 - rollout на internal/beta track;
 - мониторить crashes/jank.
@@ -143,7 +143,7 @@ data class ComposeUpgradeChecklist(
 
 ## Compatibility policy
 
-Для design system и shared UI нужна compatibility policy:
+Для design system и общий UI нужна compatibility policy:
 
 - какие APIs stable;
 - какие experimental;
@@ -201,8 +201,8 @@ Deprecation plan:
 - announce;
 - provide replacement;
 - migrate internal usages;
-- add lint/search check if needed;
-- remove after agreed window.
+- при необходимости добавить проверку/поиск;
+- удалить после согласованного окна.
 
 ## Monitoring regressions
 
@@ -279,7 +279,7 @@ Compose Multiplatform добавляет:
 - web beta risk;
 - desktop packaging;
 - iOS review/distribution;
-- shared UI API versioning;
+- общий UI API versioning;
 - platform QA matrix.
 
 Rollout по платформам может быть разным:
@@ -291,9 +291,9 @@ Desktop: internal
 Web/Wasm: preview behind flag
 ```
 
-Не обязано быть "всё shared сразу на всех платформах".
+Не обязано быть "всё общий сразу на всех платформах".
 
-## Observability in UI
+## Наблюдаемость в пользовательском интерфейсе
 
 Добавьте lightweight events:
 
@@ -302,7 +302,7 @@ Web/Wasm: preview behind flag
 - error state shown;
 - retry clicked;
 - slow load;
-- fallback branch used;
+- используется резервная ветка;
 - Compose feature flag state.
 
 ```kotlin
@@ -315,7 +315,7 @@ interface UiTelemetry {
 
 UI telemetry не должна собирать sensitive data и не должна тормозить composition.
 
-## Release checklist
+## Release проверочный список
 
 Перед rollout:
 
@@ -360,7 +360,7 @@ Migration не завершена, пока legacy path жив.
 - old flags;
 - duplicate tests;
 - dead navigation actions;
-- old analytics events, если заменены.
+- old аналитика events, если заменены.
 
 Проверьте:
 
@@ -377,14 +377,14 @@ Migration не завершена, пока legacy path жив.
 
 - Compose versions;
 - design system component policy;
-- preview/test conventions;
+- предпросмотр/test conventions;
 - migration patterns;
 - common pitfalls;
 - upgrade process;
 - platform-specific exceptions;
 - rollout history.
 
-Документация должна быть короткой и живой. Лучше checklist, чем трактат, который никто не читает.
+Документация должна быть короткой и живой. Лучше проверочный список, чем трактат, который никто не читает.
 
 ## Типичные ошибки
 
@@ -394,7 +394,7 @@ Migration не завершена, пока legacy path жив.
 
 ### Обновить toolchain без benchmarks
 
-Performance regression может прийти не из вашего кода.
+Performance регрессия может прийти не из вашего кода.
 
 ### Не удалить feature flag
 
@@ -404,7 +404,7 @@ Performance regression может прийти не из вашего кода.
 
 Crash-free не значит smooth.
 
-### Считать shared UI одинаково готовым для всех платформ
+### Считать общий UI одинаково готовым для всех платформ
 
 Статусы и риски Android/iOS/Desktop/Web отличаются.
 
@@ -414,11 +414,11 @@ API ломается хаотично.
 
 ## Итоги
 
-Production rollout strategy делает Compose adoption управляемым:
+Боевой rollout strategy делает Compose adoption управляемым:
 
 - начинайте incremental, а не с полного rewrite;
 - feature flags требуют owner, metrics, rollback и removal date;
-- version upgrades должны включать tests, previews, benchmarks и release notes;
+- version upgrades должны включать tests, предпросмотры, benchmarks и release notes;
 - design system APIs требуют compatibility/deprecation policy;
 - monitoring должен включать crashes, ANR, startup, jank, memory и funnel metrics;
 - performance budgets нужны для critical flows;

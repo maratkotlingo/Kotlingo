@@ -2,7 +2,7 @@
 title: "Аннотации"
 description: "Аннотации Kotlin: annotation classes, meta-annotations, targets, retention, constructor parameters, use-site targets, @all, repeatable annotations, Java compatibility, annotation processors и KSP."
 order: 70
-category: "DSL, аннотации и metaprogramming"
+category: "DSL, аннотации и метапрограммирование"
 difficulty: "Продвинутый"
 ---
 
@@ -39,7 +39,7 @@ fun publishLesson(slug: String) {
 }
 ```
 
-Аннотации не имеют обычного mutable state и не выполняют business logic.
+Аннотации не имеют обычного изменяемое состояние и не выполняют business logic.
 
 ## Параметры аннотаций
 
@@ -125,7 +125,7 @@ annotation class VisibleForTools
 - `VALUE_PARAMETER` — parameter;
 - `CONSTRUCTOR` — constructor;
 - `PROPERTY_GETTER` и `PROPERTY_SETTER`;
-- `TYPE` — use of type;
+- `TYPE` — использование типа;
 - `EXPRESSION` — expression;
 - `FILE` — file annotation.
 
@@ -157,7 +157,7 @@ annotation class RuntimeRoute(val path: String)
 - `BINARY` — сохраняется в compiled output, но обычно не видна runtime reflection;
 - `RUNTIME` — доступна через reflection.
 
-Если annotation нужна KSP или compiler plugin на этапе компиляции, часто достаточно `SOURCE` или `BINARY`. Если framework читает annotation во время выполнения, нужен `RUNTIME`.
+Если annotation нужна KSP или плагин компилятора на этапе компиляции, часто достаточно `SOURCE` или `BINARY`. Если framework читает annotation во время выполнения, нужен `RUNTIME`.
 
 <MouseTrap>
 Не ставь `RUNTIME` автоматически. Runtime retention увеличивает metadata и создает ожидание, что annotation можно читать reflection-ом.
@@ -165,7 +165,7 @@ annotation class RuntimeRoute(val path: String)
 
 ## Use-site targets
 
-Kotlin property может породить несколько JVM elements: constructor parameter, property metadata, backing field, getter, setter. Use-site target уточняет, куда именно поставить annotation.
+Свойство Kotlin может породить несколько JVM-элементов: constructor parameter, property metadata, backing field, getter, setter. Use-site target уточняет, куда именно поставить annotation.
 
 ```kotlin
 annotation class NotBlank
@@ -245,7 +245,7 @@ annotation class Tag(val name: String)
 class AdvancedLesson
 ```
 
-На JVM compiler сгенерирует container annotation автоматически. Если нужен custom container name для Java compatibility, используй `@JvmRepeatable`.
+На JVM compiler сгенерирует container annotation автоматически. Если нужен пользовательский container name для Java compatibility, используй `@JvmRepeatable`.
 
 ```kotlin
 @JvmRepeatable(Tags::class)
@@ -322,7 +322,7 @@ class LessonsPage
 
 Processor может найти `@GenerateRoute` и сгенерировать registration code.
 
-## Production-пример: annotation для маршрутов
+## Боевой-пример: annotation для маршрутов
 
 ```kotlin
 @Target(AnnotationTarget.CLASS)
@@ -367,7 +367,7 @@ fun routeInfo(controller: KClass<*>): RouteInfo? {
 }
 ```
 
-Если route registry нужен в production hot path, лучше сгенерировать его через KSP, а не сканировать reflection-ом на каждом запуске.
+Если route registry нужен в боевой среде hot path, лучше сгенерировать его через KSP, а не сканировать reflection-ом на каждом запуске.
 
 ## Практические правила
 
@@ -399,5 +399,4 @@ data class Form(
 <CatTip>
 Хорошая annotation коротко отвечает: кто должен ее читать, где ее можно ставить и на каком этапе она нужна — source, binary или runtime.
 </CatTip>
-
 

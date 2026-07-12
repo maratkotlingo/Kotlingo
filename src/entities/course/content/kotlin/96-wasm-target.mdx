@@ -1,5 +1,5 @@
 ---
-title: "Wasm Target"
+title: "Wasm-таргет"
 description: "Kotlin/Wasm target: Wasm status, wasmJs, wasmWasi, browser runtime, Compose Multiplatform, JavaScript interop, browser API support, npm dependencies, Component Model и текущие ограничения."
 order: 96
 category: "Kotlin Multiplatform"
@@ -11,14 +11,14 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что такое Kotlin/Wasm
 
-Kotlin/Wasm compiles Kotlin code to WebAssembly.
+Kotlin/Wasm компилирует код Kotlin в WebAssembly.
 
-Wasm is a portable binary instruction format for a stack-based virtual machine. Kotlin/Wasm lets Kotlin run:
+Wasm — это переносимый формат двоичных инструкций для виртуальной машины на основе стека. Kotlin/Wasm позволяет Kotlin работать:
 
-- in browsers through `wasmJs`;
-- outside the browser through `wasmWasi`;
-- as Compose Multiplatform web applications;
-- in runtimes that support required Wasm proposals.
+- в браузерах через `wasmJs`;
+- вне браузера через `wasmWasi`;
+- как создание многоплатформенных веб-приложений;
+- во средах выполнения, которые поддерживают необходимые предложения Wasm.
 
 ```kotlin
 kotlin {
@@ -29,7 +29,7 @@ kotlin {
 }
 ```
 
-Kotlin/Wasm is Beta, so it is practical for many experiments and growing production scenarios, but you should still track compatibility notes and browser/runtime requirements.
+Kotlin/Wasm is Beta, so it is practical for many experiments and growing боевой scenarios, but you should still track compatibility notes and browser/runtime requirements.
 
 <CatTip>
 Wasm target — это быстрый кошачий лифт: Kotlin code поднимается в browser runtime не через обычный JavaScript, а через WebAssembly.
@@ -67,7 +67,7 @@ src/
     kotlin/
 ```
 
-Browser interop example:
+Пример взаимодействия с браузером:
 
 ```kotlin
 // wasmJsMain/kotlin/browser/WasmDomTitle.kt
@@ -83,15 +83,15 @@ fun updateTitle(title: String) {
 
 ## Browser runtime requirements
 
-Kotlin/Wasm browser applications require browser support for modern WebAssembly features, including garbage collection and exception handling proposals required by Kotlin.
+Приложениям браузера Kotlin/Wasm требуется поддержка браузером современных функций WebAssembly, включая предложения по сбору мусора и обработке исключений, необходимые Kotlin.
 
 Practical consequences:
 
 - test real target browsers;
 - document minimum browser versions;
-- keep JS fallback if product must support older browsers;
-- avoid assuming all embedded webviews support the same Wasm features;
-- monitor Kotlin/Wasm release notes when upgrading Kotlin.
+- сохраните запасной вариант JS, если продукт должен поддерживать старые браузеры;
+- не предполагайте, что все встроенные веб-просмотры поддерживают одни и те же функции Wasm;
+- Следите за примечаниями к выпуску Kotlin/Wasm при обновлении Kotlin.
 
 ```kotlin
 // commonMain/kotlin/web/RuntimeChoice.kt
@@ -105,14 +105,14 @@ sealed interface WebRuntime {
 ```
 
 <MouseTrap>
-Wasm support is not just «browser supports WebAssembly». Kotlin/Wasm needs specific Wasm proposals. Старые webviews can be the real production trap.
+Wasm support is not just «browser supports WebAssembly». Kotlin/Wasm needs specific Wasm proposals. Старые webviews can be the real боевой trap.
 </MouseTrap>
 
-## Compose Multiplatform on Wasm
+## Создание мультиплатформы на Wasm
 
-Compose Multiplatform uses Kotlin/Wasm as primary web target for shared UI.
+Compose Multiplatform uses Kotlin/Wasm as primary web target for общий UI.
 
-Conceptual setup:
+Conceptual настройка:
 
 ```kotlin
 kotlin {
@@ -131,7 +131,7 @@ kotlin {
 }
 ```
 
-Shared UI:
+Общий UI:
 
 ```kotlin
 // commonMain/kotlin/ui/LessonBadge.kt
@@ -152,19 +152,19 @@ fun LessonBadge(completed: Boolean) {
 }
 ```
 
-Even with shared UI, platform boundaries remain:
+Even with общий UI, platform boundaries remain:
 
 - browser storage;
 - routing integration;
 - permissions;
 - file picking;
-- analytics SDKs;
+- аналитика SDKs;
 - push notifications;
 - platform-specific performance tuning.
 
 ## `wasmWasi`
 
-`wasmWasi` targets WASI, the WebAssembly System Interface, for non-browser runtimes.
+`wasmWasi` предназначен для WASI, системного интерфейса WebAssembly, для сред выполнения без браузера.
 
 ```kotlin
 kotlin {
@@ -175,19 +175,19 @@ kotlin {
 }
 ```
 
-Use cases:
+Сценарии использования:
 
 - sandboxed command-line tools;
 - server-side Wasm experiments;
 - edge runtime experiments;
 - portable computation modules;
-- environments that expose WASI APIs.
+- среды, предоставляющие API-интерфейсы WASI.
 
-WASI gives standardized access to platform-like capabilities without tying code to a specific OS API directly.
+WASI предоставляет стандартизированный доступ к платформенным возможностям без прямой привязки кода к API конкретной ОС.
 
-## JavaScript interop from Wasm
+## Взаимодействие с JavaScript из Wasm
 
-Kotlin/Wasm supports JavaScript interop, but signatures are more constrained than ordinary Kotlin.
+Kotlin/Wasm поддерживает взаимодействие с JavaScript, но подписи более ограничены, чем в обычном Kotlin.
 
 External declaration:
 
@@ -213,11 +213,11 @@ package interop
 fun nowMillis(): Double = js("Date.now()")
 ```
 
-Keep JS interop narrow and typed. A Wasm module with large dynamic JS surface becomes hard to maintain.
+Сохраняйте взаимодействие JS узким и типизированным. Модуль Wasm с большой динамической поверхностью JS становится трудно поддерживать.
 
 ## Type limitations
 
-Kotlin/Wasm JS interop supports a limited set of types in signatures.
+Взаимодействие Kotlin/Wasm JS поддерживает ограниченный набор типов сигнатур.
 
 Practical friendly types:
 
@@ -225,11 +225,11 @@ Practical friendly types:
 - `Double`;
 - `Boolean`;
 - `String`;
-- `Unit` as return type;
-- `JsAny` and JS interop types where appropriate;
-- exported classes intentionally designed for JS boundary.
+- `Unit` как тип возвращаемого значения;
+- типы взаимодействия `JsAny` и JS, где это необходимо;
+— экспортированные классы, специально разработанные для границ JS.
 
-Avoid exporting arbitrary Kotlin domain graphs directly.
+Избегайте экспорта произвольных графов домена Kotlin напрямую.
 
 ```kotlin
 package exports
@@ -267,11 +267,11 @@ fun renderProgress(elementId: String, completed: Int, total: Int) {
 }
 ```
 
-Use this from browser source set, not common domain module.
+Используйте это из исходного набора браузера, а не из модуля общего домена.
 
 ## NPM dependencies
 
-Kotlin/Wasm has improved npm dependency support, but library compatibility still depends on interop shape and runtime assumptions.
+В Kotlin/Wasm улучшена поддержка зависимостей npm, но совместимость библиотек по-прежнему зависит от формы взаимодействия и предположений времени выполнения.
 
 ```kotlin
 kotlin {
@@ -287,7 +287,7 @@ kotlin {
 }
 ```
 
-Wrap npm usage:
+Оберни использование npm:
 
 ```kotlin
 // wasmJsMain/kotlin/external/NanoId.kt
@@ -316,9 +316,9 @@ class WasmIdGenerator {
 Не ожидай, что любой npm package автоматически удобен для Wasm. Если package relies on Node globals, dynamic runtime tricks or unsupported types, wrapper can become fragile.
 </MouseTrap>
 
-## Wasm and common source sets
+## Wasm и общие исходные наборы
 
-KMP project can share code between JS and Wasm through common source sets.
+Проект KMP может совместно использовать код JS и Wasm через общие наборы исходных кодов.
 
 ```text
 commonMain
@@ -355,37 +355,36 @@ kotlin {
 }
 ```
 
-Put browser-independent web logic in `webMain`, JS-specific interop in `jsMain`, Wasm-specific interop in `wasmJsMain`.
+Поместите независимую от браузера веб-логику в `webMain`, взаимодействие, специфичное для JS, в `jsMain`, взаимодействие, специфичное для Wasm, в `wasmJsMain`.
 
 ## Current constraints
 
-Track these constraints:
+Отслеживайте эти ограничения:
 
-- Kotlin/Wasm is Beta;
+- Kotlin/Wasm является бета-версией;
 - browser/runtime support matters;
-- JS interop type signatures are restricted;
-- debugging is improving but differs from JVM;
-- ecosystem libraries may not support Wasm yet;
-- binary size and startup need real measurement;
-- native browser APIs still need wrappers;
-- older browsers may need Kotlin/JS fallback.
+- Сигнатуры типов взаимодействия JS ограничены;
+- отладка улучшается, но отличается от JVM;
+— библиотеки экосистемы могут пока не поддерживать Wasm;
+- размер двоичного файла и запуск требуют реального измерения;
+- собственные API браузера по-прежнему нуждаются в обертках;
+- старым браузерам может потребоваться резервный вариант Kotlin/JS.
 
-Production readiness is not a checkbox. It depends on your browser matrix, performance budget, library dependencies and release process.
+Боевой readiness is not a checkbox. It depends on your browser matrix, performance budget, library dependencies and release process.
 
-## Production checklist
+## Проверочный список для боевого кода
 
-For Wasm target:
+Для цели Wasm:
 
-- declare `wasmJs` or `wasmWasi` intentionally;
-- test real browsers or runtime versions;
+- намеренно объявить `wasmJs` или `wasmWasi`;
+- протестируйте реальные браузеры или рантайм-версии;
 - isolate JS interop;
-- keep exported API simple;
-- measure startup and bundle size;
-- decide whether JS fallback is needed;
-- avoid assuming Node and browser APIs are interchangeable;
-- document current limitations for product and QA.
+- сохранять экспортируемый API простым;
+- измерить размер запуска и пакета;
+— решить, нужен ли резервный вариант JS;
+- не предполагайте, что API-интерфейсы Node и браузера взаимозаменяемы;
+- документировать текущие ограничения для продукта и обеспечения качества.
 
 <CatTip>
-Wasm is powerful when treated as a real target, not a novelty flag. Give it tests, browser matrix, typed boundaries and performance budgets, and it will purr much more reliably.
+Wasm эффективен, когда рассматривается как реальная цель, а не как флаг новинки. Дайте ему тесты, матрицу браузера, типизированные границы и бюджеты производительности, и он будет мурлыкать гораздо надежнее.
 </CatTip>
-

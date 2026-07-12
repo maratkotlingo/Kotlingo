@@ -1,5 +1,5 @@
 ---
-title: "Sequences"
+title: "Последовательности"
 description: "Sequence в Kotlin: lazy evaluation, asSequence, sequenceOf, generateSequence, sequence builder, yield, yieldAll, intermediate и terminal operations, single-use sequences и performance tradeoffs."
 order: 58
 category: "Коллекции"
@@ -111,7 +111,7 @@ val first = pipeline.firstOrNull()
 - `filter`, `filterNot`, `filterIsInstance`, `filterNotNull`;
 - `take`, `drop`, `takeWhile`, `dropWhile`;
 - `distinct`, `sorted`, `sortedBy`;
-- `plus`, `zip`, `windowed`, `chunked` в sequence-ориентированных overloads.
+- `plus`, `zip`, `windowed`, `chunked` в sequence-ориентированных перегрузки.
 
 Типичные terminal operations:
 
@@ -329,9 +329,9 @@ println(once.toList())
 // Повторная итерация такой sequence может быть недопустима.
 ```
 
-## Side effects откладываются
+## Побочные эффекты откладываются
 
-Side effects внутри sequence pipeline выполняются только при terminal operation и повторяются при повторной iteration.
+Побочные эффекты внутри sequence pipeline выполняются только при terminal operation и повторяются при повторной iteration.
 
 ```kotlin
 val events = mutableListOf<String>()
@@ -348,7 +348,7 @@ pipeline.toList()
 println(events) // [processed:кот, processed:kotlin, processed:код, processed:коллекции]
 ```
 
-Лучше не прятать business side effects внутри `map`/`filter`. Для effects используй явный terminal step.
+Лучше не прятать business побочные эффекты внутри `map`/`filter`. Для effects используй явный terminal step.
 
 ```kotlin
 val emails = users
@@ -381,7 +381,7 @@ Sequence может быть медленнее, когда:
 - steps мало;
 - все равно нужен full materialized result;
 - operations stateful, например `sorted`;
-- overhead lambda/iterator важнее экономии allocations.
+- overhead лямбда/iterator важнее экономии allocations.
 
 ```kotlin
 fun topValidLessons(lessons: List<Lesson>): List<Lesson> {
@@ -400,7 +400,7 @@ fun topValidLessons(lessons: List<Lesson>): List<Lesson> {
 
 Для маленьких списков такой код можно оставить как `List` pipeline, если он читается проще.
 
-## Production-пример: чтение страниц API лениво
+## Боевой-пример: чтение страниц API лениво
 
 ```kotlin
 data class Page<T>(
@@ -443,7 +443,7 @@ fun loadFirstMatching(api: LessonApi): List<String> {
 
 ## Практическое правило
 
-Начинай с обычных collection operations. Переходи на sequence, когда видишь длинный pipeline, большие данные, expensive intermediate collections или early termination. После перехода проверь, что terminal operation есть, а side effects не спрятаны в lazy chain.
+Начинай с обычных collection operations. Переходи на sequence, когда видишь длинный pipeline, большие данные, expensive intermediate collections или early termination. После перехода проверь, что terminal operation есть, а побочные эффекты не спрятаны в lazy chain.
 
 <CatTip>
 Sequence — не «ускоритель всего», а инструмент управления порядком вычислений. Используй его там, где ленивость действительно меняет стоимость или ясность кода.

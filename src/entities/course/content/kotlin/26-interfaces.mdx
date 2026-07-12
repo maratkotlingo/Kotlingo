@@ -1,6 +1,6 @@
 ---
 title: "Интерфейсы"
-description: "Подробно изучаем abstract members и default implementations интерфейсов Kotlin, properties без состояния, конфликты реализаций, делегирование и fun interface."
+description: "Подробно изучаем abstract members и реализации по умолчанию интерфейсов Kotlin, properties без состояния, конфликты реализаций, делегирование и fun interface."
 order: 26
 category: "Классы и объекты"
 difficulty: "Средний"
@@ -44,7 +44,7 @@ Client зависит от capability `Completable`, а не от concrete stora
 Interface может объявлять:
 
 - abstract functions;
-- functions с default implementation;
+- functions с реализация по умолчанию;
 - abstract properties;
 - properties с getter implementation без backing field;
 - private helpers с body;
@@ -146,7 +146,7 @@ class GeneratedLesson(private val order: Int) : Titled {
 }
 ```
 
-Обе реализации соблюдают один read-only contract.
+Обе реализации соблюдают один только для чтения contract.
 
 ## Property с default getter
 
@@ -289,7 +289,7 @@ abstract class Content(
 }
 ```
 
-## Конфликт default implementations
+## Конфликт реализации по умолчанию
 
 Если два supertypes дают реализацию одной signature, class обязан разрешить конфликт явно.
 
@@ -311,7 +311,7 @@ class CombinedLabel : ShortLabel, DetailedLabel {
 }
 ```
 
-Qualified super syntax `super<InterfaceName>.member()` выбирает конкретную default implementation.
+Qualified super syntax `super<InterfaceName>.member()` выбирает конкретную реализация по умолчанию.
 
 Можно не вызывать ни одну и реализовать contract самостоятельно:
 
@@ -360,7 +360,7 @@ class ExplicitNamed : Named, DefaultNamed {
 
 ## Private functions в interface
 
-Private helper позволяет переиспользовать implementation detail между defaults, не добавляя member в client contract.
+Private helper позволяет переиспользовать деталь реализации между значения по умолчанию, не добавляя member в client contract.
 
 ```kotlin
 interface SafeFormatter {
@@ -456,7 +456,7 @@ class RangeScoreValidator : ScoreValidator {
 }
 ```
 
-Или SAM conversion из lambda:
+Или SAM conversion из лямбда:
 
 ```kotlin
 val validator = ScoreValidator { score -> score in 0..100 }
@@ -505,7 +505,7 @@ fun interface ValidatorContract {
 
 - операция локальна и проста;
 - отдельная domain identity не нужна;
-- не нужны default methods;
+- не нужны методы по умолчанию;
 - API естественно говорит «передай функцию».
 
 Выбирай `fun interface`, когда:
@@ -566,11 +566,11 @@ val task = Runnable {
 task.run()
 ```
 
-Для overloaded Java methods lambda type inference может нуждаться в явном SAM constructor/type.
+Для overloaded Java methods лямбда type inference может нуждаться в явном SAM constructor/type.
 
 ## Default methods и JVM compatibility
 
-На JVM способ генерации default interface methods зависит от Kotlin compiler settings, target и compatibility mode. Современные toolchains могут создавать реальные JVM default methods, bridges или compatibility helpers.
+На JVM способ генерации default interface methods зависит от Kotlin compiler settings, target и compatibility mode. Современные toolchains могут создавать реальные JVM методы по умолчанию, bridges или compatibility helpers.
 
 Для library API важно:
 
@@ -580,7 +580,7 @@ task.run()
 - использовать binary compatibility validator;
 - учитывать min JVM/Android desugaring environment.
 
-Source-level Kotlin semantics одинаково показывают default implementation, но bytecode shape важна опубликованной библиотеке.
+Source-level Kotlin semantics одинаково показывают реализация по умолчанию, но bytecode shape важна опубликованной библиотеке.
 
 ## Эволюция interface
 
@@ -606,7 +606,7 @@ interface Repository {
 }
 ```
 
-Но semantic default должен быть корректным и performance acceptable для всех implementors. Например, default `all().contains(id)` может неожиданно загружать миллионы записей.
+Но семантическое значение по умолчанию должен быть корректным и performance acceptable для всех implementors. Например, default `all().contains(id)` может неожиданно загружать миллионы записей.
 
 ## Interface segregation
 
@@ -640,7 +640,7 @@ interface LessonPublisher {
 }
 ```
 
-Use case зависит только от требуемой роли:
+Сценарий использования зависит только от требуемой роли:
 
 ```kotlin
 class LessonPreview(private val reader: LessonReader) {
@@ -765,23 +765,23 @@ fun main() {
 Здесь:
 
 - `LessonRule` — domain SAM contract с одной validation operation;
-- lambdas создают независимые rules без boilerplate classes;
+- лямбды создают независимые rules без boilerplate classes;
 - factory `titleRule` захватывает configuration;
 - `ValidationReporter` имеет abstract effect и universal default success;
 - validator зависит от interfaces, а не console details;
 - rules легко добавлять и тестировать отдельно;
-- interface не хранит state, concrete objects/lambda closures хранят необходимую configuration.
+- interface не хранит state, concrete objects/лямбда closures хранят необходимую configuration.
 
 ## Итоги
 
 - interface описывает capability и не имеет instance constructor;
 - abstract functions не требуют слова `abstract`;
 - concrete class реализует members через обязательный `override`;
-- default implementation наследуется и может быть переопределена;
+- реализация по умолчанию наследуется и может быть переопределена;
 - interface property задаёт accessors, но не имеет backing field;
 - один class может реализовать несколько interfaces;
 - interface может расширять другие interfaces;
-- конфликт одинаковых defaults разрешается явным override и `super<Interface>`;
+- конфликт одинаковых значения по умолчанию разрешается явным override и `super<Interface>`;
 - private interface helper не становится частью contract;
 - delegation `by` генерирует forwarding implementation;
 - `fun interface` имеет ровно один abstract method и поддерживает SAM conversion;

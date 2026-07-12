@@ -1,6 +1,6 @@
 ---
-title: "Ranges и Progressions"
-description: "Диапазоны и прогрессии Kotlin: закрытые и open-ended ranges, Comparable ranges, in, !in, .., ..<, until, downTo, step, reversed, IntProgression, LongProgression, CharProgression и основы custom progression."
+title: "Диапазоны и прогрессии"
+description: "Диапазоны и прогрессии Kotlin: закрытые и open-ended ranges, Comparable ranges, in, !in, .., ..<, until, downTo, step, reversed, IntProgression, LongProgression, CharProgression и основы пользовательский progression."
 order: 59
 category: "Стандартная библиотека"
 difficulty: "Средний"
@@ -321,7 +321,7 @@ println("cow" in words) // true
 // for (word in words) не работает, потому что String range не является progression.
 ```
 
-## Custom range basics
+## Пользовательский range basics
 
 Можно определить `rangeTo` для собственного типа.
 
@@ -344,7 +344,7 @@ val sprint = DayNumber(1)..DayNumber(14)
 println(DayNumber(7) in sprint) // true
 ```
 
-Такой custom range поддерживает `in`, но не `for`. Для iteration нужно вернуть тип, у которого есть `iterator`.
+Такой пользовательский range поддерживает `in`, но не `for`. Для iteration нужно вернуть тип, у которого есть `iterator`.
 
 ```kotlin
 class DayProgression(
@@ -381,7 +381,7 @@ for (day in dayProgression(DayNumber(1), DayNumber(3))) {
 }
 ```
 
-## Production-пример: validation и pagination
+## Боевой-пример: validation и pagination
 
 ```kotlin
 data class PageRequest(

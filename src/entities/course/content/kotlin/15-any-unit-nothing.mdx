@@ -2,7 +2,7 @@
 title: "Any, Unit и Nothing"
 description: "Подробно разбираем верхние и нижние типы Kotlin, отсутствие полезного результата, never-returning функции и влияние Nothing на вывод типов."
 order: 15
-category: "Null-safety"
+category: "Null-безопасность"
 difficulty: "Средний"
 ---
 
@@ -205,7 +205,7 @@ fun saveProgress(percent: Int): OperationResult<Unit> {
 
 ### `Unit` в функциональных типах
 
-Callback для действия обычно имеет тип `() -> Unit` или `(T) -> Unit`.
+Обратный вызов для действия обычно имеет тип `() -> Unit` или `(T) -> Unit`.
 
 ```kotlin
 fun repeatLesson(times: Int, action: (Int) -> Unit) {
@@ -237,7 +237,7 @@ fun main() {
 }
 ```
 
-`calculateScore` вычисляет `Int`, но callback-контракт сознательно отбрасывает результат.
+`calculateScore` вычисляет `Int`, но обратный вызов-контракт сознательно отбрасывает результат.
 
 <MouseTrap title="Мышеловка: Unit — не null и не отсутствие объекта">
 `Unit` — настоящее значение настоящего типа. `null` означает отсутствие значения nullable-типа, а `Unit` означает нормальное завершение операции без полезного payload. Не используй `Unit?`: такой тип почти всегда создаёт лишнее третье состояние.
@@ -305,7 +305,7 @@ fun runWorkerForever(): Nothing {
 - `error(message)` выбрасывает `IllegalStateException`;
 - `TODO()` и `TODO(reason)` выбрасывают `NotImplementedError`.
 
-`TODO()` полезен только как временный инструмент разработки. В учебных и production-примерах kotlingo он не используется как пропуск реализации.
+`TODO()` полезен только как временный инструмент разработки. В учебных и боевых примерах kotlingo он не используется как пропуск реализации.
 
 ```kotlin
 fun unsupportedFormat(format: String): Nothing {
@@ -491,7 +491,7 @@ fun main() {
 - `Any` — общий надтип всех non-null типов и владелец контрактов `equals`, `hashCode`, `toString`;
 - `Any?` включает и non-null значения, и `null`;
 - `Unit` — тип с единственным значением, обозначающий нормальное завершение без полезного результата;
-- `Unit` особенно важен в callbacks и generic-контрактах;
+- `Unit` особенно важен в обратные вызовы и generic-контрактах;
 - `Nothing` не имеет значений и описывает вычисление, которое не возвращается нормально;
 - `throw`, `error` и бесконечные функции имеют тип `Nothing`;
 - `Nothing` как нижний тип не ухудшает тип остальных веток выражения;

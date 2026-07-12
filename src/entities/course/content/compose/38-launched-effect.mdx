@@ -1,8 +1,8 @@
 ---
 title: "LaunchedEffect"
-description: "Подробно изучаем LaunchedEffect в Jetpack Compose: coroutine scope, ключи, restart behavior, cancellation, snackbar, scroll, animation, Flow collection, splash timeout и production-антипаттерны."
+description: "Подробно изучаем LaunchedEffect в Jetpack Compose: coroutine scope, ключи, restart behavior, cancellation, snackbar, scroll, animation, Flow collection, splash timeout и боевой-антипаттерны."
 order: 38
-category: "Compose: Side Effects, coroutines и CompositionLocal"
+category: "Compose: побочные эффекты, корутины и CompositionLocal"
 difficulty: "Средний"
 ---
 
@@ -47,7 +47,7 @@ fun DelayedHello(
 }
 ```
 
-Этот пример запускает задержку один раз для текущего места в composition. Но callback может устареть, поэтому production-версия должна использовать `rememberUpdatedState`, если `onReady` может измениться.
+Этот пример запускает задержку один раз для текущего места в composition. Но обратный вызов может устареть, поэтому боевой-версия должна использовать `rememberUpdatedState`, если `onReady` может измениться.
 
 <CatTip>
 `LaunchedEffect` нужен не для любой coroutine, а для coroutine, чей lifetime должен совпадать с lifetime composable-участка.
@@ -98,7 +98,7 @@ fun MarkArticleOpenedEffect(
 - `animateScrollToItem`;
 - `showSnackbar`;
 - `collect`;
-- repository suspend APIs;
+- репозиторий suspend APIs;
 - animation suspend APIs;
 - `withContext`, если это осознанно и безопасно.
 
@@ -163,7 +163,7 @@ fun PresenceHeartbeat(
 
 ## LaunchedEffect(Unit)
 
-`Unit` как ключ означает: запустить effect один раз для текущего call site.
+`Unit` как ключ означает: запустить effect один раз для текущего место вызова.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -188,11 +188,11 @@ fun SplashScreen(
 Здесь `Unit` выбран осознанно:
 
 - таймер должен стартовать один раз;
-- смена callback не должна перезапускать таймер;
-- актуальный callback читается через `rememberUpdatedState`.
+- смена обратный вызов не должна перезапускать таймер;
+- актуальный обратный вызов читается через `rememberUpdatedState`.
 
 <MouseTrap>
-`LaunchedEffect(Unit)` без `rememberUpdatedState` часто захватывает устаревшую lambda. Если callback может измениться, не вызывайте его напрямую из long-lived effect.
+`LaunchedEffect(Unit)` без `rememberUpdatedState` часто захватывает устаревшую лямбда. Если обратный вызов может измениться, не вызывайте его напрямую из long-lived effect.
 </MouseTrap>
 
 ## Snackbar
@@ -240,7 +240,7 @@ fun ErrorSnackbarHost(
 
 ## Navigation
 
-Навигация — side effect. Ее нельзя выполнять напрямую в теле composable.
+Навигация — побочный эффект. Ее нельзя выполнять напрямую в теле composable.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -259,7 +259,7 @@ fun NavigateWhenLoggedIn(
 }
 ```
 
-Этот код подходит для простого state-driven case. Для production-навигации часто лучше ViewModel effect stream:
+Этот код подходит для простого state-driven case. Для боевой-навигации часто лучше ViewModel effect stream:
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -291,7 +291,7 @@ fun LoginNavigationCollector(
 
 ## Flow collection
 
-`LaunchedEffect` может собирать `Flow`, если collection относится к side effect.
+`LaunchedEffect` может собирать `Flow`, если collection относится к побочный эффект.
 
 ```kotlin
 import androidx.compose.foundation.lazy.LazyListState
@@ -331,7 +331,7 @@ fun TrackScrollPastFirstItem(
 
 Здесь `snapshotFlow` превращает чтение Compose state в `Flow`, а `LaunchedEffect` управляет lifetime collection.
 
-Для screen UI state из ViewModel обычно лучше использовать `collectAsStateWithLifecycle`, а не ручной collection.
+Для screen UI-состояние из ViewModel обычно лучше использовать `collectAsStateWithLifecycle`, а не ручной collection.
 
 ## Animation
 
@@ -390,7 +390,7 @@ fun PulseDot(
 
 ## Network trigger pitfalls
 
-`LaunchedEffect` может вызвать suspend-загрузку, но не должен заменять ViewModel там, где есть screen-level data loading.
+`LaunchedEffect` может вызвать suspend-загрузку, но не должен заменять ViewModel там, где есть screen-level data загрузка.
 
 Допустимо для маленького локального adapter:
 
@@ -428,9 +428,9 @@ fun UsernameLabel(
 
 - загрузка переживает configuration changes;
 - легче тестировать;
-- можно обрабатывать error/loading/retry;
+- можно обрабатывать error/загрузка/retry;
 - можно объединять несколько источников данных;
-- UI не содержит data loading policy.
+- UI не содержит data загрузка policy.
 
 ## Производственный пример: route effects
 
@@ -556,7 +556,7 @@ fun WrongArticleEffect(
 
 ### Выполнять тяжелую синхронную работу
 
-`LaunchedEffect` запускает coroutine, но тяжелая синхронная работа все равно может заблокировать поток. Используйте подходящий dispatcher на уровне repository или use case.
+`LaunchedEffect` запускает coroutine, но тяжелая синхронная работа все равно может заблокировать поток. Используйте подходящий dispatcher на уровне репозиторий или сценарий использования.
 
 ### Использовать LaunchedEffect для обычного state mapping
 
@@ -564,15 +564,15 @@ fun WrongArticleEffect(
 
 ## Итоги
 
-`LaunchedEffect` — основной API для coroutine-side effects:
+`LaunchedEffect` — основной API для coroutine-побочные эффекты:
 
 - запускается при входе в composition;
 - отменяется при выходе из composition;
 - перезапускается при изменении ключей;
 - подходит для suspend APIs;
-- хорош для snackbar, scroll, animation, timers и collection side effects;
+- хорош для snackbar, scroll, animation, timers и collection побочные эффекты;
 - `Unit` как ключ требует осторожности;
-- для свежих callback используйте `rememberUpdatedState`;
-- для UI state из ViewModel чаще используйте `collectAsStateWithLifecycle`;
+- для свежих обратный вызов используйте `rememberUpdatedState`;
+- для UI-состояние из ViewModel чаще используйте `collectAsStateWithLifecycle`;
 - для coroutine из event handler используйте `rememberCoroutineScope`;
-- не заменяйте ViewModel data loading простым `LaunchedEffect`, если состояние принадлежит экрану.
+- не заменяйте ViewModel data загрузка простым `LaunchedEffect`, если состояние принадлежит экрану.

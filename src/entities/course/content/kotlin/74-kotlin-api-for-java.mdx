@@ -1,8 +1,8 @@
 ---
-title: "Kotlin API for Java"
+title: "Kotlin API для Java"
 description: "Проектирование Kotlin API для Java: @JvmName, @file:JvmName, @JvmStatic, @JvmField, const val, @JvmOverloads, @Throws, @JvmSynthetic, @JvmWildcard, @JvmSuppressWildcards и удобные фасады."
 order: 74
-category: "Java и JVM interoperability"
+category: "Java и JVM-интероперабельность"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Kotlin API не всегда выглядит идеально из Java
 
-Kotlin features часто компилируются в JVM bytecode, который Java видит иначе: top-level functions становятся static methods в synthetic class, properties становятся getters/setters, default parameters не становятся Java overloads сами по себе.
+Kotlin features часто компилируются в JVM bytecode, который Java видит иначе: top-level functions становятся static methods в synthetic class, properties становятся getters/setters, параметры по умолчанию не становятся Java перегрузки сами по себе.
 
 ```kotlin
 package com.example.lessons
@@ -198,7 +198,7 @@ int limit = LessonConstants.DEFAULT_LIMIT;
 
 ## `@JvmOverloads`
 
-Kotlin default parameters из Java не превращаются автоматически в удобные overloads.
+Kotlin параметры по умолчанию из Java не превращаются автоматически в удобные перегрузки.
 
 ```kotlin
 class LessonClient {
@@ -214,7 +214,7 @@ Java без `@JvmOverloads` должна передать все parameters.
 client.load("01-introduction", false, 3);
 ```
 
-`@JvmOverloads` генерирует overloads, удаляя parameters с default values справа налево.
+`@JvmOverloads` генерирует перегрузки, удаляя parameters с значения по умолчанию справа налево.
 
 ```kotlin
 class JavaFriendlyLessonClient {
@@ -234,7 +234,7 @@ client.load("01-introduction", true, 5);
 ```
 
 <MouseTrap>
-`@JvmOverloads` может раздуть API большим числом overloads. Используй его на Java-facing methods, а не на каждом Kotlin function с default parameters.
+`@JvmOverloads` может раздуть API большим числом перегрузки. Используй его на Java-facing methods, а не на каждом Kotlin function с параметры по умолчанию.
 </MouseTrap>
 
 ## `@Throws`
@@ -299,7 +299,7 @@ interface LessonSink {
 }
 ```
 
-Если Java caller жалуется на wildcard shape, можно точечно управлять.
+Если Java вызывающий код жалуется на wildcard shape, можно точечно управлять.
 
 ```kotlin
 fun acceptFlexible(items: List<@JvmWildcard Lesson>) {
@@ -384,7 +384,7 @@ Lesson lesson = LessonFactories.create("01-introduction", "Введение");
 
 Так ты сохраняешь idiomatic Kotlin DSL и даешь Java callers простой API.
 
-## Production-пример: библиотечный API
+## Боевой-пример: библиотечный API
 
 ```kotlin
 @file:JvmName("KotlingoLessons")
@@ -464,7 +464,7 @@ String slug = KotlingoLessons.normalizeLessonSlug(" Intro ");
 fun create(): Lesson = Lesson(...)
 ```
 
-Для default parameters на Java-facing methods используй `@JvmOverloads` точечно.
+Для параметры по умолчанию на Java-facing methods используй `@JvmOverloads` точечно.
 
 ```kotlin
 @JvmOverloads
@@ -481,7 +481,7 @@ fun read(): String
 Для Java callers не экспортируй сложный Kotlin DSL как единственный путь. Дай facade.
 
 <CatTip>
-Лучший Kotlin API для Java не обязан выглядеть как Kotlin. Он должен быть предсказуемым для Java-разработчика: static там, где ожидают static, overloads там, где нет default parameters, и checked exceptions там, где Java compiler их требует.
+Лучший Kotlin API для Java не обязан выглядеть как Kotlin. Он должен быть предсказуемым для Java-разработчика: static там, где ожидают static, перегрузки там, где нет параметры по умолчанию, и checked exceptions там, где Java compiler их требует.
 </CatTip>
 
 

@@ -1,8 +1,8 @@
 ---
-title: "Canonical layouts"
-description: "Разбираем canonical layouts в Jetpack Compose: list-detail, supporting pane, feed, adaptive navigation patterns, Material 3 Adaptive scaffolds, pane state, back behavior, selection, placeholders, previews и testing."
+title: "Канонические разметки"
+description: "Разбираем canonical layouts в Jetpack Compose: list-detail, supporting pane, feed, adaptive navigation patterns, Material 3 Adaptive scaffolds, pane state, back behavior, selection, заглушки, предпросмотры и testing."
 order: 94
-category: "Compose: Adaptive UI and form factors"
+category: "Compose: адаптивный UI и форм-факторы"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что такое canonical layouts
 
-Canonical layouts — это проверенные adaptive patterns для больших и изменяемых окон. Они отвечают не на вопрос "как растянуть телефонный экран?", а на вопрос "какая структура лучше поддерживает workflow на compact, medium и expanded widths?".
+Canonical layouts — это проверенные adaptive patterns для больших и изменяемых окон. Они отвечают не на вопрос "как растянуть телефонный экран?", а на вопрос "какая структура лучше поддерживает рабочий процесс на compact, medium и expanded widths?".
 
 В Android adaptive guidance чаще всего встречаются:
 
@@ -37,7 +37,7 @@ data class CanonicalLayoutDecision(
 ```
 
 <CatTip>
-Canonical layout — это не визуальная мода для планшета. Это способ сохранить пользовательский workflow, когда окно внезапно стало шире, уже или разделилось на panes.
+Canonical layout — это не визуальная мода для планшета. Это способ сохранить пользовательский рабочий процесс, когда окно внезапно стало шире, уже или разделилось на panes.
 </CatTip>
 
 ## List-detail
@@ -62,7 +62,7 @@ Expanded behavior:
 
 - list и detail видны рядом;
 - selection в list обновляет detail;
-- если selection нет, detail показывает placeholder.
+- если selection нет, detail показывает заглушка.
 
 ```kotlin
 data class LessonBrowserState(
@@ -142,7 +142,7 @@ fun ExpandedLessonBrowser(
 }
 ```
 
-Важное правило: `selectedLessonId` принадлежит state holder, а не local remember внутри layout branch.
+Важное правило: `selectedLessonId` принадлежит держатель состояния, а не local remember внутри layout branch.
 
 ## List-detail через Material 3 Adaptive
 
@@ -508,7 +508,7 @@ fun ListDetailBackHandler(
 
 ## Placeholders
 
-Expanded list-detail нуждается в placeholder, если item не выбран.
+Expanded list-detail нуждается в заглушка, если item не выбран.
 
 ```kotlin
 import androidx.compose.foundation.layout.Box
@@ -535,9 +535,9 @@ fun LessonDetailPlaceholder(
 }
 ```
 
-Placeholder должен быть полезным, а не пустой белой областью. Можно показать подсказку, recent items, summary или keyboard shortcuts.
+Заглушка должен быть полезным, а не пустой белой областью. Можно показать подсказку, recent items, summary или keyboard shortcuts.
 
-## State hoisting
+## Подъем состояния
 
 Canonical layout state:
 
@@ -575,16 +575,16 @@ Layout branch не должен владеть selected state.
 Если selected item хранится внутри compact detail composable, expanded layout не сможет показать тот же detail рядом со списком после resize.
 </MouseTrap>
 
-## Previews
+## Предпросмотры
 
-Canonical layout нужно preview-ить в нескольких window states и content states:
+Canonical layout нужно предпросмотр-ить в нескольких window states и content states:
 
 - compact без selection;
 - compact с detail;
 - expanded без selection;
 - expanded с selection;
 - empty list;
-- loading;
+- загрузка;
 - error;
 - large font.
 
@@ -608,7 +608,7 @@ fun LessonBrowserPreview() {
 }
 ```
 
-Preview state должен быть явным. Не создавайте ViewModel в preview.
+Предпросмотр state должен быть явным. Не создавайте ViewModel в предпросмотр.
 
 ## Testing canonical layouts
 
@@ -685,7 +685,7 @@ class LessonBrowserUiTest {
 
 Большой экран не должен быть просто широкой колонкой с длинными строками.
 
-### Делать detail обязательным на expanded без placeholder
+### Делать detail обязательным на expanded без заглушка
 
 Пустая область выглядит как сломанный экран.
 
@@ -711,10 +711,10 @@ Canonical layouts дают устойчивые adaptive patterns:
 
 - list-detail показывает list и выбранный detail;
 - compact list-detail требует pane navigation и back-to-list behavior;
-- expanded list-detail показывает panes рядом и нуждается в placeholder;
+- expanded list-detail показывает panes рядом и нуждается в заглушка;
 - supporting pane помогает main content, но не является самостоятельным detail;
 - feed адаптирует количество columns и spans к доступной ширине;
 - adaptive navigation меняет surface, но не navigation state;
 - Material 3 Adaptive scaffolds помогают управлять panes и transitions;
 - selected item, pane state и filters нужно hoist-ить;
-- previews и tests должны покрывать compact/expanded, empty/selected и font scale states.
+- предпросмотры и tests должны покрывать compact/expanded, empty/selected и font scale states.

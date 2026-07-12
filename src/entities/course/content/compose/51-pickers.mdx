@@ -1,8 +1,8 @@
 ---
-title: "Pickers"
-description: "Разбираем Material 3 pickers в Compose: DatePicker, DatePickerDialog, DateRangePicker, TimePicker, TimeInput, rememberDatePickerState, rememberTimePickerState, dialogs, state objects и production-конвертацию дат."
+title: "Пикеры"
+description: "Разбираем Material 3 pickers в Compose: DatePicker, DatePickerDialog, DateRangePicker, TimePicker, TimeInput, rememberDatePickerState, rememberTimePickerState, диалогах, state objects и боевой-конвертацию дат."
 order: 51
-category: "Compose: Material 3 components and app structure"
+category: "Compose: компоненты Material 3 и структура приложения"
 difficulty: "Средний"
 ---
 
@@ -425,7 +425,7 @@ Time input удобен, если пользователь часто знает
 
 ## Time picker dialog
 
-Material time picker часто показывают в dialog. Можно сделать reusable dialog.
+Material time picker часто показывают в dialog. Можно сделать переиспользуемый dialog.
 
 ```kotlin
 import androidx.compose.foundation.layout.Column
@@ -484,7 +484,7 @@ fun TimePickerDialog(
 }
 ```
 
-## Production-пример: планировщик напоминания
+## Боевой-пример: планировщик напоминания
 
 ```kotlin
 import androidx.compose.foundation.layout.Column
@@ -578,7 +578,7 @@ fun ReminderPickerSection(
 }
 ```
 
-Здесь UI хранит только флаги видимости dialogs. Доменное значение `ReminderDraft` приходит снаружи и отправляется наружу через callback.
+Здесь UI хранит только флаги видимости диалогах. Доменное значение `ReminderDraft` приходит снаружи и отправляется наружу через обратный вызов.
 
 ## Типичные ошибки
 
@@ -592,7 +592,7 @@ fun ReminderPickerSection(
 
 ### Делать picker единственным местом валидации
 
-Валидация должна существовать на уровне state holder или domain layer.
+Валидация должна существовать на уровне держатель состояния или domain layer.
 
 ### Игнорировать input mode
 
@@ -615,4 +615,4 @@ Pickers помогают выбирать валидные значения:
 - `TimeInput` дает keyboard-ввод времени;
 - `rememberTimePickerState` хранит hour/minute;
 - picker state лучше преобразовывать в доменные `LocalDate` и `LocalTime`;
-- для production UX нужны confirm/cancel, null-handling, validation и понятное форматирование.
+- для боевой UX нужны confirm/cancel, null-handling, validation и понятное форматирование.

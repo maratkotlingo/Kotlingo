@@ -1,8 +1,8 @@
 ---
-title: "Java Calls from Kotlin"
+title: "Вызовы Java из Kotlin"
 description: "Вызовы Java из Kotlin: getters/setters как synthetic properties, static members, SAM conversions, checked exceptions, platform types, raw types, Java generics, nullability annotations и практические adapter-паттерны."
 order: 73
-category: "Java и JVM interoperability"
+category: "Java и JVM-интероперабельность"
 difficulty: "Продвинутый"
 ---
 
@@ -109,7 +109,7 @@ val larger = max(10, 20)
 
 ## SAM conversions
 
-SAM, single abstract method interface, можно реализовать lambda-выражением.
+SAM, single abstract method interface, можно реализовать лямбда-выражением.
 
 Java:
 
@@ -136,7 +136,7 @@ runner.run { slug ->
 }
 ```
 
-Если overloads делают lambda ambiguous, укажи SAM type явно.
+Если перегрузки делают лямбда ambiguous, укажи SAM type явно.
 
 ```kotlin
 runner.run(
@@ -146,11 +146,11 @@ runner.run(
 )
 ```
 
-SAM conversion особенно часто встречается в Java APIs: listeners, callbacks, executors.
+SAM conversion особенно часто встречается в Java APIs: listeners, обратные вызовы, executors.
 
 ## Checked exceptions
 
-Kotlin не имеет checked exceptions. Java methods, объявляющие `throws IOException`, не заставляют Kotlin caller писать `try/catch`.
+Kotlin не имеет checked exceptions. Java methods, объявляющие `throws IOException`, не заставляют Kotlin вызывающий код писать `try/catch`.
 
 Java:
 
@@ -401,7 +401,7 @@ val result = runCatching { JavaFiles.readConfig() }
 val typed = raw.filterIsInstance<String>()
 ```
 
-Используй SAM conversions, но указывай type явно при overload ambiguity.
+Используй SAM conversions, но указывай type явно при перегрузка ambiguity.
 
 ```kotlin
 runner.run(LessonCallback { slug -> println(slug) })

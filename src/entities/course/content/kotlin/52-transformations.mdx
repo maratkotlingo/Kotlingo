@@ -444,7 +444,7 @@ val fullUrls = progressBySlug.mapKeys { (slug, _) ->
 При `mapKeys` новые keys тоже могут совпасть. Если два старых ключа превращаются в один новый ключ, последнее значение перезапишет предыдущее.
 </MouseTrap>
 
-## Production-пример: построение страницы курса
+## Боевой-пример: построение страницы курса
 
 ```kotlin
 data class RawLesson(
@@ -511,9 +511,9 @@ fun buildCourseLessons(rawLessons: List<RawLesson>): List<CoursePageLesson> {
 }
 ```
 
-Этот пример показывает типичный production pipeline: внешний nullable input постепенно превращается в строгую модель, с которой проще работать дальше.
+Этот пример показывает типичный боевой pipeline: внешний nullable input постепенно превращается в строгую модель, с которой проще работать дальше.
 
-## Transformation и side effects
+## Transformation и побочные эффекты
 
 Transform-функции лучше держать pure. `map` должен описывать преобразование данных, а не запускать отправку email, запись в базу или изменение внешнего состояния.
 

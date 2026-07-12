@@ -1,8 +1,8 @@
 ---
-title: "Channels"
+title: "Каналы"
 description: "Channels в Kotlin coroutines: Channel, send, receive, trySend, tryReceive, capacity, buffered channels, closing, cancellation, producer-consumer pipelines, fan-out, fan-in и выбор между Channel, Flow и SharedFlow."
 order: 87
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -175,9 +175,9 @@ fun trySendExample() {
 }
 ```
 
-`trySend` полезен, когда caller не может suspend-иться:
+`trySend` полезен, когда вызывающий код не может suspend-иться:
 
-- callback из Java API;
+- обратный вызов из Java API;
 - UI listener;
 - low-level logging hook;
 - best-effort telemetry;
@@ -322,9 +322,9 @@ fun cancelChannelExample() = runBlocking {
 }
 ```
 
-Use `close`, когда producer завершился normally и хочет доставить buffered values.
+Используй `close`, когда producer завершился штатно и хочет доставить buffered values.
 
-Use `cancel`, когда consumer прекращает collection и values больше не нужны.
+Используй `cancel`, когда consumer прекращает collection и values больше не нужны.
 
 ## `onUndeliveredElement`
 
@@ -362,7 +362,7 @@ fun undeliveredElementExample() = runBlocking {
 - buffers;
 - file handles;
 - temporary resources;
-- objects from pools;
+- объекты из пулов;
 - native resources.
 
 ## `produce`
@@ -393,7 +393,7 @@ fun produceExample() = runBlocking {
 
 `produce` is scoped: producer coroutine is child of receiver scope, если ты вызываешь его внутри structured scope.
 
-Для многих stream APIs лучше начать с `Flow`. Channel больше подходит, когда нужен explicit queue, fan-out, multiple senders или integration с callback/worker pipeline.
+Для многих stream APIs лучше начать с `Flow`. Channel больше подходит, когда нужен explicit queue, fan-out, multiple senders или integration с обратный вызов/worker pipeline.
 
 ## Producer-consumer pipeline
 
@@ -564,10 +564,10 @@ fun safeFanInClosingExample() = runBlocking {
 
 Используй `Flow`, когда:
 
-- нужен stream values для caller-а;
+- нужен stream values для вызывающий код-а;
 - stream удобно описывается declarative operators;
 - collector должен управлять cancellation;
-- нужен cold stream by default;
+- нужен cold stream по умолчанию;
 - хочешь transformations like `map`, `filter`, `retry`, `flowOn`.
 
 Используй `Channel`, когда:
@@ -576,7 +576,7 @@ fun safeFanInClosingExample() = runBlocking {
 - есть multiple producers или multiple consumers;
 - нужен fan-out worker pool;
 - нужно вручную управлять buffer/backpressure;
-- нужно bridge callback API to coroutine world;
+- нужно bridge обратный вызов API to coroutine world;
 - нужен explicit close/cancel protocol.
 
 Используй `SharedFlow`, когда:
@@ -590,7 +590,7 @@ fun safeFanInClosingExample() = runBlocking {
 Практическое правило: `Flow` рассказывает историю значений, `Channel` передает работу между исполнителями, `SharedFlow` разносит события по подписчикам.
 </CatTip>
 
-## Production pattern: worker queue
+## Боевой pattern: worker queue
 
 ```kotlin
 import kotlinx.coroutines.CancellationException
@@ -660,4 +660,3 @@ class LessonIndexer {
 - умеет emergency cancellation через `cancel`;
 - не проглатывает `CancellationException`;
 - локально обрабатывает обычные worker failures.
-

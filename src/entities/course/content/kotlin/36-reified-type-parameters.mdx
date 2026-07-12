@@ -1,8 +1,8 @@
 ---
-title: "Reified type parameters"
+title: "Reified-параметры типов"
 description: "Разбираем type erasure, inline reified-параметры, проверки is T, T::class, typeOf, serializers, вложенные generic-типы и ограничения runtime-информации."
 order: 36
-category: "Generics и типовая система"
+category: "Дженерики и типовая система"
 difficulty: "Продвинутый"
 ---
 
@@ -52,7 +52,7 @@ fun inspect(value: Any) {
 
 Elements имеют type `Any?`, потому что exact argument неизвестен.
 
-## Reified сохраняет type argument в inline call site
+## Reified сохраняет type argument в inline место вызова
 
 ```kotlin
 inline fun <reified T> typeName(): String {
@@ -70,7 +70,7 @@ fun main() {
 - function должна быть `inline`;
 - parameter помечается `reified`.
 
-Compiler вставляет body в call site и подставляет concrete type, поэтому operations над `T` становятся возможны.
+Compiler вставляет body в место вызова и подставляет concrete type, поэтому operations над `T` становятся возможны.
 
 ## `is T`
 
@@ -244,9 +244,9 @@ interface TypedDecoder {
 }
 ```
 
-Production serializer должен вернуть validated T; unchecked cast в adapter допустим только если decoder contract гарантирует type token. Реальные libraries обычно предоставляют `serializer<T>()`, generated serializers или explicit schema objects.
+Боевой serializer должен вернуть validated T; unchecked cast в adapter допустим только если decoder contract гарантирует type token. Реальные libraries обычно предоставляют `serializer<T>()`, generated serializers или explicit schema objects.
 
-Reified упрощает call site:
+Reified упрощает место вызова:
 
 ```kotlin
 // val lesson: Lesson = json.decode("...")
@@ -273,7 +273,7 @@ val result = isInstance("Kotlin", String::class)
 - меньше code duplication;
 - token можно хранить в registry.
 
-Reified удобнее, когда type известен compile time на call site.
+Reified удобнее, когда type известен compile time на место вызова.
 
 ## Alternative: factory/decoder parameter
 
@@ -288,7 +288,7 @@ val id = parse("36", String::toInt)
 Если algorithm нужна operation, а не runtime type, strategy parameter проще reified/reflection.
 
 <CatTip title="Котосовет: передавай способность, если нужна способность">
-Не используй `T::class` для огромного `when`, если caller может передать parser/factory. Reified полезен для type-directed API, но dependency injection остаётся яснее.
+Не используй `T::class` для огромного `when`, если вызывающий код может передать parser/factory. Reified полезен для type-directed API, но dependency injection остаётся яснее.
 </CatTip>
 
 ## Ограничения reified
@@ -297,7 +297,7 @@ Reified parameter:
 
 - разрешён только у inline function/property accessor в допустимой форме;
 - не объявляется у class/interface;
-- должен получать reifiable type на call site;
+- должен получать reifiable type на место вызова;
 - не может получить runtime identity для arbitrary erased nested values;
 - увеличивает inlined code at call sites;
 - делает body частью public inline ABI.
@@ -374,7 +374,7 @@ inline fun <reified T> loggedTypeName(): String {
 
 - нет ручной передачи KClass;
 - `is T` может компилироваться в прямой check;
-- lambda inline API может не аллоцироваться.
+- лямбда inline API может не аллоцироваться.
 
 Минусы:
 
@@ -445,7 +445,7 @@ fun main() {
 
 Здесь:
 
-- reified overload превращает `E` в `E::class`;
+- reified перегрузка превращает `E` в `E::class`;
 - non-inline core принимает explicit KClass;
 - unchecked cast изолирован после runtime `isInstance` check;
 - `noinline` нужен, потому что handler сохраняется/передаётся другой function;
@@ -456,7 +456,7 @@ fun main() {
 
 - JVM generic type arguments обычно erased;
 - ordinary `T` нельзя использовать в `is T` или `T::class`;
-- `inline fun <reified T>` подставляет type в call site;
+- `inline fun <reified T>` подставляет type в место вызова;
 - reified разрешает `is T`, `as? T`, `T::class` и `typeOf<T>()`;
 - nested generic arguments не становятся автоматически проверяемыми;
 - collections нужно валидировать element-by-element или serializer schema;

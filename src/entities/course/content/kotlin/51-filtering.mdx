@@ -1,5 +1,5 @@
 ---
-title: "Filtering"
+title: "Фильтрация"
 description: "Фильтрация коллекций: filter, filterNot, filterIndexed, filterIsInstance, filterNotNull, partition, работа с Map, порядок элементов, null-safety и типичные ошибки predicate-логики."
 order: 51
 category: "Коллекции"
@@ -24,7 +24,7 @@ val adults = ages.filter { age ->
 println(adults) // [18, 21, 64]
 ```
 
-Ключевая идея: filtering не изменяет исходную read-only collection. Большинство filtering-операций возвращают новый `List`, сохраняя relative order элементов, которые прошли проверку.
+Ключевая идея: filtering не изменяет исходную только для чтения collection. Большинство filtering-операций возвращают новый `List`, сохраняя relative order элементов, которые прошли проверку.
 
 <CatTip>
 Фильтрация — это «кошачий проход через дверцу»: каждый элемент подходит к predicate, получает `true` или `false`, и только элементы с `true` проходят дальше.
@@ -409,7 +409,7 @@ val errors = events.filterIsInstance<ErrorEvent>()
 val (valid, invalid) = rows.partition { row -> row.isValid() }
 ```
 
-## Production-пример: фильтрация уроков для dashboard
+## Боевой-пример: фильтрация уроков для dashboard
 
 ```kotlin
 enum class Difficulty {
@@ -473,7 +473,7 @@ fun buildDashboard(
 
 Здесь filtering используется как цепочка доменных ограничений. Каждый шаг оставляет данные в понятном состоянии: сначала видимые уроки, затем completed/notCompleted, затем recommended/postponed.
 
-## Производительность и side effects
+## Производительность и побочные эффекты
 
 Обычные filtering-операции для `Iterable` создают новую collection. Если pipeline длинный и исходная collection большая, можно рассмотреть `Sequence`, но только после измерений.
 

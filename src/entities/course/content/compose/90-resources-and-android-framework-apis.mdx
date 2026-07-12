@@ -1,8 +1,8 @@
 ---
-title: "Resources and Android framework APIs"
-description: "Разбираем Android resources и framework APIs в Jetpack Compose: stringResource, pluralStringResource, dimensionResource, colorResource, painterResource, animatedVectorResource, LocalContext, LocalConfiguration, LocalView, theme boundaries и platform side effects."
+title: "Ресурсы и API Android framework"
+description: "Разбираем Android resources и framework APIs в Jetpack Compose: stringResource, pluralStringResource, dimensionResource, colorResource, painterResource, animatedVectorResource, LocalContext, LocalConfiguration, LocalView, theme boundaries и platform побочные эффекты."
 order: 90
-category: "Compose: Interoperability and migration"
+category: "Compose: интероперабельность и миграция"
 difficulty: "Средний"
 ---
 
@@ -182,7 +182,7 @@ fun CompletedLessonsLabel(
 }
 ```
 
-Первый `count` выбирает plural branch. Второй `count` подставляется в `%1$d`. Если в строке нет числового placeholder, третий аргумент не нужен.
+Первый `count` выбирает plural branch. Второй `count` подставляется в `%1$d`. Если в строке нет числового заглушка, третий аргумент не нужен.
 
 <MouseTrap>
 Plural rules отличаются между языками. Русский, английский, арабский и польский не укладываются в простую проверку "один или много".
@@ -265,7 +265,7 @@ fun ThemedDivider() {
 }
 ```
 
-`colorResource` может flatten-ить `ColorStateList`, поэтому не используйте его как полноценную замену stateful color design. Для interactive colors используйте theme, component defaults или собственную state mapping функцию.
+`colorResource` может flatten-ить `ColorStateList`, поэтому не используйте его как полноценную замену stateful color design. Для interactive colors используйте theme, component значения по умолчанию или собственную state mapping функцию.
 
 ## `painterResource`
 
@@ -321,7 +321,7 @@ fun DeleteLessonButton(
 }
 ```
 
-`painterResource` декодирует/парсит ресурс на main thread. Для больших изображений, remote images и сложных resize scenarios используйте image loading library, например Coil.
+`painterResource` декодирует/парсит ресурс на main thread. Для больших изображений, remote images и сложных resize scenarios используйте image загрузка library, например Coil.
 
 ## Animated vector resources
 
@@ -534,7 +534,7 @@ fun rememberTouchSlopPx(): Float {
 }
 ```
 
-Не храните px value глобально. Density может измениться при configuration changes, display changes и в preview/test environments.
+Не храните px value глобально. Density может измениться при configuration changes, display changes и в предпросмотр/test environments.
 
 ## Framework services
 
@@ -590,9 +590,9 @@ fun OfflineBanner(
 
 Так UI остается тестируемым без Android framework.
 
-## Side effects с framework APIs
+## Побочные эффекты с framework APIs
 
-Если framework API должен вызваться при изменении state, используйте effect API.
+Если framework API должен вызваться при изменении state, используйте API эффектов.
 
 ```kotlin
 import android.view.Window
@@ -660,11 +660,11 @@ fun LoginErrorText(
 
 Domain остается свободным от Android resources.
 
-## Preview resources
+## Предпросмотр resources
 
-Previews умеют использовать resources, но иногда ломаются из-за отсутствующих runtime dependencies, theme setup или слишком сложного `LocalContext` usage.
+Предпросмотры умеют использовать resources, но иногда ломаются из-за отсутствующих runtime dependencies, theme настройка или слишком сложного `LocalContext` usage.
 
-Хороший preview не должен запускать реальные platform actions:
+Хороший предпросмотр не должен запускать реальные platform actions:
 
 ```kotlin
 import androidx.compose.ui.tooling.preview.Preview
@@ -681,7 +681,7 @@ fun WelcomeHeaderPreview() {
 }
 ```
 
-Если composable требует `Context` для side effect, вынесите side effect в callback и preview передаст пустую lambda.
+Если composable требует `Context` для побочный эффект, вынесите побочный эффект в обратный вызов и предпросмотр передаст пустую лямбда.
 
 ## Testing resources
 
@@ -741,9 +741,9 @@ Plural rules сложнее, чем `if (count == 1)`.
 
 ViewModel становится Android UI dependent и хуже тестируется.
 
-### Вызывать framework side effects во время composition
+### Вызывать framework побочные эффекты во время composition
 
-Используйте `LaunchedEffect`, `DisposableEffect` или callback в host.
+Используйте `LaunchedEffect`, `DisposableEffect` или обратный вызов в host.
 
 ### Хранить px после density conversion
 
@@ -756,12 +756,12 @@ Compose работает вместе с Android resources и framework APIs:
 - `stringResource` читает локализованные строки;
 - format args должны быть positional;
 - `pluralStringResource` нужен для quantity strings;
-- `dimensionResource` полезен для shared XML/Compose tokens;
+- `dimensionResource` полезен для общий XML/Compose tokens;
 - `colorResource` подходит для migration, но theme лучше для нового UI;
 - `painterResource` загружает vector/raster assets, но не заменяет image loader;
 - animated vectors можно использовать через animation graphics resources;
 - fonts подключаются через `Font`, `FontFamily` и `Typography`;
 - `LocalContext`, `LocalConfiguration`, `LocalView`, `LocalDensity` дают Android/Compose environment;
-- framework side effects должны жить в effect API или host layer;
+- framework побочные эффекты должны жить в API эффектов или host layer;
 - ViewModel/domain не должны зависеть от `R.string` и Android `Context`;
 - resources помогают сохранить localization, density и configuration behavior при переходе на Compose.

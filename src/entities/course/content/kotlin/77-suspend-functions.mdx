@@ -1,8 +1,8 @@
 ---
-title: "Suspend Functions"
+title: "Suspend-функции"
 description: "Suspend functions в Kotlin: suspend keyword, suspension points, sequential style, non-blocking delay, conceptual continuations, suspend function types, main-safe design и отличие suspend от CoroutineScope."
 order: 77
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -129,7 +129,7 @@ suspend fun readFile(path: Path): String = withContext(Dispatchers.IO) {
 }
 ```
 
-Android docs часто формулируют это как main-safe suspend functions: caller должен иметь возможность вызвать suspend function с main thread, а сама function отвечает за нужный dispatcher switch.
+Android docs часто формулируют это как main-safe suspend functions: вызывающий код должен иметь возможность вызвать suspend function с main thread, а сама function отвечает за нужный dispatcher switch.
 
 ## Conceptual continuation
 
@@ -161,7 +161,7 @@ suspend fun loadAndNormalize(slug: String): String {
 val loader: suspend (String) -> String = ::loadLessonTitle
 ```
 
-Можно принимать suspend lambda.
+Можно принимать suspend лямбда.
 
 ```kotlin
 suspend fun <T> measured(
@@ -265,7 +265,7 @@ suspend fun loadSafely(slug: String): Result<String> {
 }
 ```
 
-## Production-пример: repository contract
+## Боевой-пример: репозиторий contract
 
 ```kotlin
 data class Lesson(
@@ -307,7 +307,7 @@ data class LessonResponse(
 )
 ```
 
-Repository объявляет `suspend`, потому что loading может ждать network/database. Caller получает sequential API без callbacks.
+Репозиторий объявляет `suspend`, потому что загрузка может ждать network/база данных. Caller получает sequential API без обратные вызовы.
 
 ## Практические правила
 

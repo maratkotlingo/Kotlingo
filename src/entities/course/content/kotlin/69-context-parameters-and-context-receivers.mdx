@@ -1,8 +1,8 @@
 ---
-title: "Context Parameters and Context Receivers"
+title: "Контекстные параметры и context receivers"
 description: "Современные context parameters в Kotlin: context(name: Type), отличие от старых context receivers, разрешение по типу, неоднозначности, explicit context arguments, ограничения и experimental-флаги."
 order: 69
-category: "DSL, аннотации и metaprogramming"
+category: "DSL, аннотации и метапрограммирование"
 difficulty: "Эксперт"
 ---
 
@@ -39,7 +39,7 @@ context(logger) {
 }
 ```
 
-Главная идея: функция явно пишет в signature, какие contextual capabilities ей нужны, а caller предоставляет их один раз на scope.
+Главная идея: функция явно пишет в signature, какие contextual capabilities ей нужны, а вызывающий код предоставляет их один раз на scope.
 
 <CatTip>
 Context parameter — это как тихий кошачий помощник в комнате: его не передают в каждую миску руками, но все функции в комнате знают, что он рядом и может помочь.
@@ -114,7 +114,7 @@ context(logger) {
 
 ## Разрешение по типу
 
-Kotlin ищет matching context value по type at call site.
+Kotlin ищет matching context value по type at место вызова.
 
 ```kotlin
 interface PermissionChecker {
@@ -195,7 +195,7 @@ fun renderWithSelectedLogger(slug: String): String {
 }
 ```
 
-Этот синтаксис особенно полезен, когда overloads отличаются context parameters.
+Этот синтаксис особенно полезен, когда перегрузки отличаются context parameters.
 
 ```kotlin
 class EmailSender {
@@ -338,7 +338,7 @@ fun publishedLesson(slug: String): PublishedLesson {
 }
 ```
 
-## Production-пример: scoped validation
+## Боевой-пример: scoped validation
 
 ```kotlin
 interface SlugPolicy {
@@ -378,7 +378,7 @@ fun validateLesson(slug: String, title: String): Result<ValidatedLesson> {
 }
 ```
 
-Usage:
+Использование:
 
 ```kotlin
 val policy = object : SlugPolicy {

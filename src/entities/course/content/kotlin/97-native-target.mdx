@@ -1,6 +1,6 @@
 ---
-title: "Native Target"
-description: "Kotlin/Native target: memory manager, C interop, Objective-C/Swift interop, Apple frameworks, XCFramework, native binaries, freezing history and modern behavior."
+title: "Native-таргет"
+описание: «Цель Kotlin/Native: менеджер памяти, взаимодействие C, взаимодействие Objective-C/Swift, платформы Apple, XCFramework, собственные двоичные файлы, история замораживания и современное поведение».
 order: 97
 category: "Kotlin Multiplatform"
 difficulty: "Продвинутый"
@@ -13,14 +13,14 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 Kotlin/Native компилирует Kotlin code в native binaries for platforms where JVM is not the runtime.
 
-Use cases:
+Сценарии использования:
 
-- iOS shared modules;
+- iOS общие модули;
 - macOS command-line tools;
-- Linux native services or tools;
+- Собственные службы или инструменты Linux;
 - Windows native tools;
-- libraries exported to C/C++ consumers;
-- Apple frameworks used from Swift/Objective-C;
+- библиотеки, экспортированные потребителям C/C++;
+- Фреймворки Apple, используемые из Swift/Objective-C;
 - code sharing between mobile platforms through KMP.
 
 ```kotlin
@@ -32,7 +32,7 @@ kotlin {
 }
 ```
 
-Native target produces `klib` by default. To produce executable, static/shared library or Apple framework, configure `binaries`.
+Native target produces `klib` по умолчанию. To produce executable, static/общий library or Apple framework, configure `binaries`.
 
 <CatTip>
 Kotlin/Native — это кот без JVM-переноски: Kotlin code идет прямо в native runtime и должен уважать правила C, Swift, Objective-C, linker-а и платформенной памяти.
@@ -54,7 +54,7 @@ src/
     kotlin/
 ```
 
-Shared iOS code goes to `iosMain`.
+Общий iOS code goes to `iosMain`.
 
 ```kotlin
 // iosMain/kotlin/platform/IosDeviceInfo.kt
@@ -69,19 +69,19 @@ class IosDeviceInfo {
 }
 ```
 
-Put target-specific differences into `iosArm64Main` or `iosSimulatorArm64Main` only when really necessary.
+Вставляйте различия, специфичные для цели, в `iosArm64Main` или `iosSimulatorArm64Main` только тогда, когда это действительно необходимо.
 
 ## Memory manager
 
-Modern Kotlin/Native uses automatic memory management with tracing garbage collector. It is integrated with Swift/Objective-C ARC at interop boundaries.
+Современный Kotlin/Native использует автоматическое управление памятью с отслеживанием сборщика мусора. Он интегрирован с Swift/Objective-C ARC на границах взаимодействия.
 
 Practical implications:
 
 - ordinary Kotlin object graphs no longer require old freezing discipline;
-- shared mutable state still needs concurrency design;
-- retain cycles with Objective-C/Swift objects still matter;
-- native resources still require explicit closing or scoped ownership;
-- performance needs measurement on target devices.
+- разделяемое изменяемое состояние still needs concurrency design;
+- циклы сохранения с объектами Objective-C/Swift все еще имеют значение;
+- собственные ресурсы по-прежнему требуют явного закрытия или ограниченного владения;
+- Необходимо измерение производительности на целевых устройствах.
 
 ```kotlin
 // commonMain/kotlin/state/LessonCache.kt
@@ -100,24 +100,24 @@ class LessonCache {
 }
 ```
 
-This is ordinary mutable Kotlin state. It still needs synchronization if accessed from multiple coroutines/threads.
+Это обычное изменяемое состояние Kotlin. Он по-прежнему требует синхронизации, если к нему обращаются из нескольких сопрограмм/потоков.
 
 <MouseTrap>
-«Старого freezing ада больше нет» не означает «гонки данных исчезли». Shared mutable state still needs ownership, confinement, mutex or immutable snapshots.
+«Старого freezing ада больше нет» не означает «гонки данных исчезли». Общий изменяемое состояние still needs ownership, confinement, mutex or immutable snapshots.
 </MouseTrap>
 
-## Freezing history and modern behavior
+## Замораживание истории и современное поведение
 
-Older Kotlin/Native memory model required freezing objects to share them across threads. Frozen objects could not be mutated, and many designs had to avoid common JVM-style mutable state.
+Older Kotlin/Native memory model required freezing objects to share them across threads. Frozen objects could not be mutated, and many designs had to avoid common JVM-style изменяемое состояние.
 
-Modern Kotlin/Native memory manager removed that mental model from ordinary application code.
+Современный менеджер памяти Kotlin/Native удалил эту ментальную модель из обычного кода приложения.
 
 What still matters:
 
-- do not rely on global mutable state without synchronization;
-- use structured concurrency;
-- isolate platform callbacks;
-- keep Swift/Objective-C ownership in mind;
+- do not rely on global изменяемое состояние without synchronization;
+- использовать структурированный параллелизм;
+- isolate platform обратные вызовы;
+- помните о принадлежности Swift/Objective-C;
 - close native resources deterministically.
 
 ```kotlin
@@ -135,18 +135,18 @@ class NativeSafeCounter {
 }
 ```
 
-Use common concurrency tools; do not resurrect old freezing workarounds unless you are maintaining legacy code.
+Используйте общие инструменты параллелизма; не восстанавливайте старые обходные пути зависания, если вы не поддерживаете устаревший код.
 
 ## C interop
 
-Kotlin/Native can call C libraries through cinterop.
+Kotlin/Native может вызывать библиотеки C через cinterop.
 
-General workflow:
+General рабочий процесс:
 
 - create `.def` file;
-- point Gradle to the cinterop definition;
+- указать Gradle определение cinterop;
 - generate Kotlin bindings;
-- call generated APIs from native source set;
+- вызывать сгенерированные API из собственного исходного набора;
 - wrap generated low-level API behind safe Kotlin API.
 
 Gradle:
@@ -198,7 +198,7 @@ C interop bindings are low-level. Не разносите generated pointer-heav
 
 ## Native resources
 
-C and platform APIs often return resources that must be closed.
+API C и платформы часто возвращают ресурсы, которые необходимо закрыть.
 
 ```kotlin
 package nativeio
@@ -243,17 +243,17 @@ inline fun <T> withNativeFile(path: String, mode: String, block: (NativeFile) ->
 }
 ```
 
-## Objective-C and Swift interop
+## Взаимодействие Objective-C и Swift
 
-Kotlin/Native interoperates with Swift through Objective-C.
+Kotlin/Native взаимодействует со Swift через Objective-C.
 
 You can:
 
-- call Objective-C frameworks from Kotlin;
-- use pre-imported Apple frameworks like Foundation and UIKit;
-- export Kotlin module as framework;
-- call Kotlin from Swift/Objective-C;
-- refine exported API with annotations.
+— вызывать фреймворки Objective-C из Kotlin;
+- использовать предварительно импортированные платформы Apple, такие как Foundation и UIKit;
+- экспортировать модуль Kotlin как фреймворк;
+— вызвать Kotlin из Swift/Objective-C;
+- доработать экспортируемый API аннотациями.
 
 Calling Apple API:
 
@@ -270,7 +270,7 @@ class IosUuidGenerator {
 }
 ```
 
-Hiding Kotlin declarations from Swift/Objective-C:
+Скрытие объявлений Kotlin из Swift/Objective-C:
 
 ```kotlin
 package api
@@ -289,9 +289,9 @@ class LessonApi {
 }
 ```
 
-## Exceptions at Swift boundary
+## Исключения на границе Swift
 
-Kotlin exceptions need deliberate mapping.
+Исключения Котлина требуют тщательного сопоставления.
 
 ```kotlin
 package api
@@ -312,11 +312,11 @@ class NativeLessonApi {
 }
 ```
 
-Without `@Throws`, non-suspend Kotlin exceptions crossing into Swift/Objective-C are not ordinary Swift errors and can terminate the program. Design Swift-facing API intentionally.
+Без `@Throws` неприостанавливаемые исключения Kotlin, пересекающие Swift/Objective-C, не являются обычными ошибками Swift и могут привести к завершению работы программы. Целенаправленно создавайте API, ориентированный на Swift.
 
 ## Framework export
 
-Apple targets can build Objective-C frameworks.
+Цели Apple могут создавать платформы Objective-C.
 
 ```kotlin
 kotlin {
@@ -332,7 +332,7 @@ kotlin {
 }
 ```
 
-For multi-architecture Apple delivery, use XCFramework.
+Для доставки Apple на нескольких архитектурах используйте XCFramework.
 
 ```kotlin
 import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
@@ -353,11 +353,11 @@ kotlin {
 }
 ```
 
-Build tasks include XCFramework assembly tasks generated by Gradle plugin.
+Задачи сборки включают задачи сборки XCFramework, созданные плагином Gradle.
 
 ## Export dependencies carefully
 
-Framework can export dependencies, but exported dependencies become part of framework API and binary.
+Платформа может экспортировать зависимости, но экспортированные зависимости становятся частью API платформы и двоичных файлов.
 
 ```kotlin
 kotlin {
@@ -378,24 +378,24 @@ kotlin {
 }
 ```
 
-Avoid transitive export unless you truly need it. It increases binary size and API surface.
+Избегайте транзитивного экспорта, если он вам действительно не нужен. Это увеличивает размер двоичного файла и поверхность API.
 
-## Production checklist
+## Проверочный список для боевого кода
 
-For Native target:
+Для собственной цели:
 
-- declare only targets you test;
-- use intermediate source sets like `iosMain` deliberately;
-- keep C interop behind wrappers;
+- объявляйте только те цели, которые вы тестируете;
+- намеренно использовать промежуточные исходные наборы, такие как `iosMain`;
+- держать взаимодействие C за обертками;
 - close native resources deterministically;
-- design Swift/Objective-C API separately from Kotlin internal API;
-- use `@Throws` for Swift-facing errors;
-- hide or refine declarations that should not be public to Swift;
-- configure frameworks or XCFrameworks intentionally;
-- measure on real devices;
-- remember memory manager is modern, but concurrency still needs design.
+— разрабатывать API Swift/Objective-C отдельно от внутреннего API Kotlin;
+- используйте `@Throws` для ошибок Swift;
+— скрывать или уточнять объявления, которые не должны быть общедоступными для Swift;
+- намеренно настраивать фреймворки или XCFrameworks;
+- измерять на реальных устройствах;
+- помните, что диспетчер памяти современен, но параллелизм все еще нуждается в разработке.
 
 <CatTip>
-Native target rewards clean edges: common code stays calm, native adapters are small, frameworks expose friendly API, and every pointer has a responsible owner.
+Нативная цель вознаграждает чистоту: общий код остается спокойным, нативные адаптеры небольшие, платформы предоставляют дружественный API, и у каждого указателя есть ответственный владелец.
 </CatTip>
 

@@ -1,5 +1,5 @@
 ---
-title: "Slicing and Windows"
+title: "Срезы и окна"
 description: "Выбор частей коллекций: slice, take, takeLast, takeWhile, takeLastWhile, drop, dropLast, dropWhile, dropLastWhile, chunked, windowed, partial windows и пошаговая обработка."
 order: 56
 category: "Коллекции"
@@ -186,7 +186,7 @@ val withoutLast = lessons.dropLast(1)
 println(withoutLast) // [01-introduction, 02-types, 03-null-safety, 04-functions]
 ```
 
-Это удобно, когда в конце есть technical marker, checksum, footer или preview-элемент.
+Это удобно, когда в конце есть technical marker, checksum, footer или предпросмотр-элемент.
 
 ## `dropWhile`
 
@@ -252,7 +252,7 @@ val questionPages = questionIds
     }
 ```
 
-Есть overload с transform:
+Есть перегрузка с transform:
 
 ```kotlin
 val pageLabels = questionIds.chunked(size = 2) { chunk ->
@@ -264,7 +264,7 @@ println(pageLabels)
 ```
 
 <MouseTrap>
-В transform-overload для `chunked` список chunk может быть временным представлением. Не сохраняй его в глобальное состояние и не возвращай как mutable reference.
+В transform-перегрузка для `chunked` список chunk может быть временным представлением. Не сохраняй его в глобальное состояние и не возвращай как mutable reference.
 </MouseTrap>
 
 ## `windowed`
@@ -318,7 +318,7 @@ println(fullOnly) // [[21.0, 22.0, 20.0]]
 
 ## `windowed` с transform
 
-Transform-overload позволяет не создавать наружный list окон, а сразу получить нужный результат.
+Transform-перегрузка позволяет не создавать наружный list окон, а сразу получить нужный результат.
 
 ```kotlin
 val movingAverages = temperatures.windowed(size = 2) { window ->
@@ -381,7 +381,7 @@ val lessonTransitions = lessons.zipWithNext { previous, next ->
 
 `zipWithNext` выражает намерение точнее, чем `windowed(size = 2)`, когда нужны именно соседние пары.
 
-## Production-пример: pagination и batches
+## Боевой-пример: pagination и batches
 
 ```kotlin
 data class ApiRequest(
@@ -407,7 +407,7 @@ fun buildBatchRequests(ids: List<String>, batchSize: Int): List<ApiRequest> {
 
 Здесь `distinct` убирает повторяющиеся ids, а `chunked` делит запросы на batch-и, чтобы не отправлять слишком большой payload.
 
-## Production-пример: анализ серии событий
+## Боевой-пример: анализ серии событий
 
 ```kotlin
 enum class EventType {

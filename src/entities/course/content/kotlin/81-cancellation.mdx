@@ -1,8 +1,8 @@
 ---
-title: "Cancellation"
+title: "Отмена"
 description: "Cancellation в Kotlin coroutines: cooperative cancellation, Job.cancel, isActive, ensureActive, yield, withTimeout, withTimeoutOrNull, awaitCancellation, cleanup через finally и NonCancellable."
 order: 81
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -231,13 +231,13 @@ suspend fun tokenizeWithYield(text: String): List<String> {
 }
 ```
 
-`yield` не нужен в обычном code, который часто вызывает cancellable suspending functions вроде `delay`, `withContext`, `await`, `receive`, database client calls with proper coroutine support.
+`yield` не нужен в обычном code, который часто вызывает cancellable suspending functions вроде `delay`, `withContext`, `await`, `receive`, база данных client calls with proper coroutine support.
 
 ## `cancel`, `join`, `cancelAndJoin`
 
 `cancel()` просит coroutine завершиться.
 
-`join()` waits for completion.
+`join()` ожидает завершения.
 
 `cancelAndJoin()` делает оба действия последовательно.
 
@@ -266,11 +266,11 @@ fun cancelAndJoinExample() = runBlocking {
 }
 ```
 
-Если вызвать только `cancel`, caller продолжит работу немедленно. Это может быть нормально, но часто shutdown code должен дождаться cleanup.
+Если вызвать только `cancel`, вызывающий код продолжит работу немедленно. Это может быть нормально, но часто shutdown code должен дождаться cleanup.
 
 ## `CancellationException`
 
-Coroutine cancellation is represented by `CancellationException`.
+Отмена сопрограммы представлена ​​`CancellationException`.
 
 Важные правила:
 
@@ -455,9 +455,9 @@ Timeout — это автоматическая миска с таймером: 
 
 ## `awaitCancellation`
 
-`awaitCancellation()` suspends forever until coroutine is canceled.
+`awaitCancellation()` приостанавливается навсегда, пока сопрограмма не будет отменена.
 
-Он полезен для long-running services, callbacks и loops, где сама работа идет через listeners.
+Он полезен для long-running services, обратные вызовы и loops, где сама работа идет через listeners.
 
 ```kotlin
 import kotlinx.coroutines.awaitCancellation
@@ -512,7 +512,7 @@ suspend fun takeNextLessonId(queue: BlockingQueue<String>): String =
 
 Не все blocking APIs корректно реагируют на interruption. Для таких APIs нужен dedicated timeout, закрытие resource, socket timeout или другой cancellation mechanism на уровне библиотеки.
 
-## Production pattern: отменяем импорт уроков
+## Боевой pattern: отменяем импорт уроков
 
 ```kotlin
 import kotlinx.coroutines.CancellationException

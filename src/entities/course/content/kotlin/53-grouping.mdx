@@ -1,5 +1,5 @@
 ---
-title: "Grouping"
+title: "Группировка"
 description: "Группировка коллекций: groupBy, groupingBy, eachCount, fold, reduce, aggregate, выбор eager/lazy подхода, ключи групп, подсчет статистики и ошибки с большими наборами данных."
 order: 53
 category: "Коллекции"
@@ -216,7 +216,7 @@ val totalMinutesByCategory: Map<String, Int> = lessons
 println(totalMinutesByCategory) // {Основы=42, Функции=32, Коллекции=18}
 ```
 
-Есть overload, где initial value вычисляется с учетом key и первого element.
+Есть перегрузка, где initial value вычисляется с учетом key и первого element.
 
 ```kotlin
 data class CategoryStats(
@@ -367,7 +367,7 @@ fun requireUniqueSlug(lessons: List<Lesson>) {
 }
 ```
 
-## Production-пример: аналитика прогресса
+## Боевой-пример: аналитика прогресса
 
 ```kotlin
 enum class Difficulty {
@@ -435,7 +435,7 @@ fun buildReport(events: List<ProgressEvent>): Map<Difficulty, DifficultyReport> 
 
 Используй `groupingBy`, когда:
 
-- нужен count, сумма, minimum, maximum, custom stats;
+- нужен count, сумма, minimum, maximum, пользовательский stats;
 - вход большой, а хранить все списки групп не хочется;
 - grouping immediately заканчивается aggregate-operation.
 

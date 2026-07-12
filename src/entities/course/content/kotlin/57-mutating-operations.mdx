@@ -1,5 +1,5 @@
 ---
-title: "Mutating Operations"
+title: "Мутирующие операции"
 description: "Мутирующие операции Kotlin: add, addAll, remove, removeAt, removeAll, retainAll, clear, set, put, putAll, remove для Map, operator-синтаксис, итераторы и безопасная мутация."
 order: 57
 category: "Коллекции"
@@ -21,11 +21,11 @@ queue.add("null-safety")
 println(queue) // [введение, типы, null-safety]
 ```
 
-В Kotlin важно различать read-only interface и mutable interface:
+В Kotlin важно различать только для чтения interface и mutable interface:
 
 - `List`, `Set`, `Map` не дают API для изменения через эту ссылку;
 - `MutableList`, `MutableSet`, `MutableMap` дают API для изменения;
-- read-only ссылка не гарантирует immutable object, она только запрещает мутацию через данный тип.
+- только для чтения ссылка не гарантирует immutable object, она только запрещает мутацию через данный тип.
 
 ```kotlin
 val internal = mutableListOf("a", "b")
@@ -37,7 +37,7 @@ println(exposed) // [a, b, c]
 ```
 
 <CatTip>
-Mutable collection — это миска, в которую можно досыпать корм. Read-only reference — это прозрачная крышка: через нее видно содержимое, но через эту ссылку нельзя досыпать.
+Mutable collection — это миска, в которую можно досыпать корм. Только для чтения reference — это прозрачная крышка: через нее видно содержимое, но через эту ссылку нельзя досыпать.
 </CatTip>
 
 ## `add`
@@ -67,7 +67,7 @@ println(tags)                    // [kotlin, basics, collections]
 
 ## `add(index, element)` для `MutableList`
 
-List-specific overload вставляет element в конкретную позицию.
+List-specific перегрузка вставляет element в конкретную позицию.
 
 ```kotlin
 val roadmap = mutableListOf("основы", "коллекции", "корутины")
@@ -107,7 +107,7 @@ println(changed) // true
 println(basics) // [переменные, типы, условия, циклы]
 ```
 
-Argument может быть `Collection`, а в стандартных overloads также используются iterable-like inputs. Для list порядок добавления соответствует порядку argument traversal.
+Argument может быть `Collection`, а в стандартных перегрузки также используются iterable-like inputs. Для list порядок добавления соответствует порядку argument traversal.
 
 ```kotlin
 val numbers = mutableListOf(1, 2)
@@ -118,7 +118,7 @@ numbers.addAll(sequenceOf(5, 6))
 println(numbers) // [1, 2, 3, 4, 5, 6]
 ```
 
-Для `MutableList` есть overload `addAll(index, elements)`.
+Для `MutableList` есть перегрузка `addAll(index, elements)`.
 
 ```kotlin
 val path = mutableListOf("start", "finish")
@@ -149,7 +149,7 @@ queue += listOf("functions", "collections")
 println(queue) // [intro, types, functions, collections]
 ```
 
-Смысл зависит от типа переменной. Если receiver mutable, `+=` может изменить existing collection. Если переменная read-only, compiler может построить новую collection и присвоить ее переменной, если это `var`.
+Смысл зависит от типа переменной. Если receiver mutable, `+=` может изменить existing collection. Если переменная только для чтения, compiler может построить новую collection и присвоить ее переменной, если это `var`.
 
 ```kotlin
 var readOnlyView = listOf("intro")
@@ -159,7 +159,7 @@ readOnlyView += "types"
 println(readOnlyView) // [intro, types]
 ```
 
-Чтобы код был очевидным, в shared state часто лучше писать явный `add`/`addAll`.
+Чтобы код был очевидным, в разделяемое состояние часто лучше писать явный `add`/`addAll`.
 
 ## `remove(element)`
 
@@ -240,7 +240,7 @@ visibleTags.removeAll(listOf("draft", "internal"))
 println(visibleTags) // [kotlin, basics]
 ```
 
-Predicate overload удаляет все elements, для которых predicate возвращает `true`.
+Predicate перегрузка удаляет все elements, для которых predicate возвращает `true`.
 
 ```kotlin
 val scores = mutableListOf(100, -1, 80, -5, 70)
@@ -276,7 +276,7 @@ enabledFeatures.retainAll(productionFeatures)
 println(enabledFeatures) // [search, progress]
 ```
 
-Predicate overload оставляет только matching elements.
+Predicate перегрузка оставляет только matching elements.
 
 ```kotlin
 val cachedLessons = mutableListOf("01-introduction", "draft-99", "02-types")
@@ -498,7 +498,7 @@ while (iterator.hasNext()) {
 }
 ```
 
-## Production-пример: mutable cache с явными правилами
+## Боевой-пример: mutable cache с явными правилами
 
 ```kotlin
 data class CachedLesson(
@@ -548,7 +548,7 @@ class LessonCache(
 }
 ```
 
-Этот пример показывает основной принцип: mutable state должен иметь владельца, а наружу лучше отдавать snapshot или read-only view с понятной жизнью.
+Этот пример показывает основной принцип: изменяемое состояние должен иметь владельца, а наружу лучше отдавать snapshot или только для чтения view с понятной жизнью.
 
 ## Когда избегать мутации
 

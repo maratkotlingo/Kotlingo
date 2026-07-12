@@ -1,8 +1,8 @@
 ---
-title: "Lazy lists"
+title: "Lazy-списки"
 description: "Разбираем LazyColumn и LazyRow в Compose: LazyListScope, item/items/itemsIndexed, keys, contentType, sticky headers, LazyListState, scroll position, программная прокрутка и производительность списков."
 order: 22
-category: "Compose: Layouts, constraints и Modifier"
+category: "Compose: разметки, constraints и Modifier"
 difficulty: "Средний"
 ---
 
@@ -417,7 +417,7 @@ fun GroupedLessonList(
 
 ## `contentPadding`
 
-`contentPadding` добавляет отступы внутри lazy content. Он отличается от `Modifier.padding`: content padding участвует в scrollable content, поэтому первый и последний элементы получают внутренний отступ и могут прокручиваться вместе со списком.
+`contentPadding` добавляет отступы внутри lazy content. Он отличается от `Modifier.padding`: внутренние отступы контента участвует в scrollable content, поэтому первый и последний элементы получают внутренний отступ и могут прокручиваться вместе со списком.
 
 ```kotlin
 LazyColumn(
@@ -437,7 +437,7 @@ LazyColumn(
 
 Bottom padding часто нужен, чтобы последний элемент не прятался за bottom bar или FAB.
 
-## Полный пример: production-ready список уроков
+## Полный пример: готовый к боевому использованию список уроков
 
 ```kotlin
 import androidx.compose.foundation.clickable

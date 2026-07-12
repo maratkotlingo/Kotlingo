@@ -1,5 +1,5 @@
 ---
-title: "Regex"
+title: "Регулярные выражения"
 description: "Регулярные выражения в Kotlin: Regex, toRegex, fromLiteral, matches, matchEntire, containsMatchIn, find, findAll, groups, named groups, replacement, split, options и платформенные нюансы."
 order: 60
 category: "Стандартная библиотека"
@@ -351,7 +351,7 @@ fun replaceWithLiteral(input: String, regex: Regex, replacement: String): String
 }
 ```
 
-Можно использовать transform lambda.
+Можно использовать transform лямбда.
 
 ```kotlin
 val incremented = Regex("""\d+""").replace("v1, v2, v10") { match ->
@@ -397,7 +397,7 @@ val parts = Regex(""":""").split("a:b:c", limit = 2)
 println(parts) // [a, b:c]
 ```
 
-## Production-пример: parser учебного slug
+## Боевой-пример: parser учебного slug
 
 ```kotlin
 data class LessonSlug(
@@ -430,7 +430,7 @@ class LessonSlugParser {
 
 Regex здесь не просто проверяет строку, а превращает ее в typed model.
 
-## Production-пример: безопасный поиск по тексту
+## Боевой-пример: безопасный поиск по тексту
 
 ```kotlin
 data class SearchHit(

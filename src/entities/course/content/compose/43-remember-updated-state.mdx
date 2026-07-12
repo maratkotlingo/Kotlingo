@@ -1,8 +1,8 @@
 ---
 title: "rememberUpdatedState"
-description: "Подробно разбираем rememberUpdatedState в Jetpack Compose: свежая lambda внутри long-lived effects, splash timeout, timers, callbacks, DisposableEffect listeners и отличие от ключей эффекта."
+description: "Подробно разбираем rememberUpdatedState в Jetpack Compose: свежая лямбда внутри long-lived effects, splash timeout, timers, обратные вызовы, DisposableEffect listeners и отличие от ключей эффекта."
 order: 43
-category: "Compose: Side Effects, coroutines и CompositionLocal"
+category: "Compose: побочные эффекты, корутины и CompositionLocal"
 difficulty: "Средний"
 ---
 
@@ -11,14 +11,14 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Зачем нужен rememberUpdatedState
 
-`rememberUpdatedState` решает очень конкретную проблему: long-lived effect должен продолжать жить без перезапуска, но при этом видеть актуальное значение или callback.
+`rememberUpdatedState` решает очень конкретную проблему: long-lived effect должен продолжать жить без перезапуска, но при этом видеть актуальное значение или обратный вызов.
 
 Типичный пример — splash timeout:
 
 - таймер должен стартовать один раз;
 - recomposition может принести новый `onTimeout`;
-- таймер не должен начинаться заново из-за смены callback;
-- после задержки должен вызваться самый свежий callback.
+- таймер не должен начинаться заново из-за смены обратный вызов;
+- после задержки должен вызваться самый свежий обратный вызов.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -43,7 +43,7 @@ fun SplashTimeout(
 Что происходит:
 
 - `LaunchedEffect(Unit)` запускается один раз для текущего места в composition;
-- `rememberUpdatedState(onTimeout)` обновляет `State`, когда приходит новый callback;
+- `rememberUpdatedState(onTimeout)` обновляет `State`, когда приходит новый обратный вызов;
 - coroutine не перезапускается;
 - после `delay` вызывается актуальная версия `onTimeout`.
 
@@ -73,7 +73,7 @@ fun SplashTimeoutWrong(
 }
 ```
 
-Если `onTimeout` изменится через recomposition, уже запущенная coroutine продолжит держать старую ссылку. Иногда это незаметно, а иногда приводит к навигации через старый `NavController`, старый callback теста или устаревшую аналитическую функцию.
+Если `onTimeout` изменится через recomposition, уже запущенная coroutine продолжит держать старую ссылку. Иногда это незаметно, а иногда приводит к навигации через старый `NavController`, старый обратный вызов теста или устаревшую аналитическую функцию.
 
 Исправление:
 
@@ -235,8 +235,8 @@ fun CountdownTimer(
 Здесь:
 
 - `seconds` является ключом, потому что новый duration должен перезапустить таймер;
-- `onFinished` не является ключом, потому что смена callback не должна сбрасывать countdown;
-- `latestOnFinished` гарантирует актуальный callback.
+- `onFinished` не является ключом, потому что смена обратный вызов не должна сбрасывать countdown;
+- `latestOnFinished` гарантирует актуальный обратный вызов.
 
 ## DisposableEffect listener
 
@@ -327,11 +327,11 @@ fun LifecycleCallbacks(
 }
 ```
 
-Ключом является `lifecycleOwner`, потому что observer зарегистрирован на нем. Callbacks обновляются через `rememberUpdatedState`.
+Ключом является `lifecycleOwner`, потому что observer зарегистрирован на нем. Обратные вызовы обновляются через `rememberUpdatedState`.
 
-## Production-пример: автосохранение без сброса интервала
+## Боевой-пример: автосохранение без сброса интервала
 
-Представим редактор, который сохраняет черновик каждые 10 секунд. Если callback сохранения обновился, interval не должен начинаться заново.
+Представим редактор, который сохраняет черновик каждые 10 секунд. Если обратный вызов сохранения обновился, interval не должен начинаться заново.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -368,7 +368,7 @@ fun AutoSaveEffect(
 - `onAutoSave` обновляется без перезапуска loop;
 - cancellation останавливает loop при уходе composable.
 
-## Production-пример: задержанное подтверждение
+## Боевой-пример: задержанное подтверждение
 
 ```kotlin
 import androidx.compose.material3.AlertDialog
@@ -424,9 +424,9 @@ fun ConfirmLaterDialog(
 
 `rememberUpdatedState` не нужен, если:
 
-- callback вызывается прямо из текущего `onClick`;
+- обратный вызов вызывается прямо из текущего `onClick`;
 - значение должно быть ключом effect;
-- нет long-lived lambda или listener;
+- нет long-lived лямбда или listener;
 - вы просто отображаете state;
 - effect должен перезапуститься при изменении значения.
 
@@ -447,7 +447,7 @@ fun SimpleActionButton(
 }
 ```
 
-`Button` и так получает актуальный callback при recomposition.
+`Button` и так получает актуальный обратный вызов при recomposition.
 
 ## Типичные ошибки
 
@@ -457,13 +457,13 @@ fun SimpleActionButton(
 
 ### Использовать для обычного onClick
 
-В `onClick` callback уже актуален после recomposition. Дополнительный holder не нужен.
+В `onClick` обратный вызов уже актуален после recomposition. Дополнительный holder не нужен.
 
 ### Считать, что он сохраняет старое значение
 
 Название может сбить с толку. API хранит обновляемый `State`, который всегда указывает на свежее значение.
 
-### Использовать вместо state hoisting
+### Использовать вместо подъем состояния
 
 Если child должен получать новое значение, передавайте его параметром. `rememberUpdatedState` не заменяет нормальный data flow.
 
@@ -480,7 +480,7 @@ fun SimpleActionButton(
 - не перезапускает effect;
 - полезен с `LaunchedEffect(Unit)`;
 - полезен с listeners в `DisposableEffect`;
-- предотвращает устаревшие callback;
+- предотвращает устаревшие обратный вызов;
 - не заменяет ключи effect;
 - не нужен для обычных `onClick`;
-- помогает отделить lifecycle работы от актуальности callback.
+- помогает отделить lifecycle работы от актуальности обратный вызов.

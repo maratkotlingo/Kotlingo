@@ -1,8 +1,8 @@
 ---
-title: "Pull to refresh"
-description: "Разбираем pull-to-refresh в Material 3 Compose: PullToRefreshBox, isRefreshing, onRefresh, rememberPullToRefreshState, кастомный indicator, refresh ownership, ViewModel integration и production-состояния."
+title: "Pull-to-refresh"
+description: "Разбираем pull-to-refresh в Material 3 Compose: PullToRefreshBox, isRefreshing, onRefresh, rememberPullToRefreshState, кастомный indicator, refresh ownership, ViewModel integration и боевой-состояния."
 order: 52
-category: "Compose: Material 3 components and app structure"
+category: "Compose: компоненты Material 3 и структура приложения"
 difficulty: "Средний"
 ---
 
@@ -69,7 +69,7 @@ fun BasicPullToRefreshList(
 `isRefreshing` должен приходить от владельца состояния. `PullToRefreshBox` не должен сам решать, завершилась ли загрузка.
 
 <CatTip>
-Жест pull-to-refresh означает "пользователь просит обновить". Реальное обновление данных должно жить в ViewModel, repository или другом state holder.
+Жест pull-to-refresh означает "пользователь просит обновить". Реальное обновление данных должно жить в ViewModel, репозиторий или другом держатель состояния.
 </CatTip>
 
 ## Основные параметры PullToRefreshBox
@@ -126,7 +126,7 @@ State нужен, если вы кастомизируете indicator или х
 2. `PullToRefreshBox` вызывает `onRefresh`.
 3. ViewModel запускает обновление.
 4. ViewModel выставляет `isRefreshing = true`.
-5. Repository обновляет данные.
+5. Репозиторий обновляет данные.
 6. ViewModel выставляет `isRefreshing = false`.
 7. UI скрывает indicator.
 
@@ -390,7 +390,7 @@ fun FeedRouteWithRefreshError(
 }
 ```
 
-В production-коде нужен callback вроде `onErrorShown`, чтобы не показывать snackbar повторно после configuration change, если это не желаемое поведение.
+В боевой коде нужен обратный вызов вроде `onErrorShown`, чтобы не показывать snackbar повторно после configuration change, если это не желаемое поведение.
 
 ## Pull-to-refresh и paging
 
@@ -445,7 +445,7 @@ fun PagingPullToRefresh(
 }
 ```
 
-Здесь source of truth для refresh loading — `loadState.refresh`.
+Здесь source of truth для refresh загрузка — `loadState.refresh`.
 
 ## Когда не использовать pull-to-refresh
 

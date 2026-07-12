@@ -1,8 +1,8 @@
 ---
-title: "Testing Kotlin Code"
-description: "Тестирование Kotlin-кода: kotlin.test, JUnit, Kotest overview, test doubles, mocking tradeoffs, property-based testing, test naming, fixtures и production-подход к тестируемости."
+title: "Тестирование Kotlin-кода"
+description: "Тестирование Kotlin-кода: kotlin.test, JUnit, Kotest overview, test doubles, mocking tradeoffs, property-based testing, test naming, fixtures и подход для боевого кода к тестируемости."
 order: 99
-category: "Architecture"
+category: "Архитектура"
 difficulty: "Продвинутый"
 ---
 
@@ -275,11 +275,11 @@ object SlugNormalizer {
 }
 ```
 
-Use parameterized tests for named examples. Use property-based tests for broad invariant exploration.
+Используйте параметризованные тесты для именованных примеров. Используйте тесты на основе свойств для широкого исследования инвариантов.
 
 ## Kotest overview
 
-Kotest is Kotlin-first test framework with multiple styles, assertions, data-driven tests and property testing.
+Kotest — это первая тестовая среда Kotlin с множеством стилей, утверждений, тестов на основе данных и тестирования свойств.
 
 ```kotlin
 import io.kotest.core.spec.style.FunSpec
@@ -299,9 +299,9 @@ Kotest помогает, когда команда хочет:
 - data-driven testing;
 - property testing;
 - multiplatform-friendly testing style;
-- configuration at spec/test level.
+- конфигурация на уровне спецификации/тестирования.
 
-Kotest is optional. Disciplined `kotlin.test` plus JUnit setup is enough for many teams.
+Kotest is optional. Disciplined `kotlin.test` plus JUnit настройка is enough for many teams.
 
 <MouseTrap>
 Не добавляй новый testing framework только ради красивого синтаксиса. Framework должен решать реальные проблемы: property tests, matchers, multiplatform style, data-driven coverage or better reporting.
@@ -309,17 +309,17 @@ Kotest is optional. Disciplined `kotlin.test` plus JUnit setup is enough for man
 
 ## Test doubles
 
-Test double — controlled replacement for dependency in test.
+Test double — контролируемая замена зависимости в тесте.
 
 Common types:
 
-- fake — working lightweight implementation;
-- stub — returns preconfigured values;
-- spy — records calls while still doing some real work;
-- mock — framework-controlled object with expectations;
-- dummy — value required only to fill parameter.
+- фиктивный — working lightweight implementation;
+- заглушка — возвращает заранее настроенные значения;
+- шпион — записывает звонки, одновременно выполняя настоящую работу;
+- макет — управляемый фреймворком объект с ожиданиями;
+- dummy — значение, необходимое только для заполнения параметра.
 
-Fake repository:
+Фиктивный репозиторий:
 
 ```kotlin
 class FakeLessonRepository : LessonRepository {
@@ -379,20 +379,20 @@ class OpenLessonUseCase(
 }
 ```
 
-Fake often gives more resilient tests than heavy mocking.
+Фиктивный often gives more resilient tests than heavy mocking.
 
 ## Mocking tradeoffs
 
-Mocking libraries are useful, but mocks can make tests overspecified.
+Библиотеки-макеты полезны, но они могут привести к чрезмерной спецификации тестов.
 
-Good mocking target:
+Хорошая цель для мокинга:
 
 - external gateway;
 - expensive adapter;
 - nondeterministic dependency;
 - email sender;
 - metrics client;
-- legacy interface hard to instantiate.
+- устаревший интерфейс сложно создать.
 
 Risky mocking target:
 
@@ -400,10 +400,10 @@ Risky mocking target:
 - domain object;
 - collection;
 - value class;
-- code you could instantiate directly;
-- internal implementation detail.
+- код, который вы можете создать напрямую;
+- внутреннюю деталь реализации.
 
-Mock-style coroutine example:
+Пример корутин в mock-стиле:
 
 ```kotlin
 import kotlinx.coroutines.test.runTest
@@ -426,7 +426,7 @@ class OpenLessonWithManualStubTest {
 }
 ```
 
-Manual stub is often enough. Use mocking framework when interaction verification matters.
+Ручной заглушки часто бывает достаточно. Используйте фреймворк макетирования, когда важна проверка взаимодействия.
 
 ```kotlin
 interface EmailSender {
@@ -442,19 +442,19 @@ class CompletionNotifier(
 }
 ```
 
-In such integration boundary, verifying that `sendLessonCompleted` was called can be reasonable.
+В такой границе интеграции проверка того, что был вызван `sendLessonCompleted`, может быть разумной.
 
 ## Property-based testing overview
 
-Property-based testing checks invariants over many generated inputs.
+Тестирование на основе свойств проверяет инварианты для многих сгенерированных входных данных.
 
 Example property:
 
-- normalization never returns blank for non-blank input;
-- normalized slug is lower-case;
-- normalized slug contains no whitespace;
-- parsing after formatting returns equivalent value;
-- sorting result is ordered for any input list.
+- нормализация никогда не возвращает пустое значение для непустого ввода;
+- нормализованный сленг пишется строчными буквами;
+- нормализованный фрагмент не содержит пробелов;
+- парсинг после форматирования возвращает эквивалентное значение;
+- результат сортировки упорядочивается для любого входного списка.
 
 Kotest-style property:
 
@@ -476,20 +476,20 @@ class SlugPropertyTest : StringSpec({
 })
 ```
 
-Property tests do not replace example tests. They complement them:
+Тесты свойств не заменяют примеры тестов. Их дополняют:
 
 - examples explain important scenarios;
 - properties explore broad input space;
-- failing property needs shrinking and a clear invariant;
-- generated data must respect domain constraints.
+- неудовлетворительное свойство нуждается в сжатии и четком инварианте;
+- сгенерированные данные должны соответствовать ограничениям домена.
 
 <CatTip>
 Example test говорит «вот конкретная мышка». Property test говорит «любая мышка с такими признаками должна вести себя одинаково».
 </CatTip>
 
-## Fixtures and builders
+## Светильники и строители
 
-Use fixtures to keep tests readable, but do not hide important inputs.
+Используйте фикстуры, чтобы тесты были читабельными, но не скрывайте важные входные данные.
 
 ```kotlin
 object LessonFixtures {
@@ -537,21 +537,20 @@ class LessonVisibilityPolicy {
 }
 ```
 
-## Production testing checklist
+## Боевой testing проверочный список
 
 Перед тем как считать Kotlin code testable, проверь:
 
-- domain code can be instantiated without framework;
-- time, random, network and database are injected;
-- coroutine code uses `runTest` and test dispatchers;
-- common behavior is in `commonTest` when project is multiplatform;
-- JVM-specific behavior is in `jvmTest`;
-- mocks verify meaningful boundaries, not implementation noise;
-- property tests cover invariants, not random examples;
-- fixtures reduce noise without hiding important facts;
-- failing test message helps identify the broken behavior.
+- код домена может быть создан без использования фреймворка;
+- time, random, network and база данных are injected;
+- код сопрограммы использует `runTest` и диспетчеры тестирования;
+- обычное поведение в `commonTest`, когда проект является мультиплатформенным;
+- Поведение, специфичное для JVM, находится в `jvmTest`;
+- макеты проверяют значимые границы, а не шум реализации;
+- тесты свойств охватывают инварианты, а не случайные примеры;
+- светильники снижают шум, не скрывая важных фактов;
+- Сообщение о неудачном тестировании помогает выявить нарушенное поведение.
 
 <MouseTrap>
 Самый дорогой тестовый запах — тест, который знает внутренний порядок вызовов, но не знает, какое поведение важно пользователю.
 </MouseTrap>
-

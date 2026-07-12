@@ -1,5 +1,5 @@
 ---
-title: "Ordering"
+title: "Сортировка"
 description: "Сортировка и порядок коллекций: sorted, sortedDescending, sortedBy, sortedWith, compareBy, thenBy, nullsFirst, nullsLast, reversed, asReversed, shuffled и стабильность результата."
 order: 54
 category: "Коллекции"
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Ordering управляет порядком элементов
 
-Ordering operations создают новое представление collection в нужном порядке: natural order, descending order, order by property, custom comparator, reversed view, shuffled list.
+Ordering operations создают новое представление collection в нужном порядке: natural order, descending order, order by property, пользовательский comparator, reversed view, shuffled list.
 
 ```kotlin
 val scores = listOf(70, 100, 45, 85)
@@ -21,7 +21,7 @@ val sortedScores = scores.sorted()
 println(sortedScores) // [45, 70, 85, 100]
 ```
 
-Исходный read-only list не меняется.
+Исходный только для чтения list не меняется.
 
 ```kotlin
 println(scores) // [70, 100, 45, 85]
@@ -129,7 +129,7 @@ val byDurationDesc = lessons.sortedByDescending { lesson ->
 println(byDurationDesc.map { it.title }) // [Null-safety, Типы, Введение]
 ```
 
-Selector может вернуть nullable comparable value. Для `sortedBy`, `null` обычно оказывается перед non-null values; для production-кода явное правило читается надежнее через comparator.
+Selector может вернуть nullable comparable value. Для `sortedBy`, `null` обычно оказывается перед non-null values; для боевой кода явное правило читается надежнее через comparator.
 
 ## `sortedWith`
 
@@ -296,7 +296,7 @@ println(reversedView) // [d, c, b, a]
 View связан с исходным list. Изменения исходного list видны во view.
 
 <MouseTrap>
-Не возвращай `asReversed()` наружу API, если caller не должен видеть будущие изменения исходного mutable list. В таких случаях безопаснее `reversed()`.
+Не возвращай `asReversed()` наружу API, если вызывающий код не должен видеть будущие изменения исходного mutable list. В таких случаях безопаснее `reversed()`.
 </MouseTrap>
 
 ## `shuffled`
@@ -319,7 +319,7 @@ val deterministic = quizQuestions.shuffled(kotlin.random.Random(seed = 42))
 println(deterministic)
 ```
 
-Это важно для тестов, repeatable quizzes и debugging.
+Это важно для тестов, повторяемых заданий и отладки.
 
 ```kotlin
 fun pickDailyQuestions(
@@ -361,7 +361,7 @@ fun normalizedScores(scores: List<Int>): List<Int> {
 }
 ```
 
-## Production-пример: порядок каталога уроков
+## Боевой-пример: порядок каталога уроков
 
 ```kotlin
 enum class Difficulty {
@@ -444,5 +444,4 @@ val sorted = lessons
 <CatTip>
 Порядок — часть пользовательского опыта. Если элементы выглядят «почти одинаково», добавь явный tie-breaker, чтобы интерфейс не казался непредсказуемым.
 </CatTip>
-
 

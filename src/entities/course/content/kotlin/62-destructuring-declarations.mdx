@@ -1,6 +1,6 @@
 ---
-title: "Destructuring Declarations"
-description: "Destructuring declarations в Kotlin: componentN, data classes, Pair, Triple, Map.Entry, for-loops, lambda destructuring, underscore, custom component functions и риски порядка компонентов."
+title: "Деструктурирующие объявления"
+description: "Destructuring declarations в Kotlin: componentN, классы данных, Pair, Triple, Map.Entry, for-loops, лямбда destructuring, underscore, пользовательский component functions и риски порядка компонентов."
 order: 62
 category: "Стандартная библиотека"
 difficulty: "Средний"
@@ -62,7 +62,7 @@ val (slug, title) = ref
 println("$slug -> $title")
 ```
 
-`operator` обязателен для custom component functions.
+`operator` обязателен для пользовательский component functions.
 
 ```kotlin
 class BrokenRef(
@@ -239,7 +239,7 @@ println(second)
 
 В этом примере `component1` не должен вызываться, потому что первый component пропущен underscore.
 
-## Destructuring в lambda parameters
+## Destructuring в лямбда parameters
 
 Lambda может destructuring-ить один parameter.
 
@@ -319,9 +319,9 @@ titles.add("Типы")
 println(group.titles) // [Введение, Типы]
 ```
 
-## Custom component functions как API
+## Пользовательский component functions как API
 
-Custom destructuring стоит использовать там, где порядок components очевиден.
+Пользовательский destructuring стоит использовать там, где порядок components очевиден.
 
 ```kotlin
 data class Coordinate(
@@ -363,7 +363,7 @@ val parts = DateParts(9, 7, 2026)
 println("${parts.day}.${parts.month}.${parts.year}")
 ```
 
-## Production-пример: parsing результата
+## Боевой-пример: parsing результата
 
 ```kotlin
 data class ParsedLesson(
@@ -394,7 +394,7 @@ fun renderVerboseLesson(lesson: ParsedLesson): String {
 }
 ```
 
-## Production-пример: validation map input
+## Боевой-пример: validation map input
 
 ```kotlin
 data class ValidationError(
@@ -463,7 +463,7 @@ val pair = "slug" to 100
 - `Pair`, `Map.Entry`, `withIndex`;
 - data class с очевидным порядком components;
 - parsing результата regex через `destructured`;
-- loop/lambda, где key и value нужны сразу.
+- loop/лямбда, где key и value нужны сразу.
 
 Избегай destructuring для:
 

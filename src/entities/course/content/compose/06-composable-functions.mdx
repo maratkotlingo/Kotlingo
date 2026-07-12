@@ -1,6 +1,6 @@
 ---
 title: "Composable-функции"
-description: "Подробно разбираем синтаксис @Composable: правила вызова, параметры, Modifier, callbacks, slot APIs, content lambdas, naming conventions, preview-friendly дизайн и типичные ошибки проектирования composable API."
+description: "Подробно разбираем синтаксис @Composable: правила вызова, параметры, Modifier, обратные вызовы, slot APIs, content лямбды, naming conventions, удобный для предпросмотра дизайн и типичные ошибки проектирования composable API."
 order: 06
 category: "Compose: Вход и рабочая среда"
 difficulty: "Начальный"
@@ -57,7 +57,7 @@ fun ScreenTitle() {
 
 - если функция рисует UI, пометь ее `@Composable`;
 - если функция только готовит данные, оставь ее обычной Kotlin-функцией и вызывай из composable;
-- если нужно выполнить side effect, используй effect API, а не обычный вызов из body.
+- если нужно выполнить побочный эффект, используй API эффектов, а не обычный вызов из body.
 
 ```kotlin
 fun normalizeTitle(rawTitle: String): String {
@@ -110,11 +110,11 @@ data class CourseCardState(
 Хороший composable API обычно устроен так:
 
 - обязательные данные идут первыми;
-- callbacks идут рядом с данными, которые их вызывают;
+- обратные вызовы идут рядом с данными, которые их вызывают;
 - `modifier: Modifier = Modifier` идет как первый optional parameter после обязательных параметров;
 - optional visual-параметры имеют значения по умолчанию;
-- slot lambdas, например `content`, идут в конце;
-- composable не принимает ViewModel, если это reusable UI-компонент;
+- slot лямбды, например `content`, идут в конце;
+- composable не принимает ViewModel, если это переиспользуемый UI-компонент;
 - composable не создает скрытую навигацию или аналитику внутри себя.
 
 Пример:
@@ -194,12 +194,12 @@ fun CourseCard(
 - `onContinueClick` сообщает событие наружу;
 - `modifier` позволяет вызывающему коду управлять внешним размещением;
 - `showProgress` является optional visual-настройкой;
-- компонент не знает про навигацию, repository или Activity;
-- компонент можно показать в Preview и протестировать через Compose UI tests.
+- компонент не знает про навигацию, репозиторий или Activity;
+- компонент можно показать в Предпросмотр и протестировать через Compose UI tests.
 
 ## `Modifier` в параметрах
 
-`Modifier` — главный способ дать вызывающему коду контроль над внешним поведением компонента: размер, padding снаружи, semantics, test tag, click handling, layout behavior.
+`Modifier` — главный способ дать вызывающему коду контроль над внешним поведением компонента: размер, padding снаружи, semantics, тестовый тег, click handling, layout behavior.
 
 Правильный паттерн:
 
@@ -259,7 +259,7 @@ fun LessonBadge(title: String) {
   самому компоненту.
 </MouseTrap>
 
-## Callbacks вместо прямых действий
+## Обратные вызовы вместо прямых действий
 
 Composable-компонент должен сообщать о событии, а не решать всю судьбу приложения.
 
@@ -307,14 +307,14 @@ fun StartLessonButton(
 Теперь кнопку можно использовать:
 
 - в Navigation Compose;
-- в Preview;
+- в Предпросмотр;
 - в UI-тесте;
 - в другом приложении;
 - в разных сценариях, где старт урока не обязательно означает Activity navigation.
 
 ## Slot API
 
-Slot API — паттерн, где компонент принимает composable-lambda для части своего содержимого. Это делает компонент гибким без наследования.
+Slot API — паттерн, где компонент принимает composable-лямбда для части своего содержимого. Это делает компонент гибким без наследования.
 
 ```kotlin
 import androidx.compose.foundation.layout.Column
@@ -387,7 +387,7 @@ Slot API используется в стандартных компонента
 
 ## Composable function types
 
-Composable-lambda имеет тип с `@Composable`.
+Composable-лямбда имеет тип с `@Composable`.
 
 ```kotlin
 val content: @Composable () -> Unit = {
@@ -395,7 +395,7 @@ val content: @Composable () -> Unit = {
 }
 ```
 
-Если lambda принимает параметры:
+Если лямбда принимает параметры:
 
 ```kotlin
 val rowContent: @Composable (String) -> Unit = { title ->
@@ -403,7 +403,7 @@ val rowContent: @Composable (String) -> Unit = { title ->
 }
 ```
 
-Если lambda является receiver-lambda:
+Если лямбда является receiver-лямбда:
 
 ```kotlin
 import androidx.compose.foundation.layout.ColumnScope
@@ -413,7 +413,7 @@ val columnContent: @Composable ColumnScope.() -> Unit = {
 }
 ```
 
-Receiver-lambdas нужны, когда content должен получить scope родительского layout. Например, внутри `ColumnScope` доступен `Modifier.weight`.
+Receiver-лямбды нужны, когда content должен получить scope родительского layout. Например, внутри `ColumnScope` доступен `Modifier.weight`.
 
 ## Default arguments
 
@@ -461,7 +461,7 @@ interface CourseRepository
 class RealCourseRepository : CourseRepository
 ```
 
-Здесь composable скрыто создает production dependency. Это мешает preview, тестам, dependency injection и контролю lifecycle. Зависимости такого уровня должны приходить из route, ViewModel или DI-графа, а не из default argument UI-функции.
+Здесь composable скрыто создает боевой dependency. Это мешает предпросмотр, тестам, dependency injection и контролю lifecycle. Зависимости такого уровня должны приходить из route, ViewModel или DI-графа, а не из аргумент по умолчанию UI-функции.
 
 ## Возвращаемые значения
 
@@ -474,7 +474,7 @@ fun LessonTitle(title: String) {
 }
 ```
 
-Но composable может возвращать значение, если она читает CompositionLocal, использует `remember` или строит state holder.
+Но composable может возвращать значение, если она читает CompositionLocal, использует `remember` или строит держатель состояния.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -512,7 +512,7 @@ fun rememberSearchState(
 
 ## `@Preview`
 
-`@Preview` не делает функцию composable. Он только говорит Android Studio, что эту composable-функцию можно показать в preview.
+`@Preview` не делает функцию composable. Он только говорит Android Studio, что эту composable-функцию можно показать в предпросмотр.
 
 ```kotlin
 import androidx.compose.ui.tooling.preview.Preview
@@ -534,7 +534,7 @@ fun CourseCardPreview() {
 }
 ```
 
-Preview-функции:
+Предпросмотр-функции:
 
 - не должны требовать реальную сеть;
 - не должны читать базу данных;
@@ -550,7 +550,7 @@ Preview-функции:
 
 ### `@Preview`
 
-Tooling-аннотация для Android Studio Preview. Не влияет на production UI напрямую.
+Tooling-аннотация для Android Studio Предпросмотр. Не влияет на боевой UI напрямую.
 
 ### `@ReadOnlyComposable`
 
@@ -566,17 +566,17 @@ Tooling-аннотация для Android Studio Preview. Не влияет на
 
 ### `@Immutable`
 
-Контракт неизменяемости. Подходит для UI-state data classes, если все публичные свойства действительно immutable.
+Контракт неизменяемости. Подходит для UI-state классы данных, если все публичные свойства действительно immutable.
 
 ### `@DisallowComposableCalls`
 
-Ограничивает вызов composable-функций внутри определенных lambda-контекстов. Встречается в низкоуровневых API вроде `remember` calculation lambda, где composable-вызовы запрещены.
+Ограничивает вызов composable-функций внутри определенных лямбда-контекстов. Встречается в низкоуровневых API вроде `remember` calculation лямбда, где composable-вызовы запрещены.
 
 Эти аннотации не нужно расставлять повсюду. Большинству прикладного кода достаточно `@Composable`, `@Preview`, а для UI-state моделей иногда `@Immutable`.
 
-## Полный пример: preview-friendly компонент
+## Полный пример: удобный для предпросмотра компонент
 
-Ниже компонент `CourseHero`. Он использует правильный порядок параметров, `Modifier`, callbacks, slot API и immutable state.
+Ниже компонент `CourseHero`. Он использует правильный порядок параметров, `Modifier`, обратные вызовы, slot API и неизменяемое состояние.
 
 ```kotlin
 import androidx.compose.foundation.layout.Arrangement
@@ -686,17 +686,17 @@ fun CourseHeroPreview() {
 Почему API удачный:
 
 - `CourseHeroState` immutable и описывает данные;
-- callbacks не привязаны к navigation framework;
+- обратные вызовы не привязаны к navigation framework;
 - `modifier` управляет внешним размещением;
 - `badge` является optional slot;
-- preview использует реалистичный текст;
+- предпросмотр использует реалистичный текст;
 - компонент можно встроить в разные экраны без переписывания.
 
 ## Частые ошибки проектирования composable API
 
 ### Передавать ViewModel в каждый маленький компонент
 
-Маленький UI-компонент должен получать state и callbacks. ViewModel уместна на route/screen boundary, где UI связывается с архитектурным состоянием.
+Маленький UI-компонент должен получать state и обратные вызовы. ViewModel уместна на route/screen boundary, где UI связывается с архитектурным состоянием.
 
 ### Не давать `modifier`
 
@@ -706,17 +706,17 @@ fun CourseHeroPreview() {
 
 Внутренний padding принадлежит компоненту. Внешний padding должен задавать родитель через `modifier`.
 
-### Делать callback слишком конкретным
+### Делать обратный вызов слишком конкретным
 
-`onNavigateToLessonDetails` хуже, чем `onLessonClick`, если компонент является reusable card. Конкретная навигация должна жить выше.
+`onNavigateToLessonDetails` хуже, чем `onLessonClick`, если компонент является переиспользуемый card. Конкретная навигация должна жить выше.
 
 ### Передавать mutable collections
 
-`MutableList` в параметрах UI-state делает recomposition менее предсказуемой. Передавай immutable/read-only модели и создавай новое состояние при изменениях.
+`MutableList` в параметрах UI-state делает recomposition менее предсказуемой. Передавай immutable/только для чтения модели и создавай новое состояние при изменениях.
 
-### Создавать зависимости в default arguments
+### Создавать зависимости в аргументы по умолчанию
 
-Repository, database, analytics и navigator не должны создаваться внутри reusable composable.
+Репозиторий, база данных, аналитика и navigator не должны создаваться внутри переиспользуемый composable.
 
 ## Итоги
 
@@ -726,9 +726,9 @@ Composable-функции — это Kotlin API с особыми правила
 - composable можно вызвать только из composable;
 - UI-emitting functions обычно возвращают `Unit` и называются с заглавной буквы;
 - value-returning composable helpers называются lowerCamelCase;
-- обязательные данные и callbacks идут первыми;
+- обязательные данные и обратные вызовы идут первыми;
 - `modifier: Modifier = Modifier` дает родителю контроль над размещением;
 - slot API делает компоненты гибкими;
-- callbacks должны сообщать о событиях, а не выполнять скрытую архитектурную работу;
-- preview-friendly компонент получает state и lambdas, а не реальные внешние зависимости;
+- обратные вызовы должны сообщать о событиях, а не выполнять скрытую архитектурную работу;
+- удобный для предпросмотра компонент получает state и лямбды, а не реальные внешние зависимости;
 - обычные Kotlin-функции остаются лучшим местом для форматирования, валидации и чистых вычислений.

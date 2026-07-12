@@ -1,6 +1,6 @@
 ---
 title: "Object declarations и companion objects"
-description: "Изучаем singleton object, companion object, object expressions, data object, initialization, shared state, factories и JVM-интероперабельность через JvmStatic и JvmField."
+description: "Изучаем singleton object, companion object, object expressions, data object, initialization, разделяемое состояние, factories и JVM-интероперабельность через JvmStatic и JvmField."
 order: 31
 category: "Классы и объекты"
 difficulty: "Средний"
@@ -99,9 +99,9 @@ Initialization должна быть:
 Сетевой запрос или подключение к базе в `init` делает первый случайный доступ медленным и failure-prone. Object хранит stateless policy/factory, а resources создаёт lifecycle container.
 </MouseTrap>
 
-## Object и shared mutable state
+## Object и разделяемое изменяемое состояние
 
-Mutable property object является process-wide shared state.
+Mutable property object является process-wide разделяемое состояние.
 
 ```kotlin
 object UnsafeProgress {
@@ -133,7 +133,7 @@ object Metrics {
 }
 ```
 
-Global metrics registry может быть осознанным singleton, но user progress должен быть instance service/repository.
+Global metrics registry может быть осознанным singleton, но user прогресс должен быть instance service/репозиторий.
 
 <CatTip title="Котосовет: object лучше для stateless behavior">
 Formatter, parser policy, comparator и no-op implementation естественно singleton. Если данные имеют lifecycle пользователя, запроса или теста, создавай class instance и передавай dependency явно.
@@ -214,7 +214,7 @@ Companion имеет доступ к private constructor и private members clas
 - named factories;
 - constants;
 - parsers;
-- serializers/adapters tied to type;
+- сериализаторы/адаптеры, привязанные к типу;
 - empty/default instances.
 
 У класса может быть только один companion object.
@@ -374,7 +374,7 @@ sealed interface SyncState {
 println(SyncState.Idle)
 ```
 
-Data object особенно уместен рядом с data classes в sealed hierarchy.
+Data object особенно уместен рядом с классы данных в sealed hierarchy.
 
 Data object не должен содержать mutable per-process state только потому, что он `data`: singleton nature остаётся.
 
@@ -408,7 +408,7 @@ Object declaration:
 - singleton;
 - lazy/thread-safe initialization по platform rules;
 - не захватывает local variables;
-- подходит stable shared implementation.
+- подходит stable общий implementation.
 
 Object expression:
 
@@ -482,7 +482,7 @@ class JavaDefaults {
 }
 ```
 
-`@JvmField` exposes field вместо обычных accessors для Java. Property не может иметь custom accessors и должна соблюдать annotation restrictions.
+`@JvmField` exposes field вместо обычных accessors для Java. Property не может иметь пользовательский accessors и должна соблюдать annotation restrictions.
 
 `const val` уже имеет специальное static compile-time representation на JVM. Точная generated surface зависит от placement/toolchain; проверяй bytecode/API при библиотечном interop.
 
@@ -605,11 +605,11 @@ fun main() {
 
 Здесь формы objects имеют разные роли:
 
-- stateless built-in formats — `data object`;
+- встроенные форматы без сохранения состояния — `data object`;
 - registry — singleton object с immutable map;
 - configurable HTML formatter — class с companion factory;
-- contextual preview format — object expression;
-- shared mutable state отсутствует;
+- contextual предпросмотр format — object expression;
+- разделяемое изменяемое состояние отсутствует;
 - HTML content экранируется, factory валидирует CSS class;
 - Java static annotations не добавлены без interop requirement.
 
@@ -618,7 +618,7 @@ fun main() {
 - object declaration создаёт именованный singleton;
 - initialization происходит при первом доступе и безопасно публикуется platform runtime;
 - тяжёлый I/O и cyclic dependencies не должны жить в object init;
-- mutable object state является global shared state;
+- mutable object state является global разделяемое состояние;
 - object может наследовать class и реализовывать interfaces;
 - companion object связан с class, но является настоящим object;
 - companion factory получает доступ к private constructor;

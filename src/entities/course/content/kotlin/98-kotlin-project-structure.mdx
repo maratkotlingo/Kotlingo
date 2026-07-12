@@ -1,8 +1,8 @@
 ---
-title: "Kotlin Project Structure"
-description: "Структура Kotlin-проекта: packages by feature, API boundaries, domain models, module boundaries, avoiding anemic utility dumping, naming, tests и production-организация."
+title: "Структура Kotlin-проекта"
+description: "Структура Kotlin-проекта: packages by feature, API boundaries, domain models, module boundaries, avoiding anemic utility dumping, naming, tests и боевой-организация."
 order: 98
-category: "Architecture"
+category: "Архитектура"
 difficulty: "Продвинутый"
 ---
 
@@ -29,7 +29,7 @@ Project structure отвечает на вопросы:
 Хорошая структура проекта — это кошачья карта территории: понятно, где миска domain logic, где лежанка tests, где когтеточка platform adapters, и куда не надо тащить грязные зависимости.
 </CatTip>
 
-## Package by layer vs package by feature
+## Пакет по слоям и пакет по функциям
 
 Layer-based layout:
 
@@ -42,7 +42,7 @@ src/main/kotlin/dev/kotlingo/
   utils/
 ```
 
-It looks simple, but feature code is spread across folders. To change lesson progress, you jump between `controllers`, `services`, `repositories`, `models`.
+It looks simple, but feature code is spread across folders. To change lesson прогресс, you jump between `controllers`, `services`, `repositories`, `models`.
 
 Feature-based layout:
 
@@ -80,13 +80,13 @@ progress/
     ProgressFacade.kt
 ```
 
-Use layer-based names inside feature, not across whole application.
+Используйте имена на основе слоев внутри объекта, а не во всем приложении.
 
 ## Package naming
 
-Kotlin package names should be lowercase and stable.
+Имена пакетов Kotlin должны быть строчными и стабильными.
 
-Good:
+Хорошо:
 
 ```text
 dev.kotlingo.progress.domain
@@ -95,7 +95,7 @@ dev.kotlingo.lesson.api
 dev.kotlingo.shared.time
 ```
 
-Avoid:
+Избегай:
 
 ```text
 dev.kotlingo.ProgressDomain
@@ -104,11 +104,11 @@ dev.kotlingo.commonUtils
 dev.kotlingo.misc
 ```
 
-Package name is not just folder label. It affects imports, visibility, sealed hierarchy constraints and API readability.
+Имя пакета — это не просто метка папки. Это влияет на импорт, видимость, ограничения закрытой иерархии и читаемость API.
 
 ## API boundaries
 
-Public API should be small and intentional.
+Публичный API должен быть небольшим и целенаправленным.
 
 ```kotlin
 package dev.kotlingo.progress.api
@@ -127,7 +127,7 @@ class ProgressFacade(
 }
 ```
 
-Internal domain use case:
+Internal domain сценарий использования:
 
 ```kotlin
 package dev.kotlingo.progress.api
@@ -146,7 +146,7 @@ internal class MarkLessonCompleted(
 }
 ```
 
-Repository contract:
+Репозиторий contract:
 
 ```kotlin
 package dev.kotlingo.progress.api
@@ -158,15 +158,15 @@ internal interface ProgressRepository {
 }
 ```
 
-Public surface is `ProgressFacade` and `ProgressSnapshot`; implementation details stay internal.
+Общедоступная поверхность — `ProgressFacade` и `ProgressSnapshot`; детали реализации остаются внутренними.
 
 <MouseTrap>
-Если every class is public, module has no architecture. Public by default is convenient locally and expensive after publication.
+Если every class is public, module has no architecture. Public по умолчанию is convenient locally and expensive after publication.
 </MouseTrap>
 
 ## Domain models
 
-Domain model should express business meaning, not database or JSON shape.
+Domain model should express business meaning, not база данных or JSON shape.
 
 ```kotlin
 package dev.kotlingo.progress.domain
@@ -213,7 +213,7 @@ internal data class ProgressRow(
 )
 ```
 
-Mapper:
+Маппер:
 
 ```kotlin
 package dev.kotlingo.progress.persistence
@@ -230,13 +230,13 @@ internal fun ProgressRow.toDomainSlug(): LessonSlug {
 }
 ```
 
-Do not let database row become domain model just because fields are similar.
+Не позволяй строке базы данных становиться доменной моделью только потому, что поля похожи.
 
 ## Avoiding anemic utility dumping
 
-`utils` package usually means design stopped too early.
+Пакет `utils` обычно означает, что разработка была остановлена ​​слишком рано.
 
-Bad:
+Плохо:
 
 ```text
 utils/
@@ -296,7 +296,7 @@ value class LessonSlug(
 }
 ```
 
-Now behavior lives near the concept it protects.
+Теперь поведение живет рядом с концепцией, которую оно защищает.
 
 <CatTip>
 Если хочется создать `CatUtils`, остановись и спроси: «какому понятию принадлежит эта функция?» Почти всегда у функции уже есть дом.
@@ -325,7 +325,7 @@ jvm-server -> api -> progress -> domain
 android    -> api -> progress -> domain
 ```
 
-Domain should not depend on server or Android.
+Домен не должен зависеть от сервера или Android.
 
 ```kotlin
 // domain module
@@ -353,12 +353,12 @@ class SystemClock : Clock {
 
 Healthy dependency direction:
 
-- UI depends on use cases;
-- HTTP controllers depend on use cases;
-- use cases depend on repository interfaces;
-- repository implementations depend on database or network clients;
-- domain does not depend on adapters;
-- adapters convert external shape to domain shape.
+- UI depends on сценарии использования;
+- HTTP controllers depend on сценарии использования;
+- сценарии использования depend on репозиторий interfaces;
+- репозиторий implementations depend on база данных or network clients;
+- домен не зависит от адаптеров;
+- адаптеры преобразуют внешнюю форму в форму домена.
 
 ```kotlin
 package dev.kotlingo.lesson.domain
@@ -405,9 +405,9 @@ class InMemoryLessonRepository : LessonRepository {
 
 ## File organization
 
-Kotlin allows multiple declarations per file, but use it deliberately.
+Kotlin допускает несколько объявлений для каждого файла, но используйте это сознательно.
 
-Good single concept file:
+Хороший файл с одной концепцией:
 
 ```kotlin
 package dev.kotlingo.lesson.domain
@@ -425,7 +425,7 @@ data class LessonDraft(
 }
 ```
 
-Good sealed hierarchy file:
+Хороший файл sealed-иерархии:
 
 ```kotlin
 package dev.kotlingo.lesson.domain
@@ -441,7 +441,7 @@ sealed interface PublishResult {
 }
 ```
 
-Avoid huge files named:
+Избегайте огромных файлов с именами:
 
 ```text
 Helpers.kt
@@ -451,9 +451,9 @@ AllModels.kt
 Everything.kt
 ```
 
-## Tests mirror behavior, not folders blindly
+## Тестирует поведение зеркала, а не папок вслепую
 
-Tests should follow behavior boundaries.
+Тесты должны соответствовать границам поведения.
 
 ```text
 src/test/kotlin/dev/kotlingo/lesson/domain/
@@ -488,7 +488,7 @@ class LessonDraftTest {
 }
 ```
 
-Name tests after behavior, not implementation detail.
+Name tests after behavior, not деталь реализации.
 
 ## Multiplatform structure
 
@@ -509,9 +509,9 @@ shared/
       progress/ios/
 ```
 
-Common package should not pretend platform does not exist. Keep adapters visibly platform-specific.
+Общий пакет не должен притворяться, что платформы не существует. Адаптеры должны четко соответствовать платформе.
 
-Good:
+Хорошо:
 
 ```text
 progress/
@@ -521,7 +521,7 @@ progress/
   ios/
 ```
 
-Bad:
+Плохо:
 
 ```text
 progress/
@@ -531,23 +531,22 @@ progress/
   real/
 ```
 
-## Production checklist
+## Проверочный список для боевого кода
 
-A Kotlin project structure is healthy when:
+Структура проекта Kotlin работоспособна, когда:
 
-- features are easy to locate;
-- package names are lowercase and stable;
-- domain models express business rules;
-- DTOs do not leak into domain;
-- public API is small;
-- `internal` is used deliberately;
+- функции легко найти;
+- имена пакетов строчные и стабильные;
+- доменные модели выражают бизнес-правила;
+- DTO не просачиваются в домен;
+- публичный API небольшой;
+- `internal` используется намеренно;
 - dependencies point inward toward domain;
-- platform adapters stay at boundaries;
-- tests cover behavior at meaningful boundaries;
-- utility packages are rare and specific;
-- module boundaries enforce architecture where packages are not enough.
+- адаптеры платформы остаются на границах;
+- тесты охватывают поведение на значимых границах;
+- пакеты утилит редки и специфичны;
+- границы модулей обеспечивают архитектуру, в которой пакетов недостаточно.
 
 <MouseTrap>
 Самый опасный запах структуры — когда разработчики говорят «я просто положу это рядом с похожим файлом». Похожесть по синтаксису не равна архитектурной принадлежности.
 </MouseTrap>
-

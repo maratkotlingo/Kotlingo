@@ -1,8 +1,8 @@
 ---
 title: "produceState"
-description: "Разбираем produceState в Jetpack Compose: преобразование callback, suspend и observable sources в State<T>, ключи, cancellation, awaitDispose, loading/error modeling, conflation и создание собственных effect adapters."
+description: "Разбираем produceState в Jetpack Compose: преобразование обратный вызов, suspend и observable sources в State<T>, ключи, cancellation, awaitDispose, загрузка/error modeling, conflation и создание собственных effect adapters."
 order: 42
-category: "Compose: Side Effects, coroutines и CompositionLocal"
+category: "Compose: побочные эффекты, корутины и CompositionLocal"
 difficulty: "Продвинутый"
 ---
 
@@ -68,7 +68,7 @@ fun GreetingLabel(
 ```
 
 <CatTip>
-`produceState` особенно полезен, когда вы пишете reusable adapter: внешний callback или suspend API внутри, обычный Compose `State<T>` снаружи.
+`produceState` особенно полезен, когда вы пишете переиспользуемый adapter: внешний обратный вызов или suspend API внутри, обычный Compose `State<T>` снаружи.
 </CatTip>
 
 ## Как устроен produceState
@@ -280,7 +280,7 @@ fun rememberConnectionLabel(): State<String> {
 
 ## awaitDispose
 
-`awaitDispose` используется внутри `produceState`, когда внешний источник работает через callback и требует cleanup.
+`awaitDispose` используется внутри `produceState`, когда внешний источник работает через обратный вызов и требует cleanup.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -328,7 +328,7 @@ fun rememberNetworkAvailableState(
 
 ## produceState или DisposableEffect
 
-`DisposableEffect` подходит, когда вы хотите выполнить setup/cleanup и, возможно, менять local state рядом.
+`DisposableEffect` подходит, когда вы хотите выполнить настройка/cleanup и, возможно, менять local state рядом.
 
 `produceState` подходит, когда результатом adapter должен быть `State<T>`.
 
@@ -422,8 +422,8 @@ fun UserNameFromStateFlow(
 `produceState` для Flow может быть уместен, если:
 
 - вы пишете platform-agnostic adapter;
-- нужен особый mapping loading/error;
-- source не является ViewModel UI state;
+- нужен особый mapping загрузка/error;
+- source не является ViewModel UI-состояние;
 - готовый extension API не подходит.
 
 ```kotlin
@@ -453,9 +453,9 @@ fun <T> rememberFlowAsLoadState(
 }
 ```
 
-Но для Android screen state не забывайте lifecycle-aware collection.
+Но для Android состояние экрана не забывайте lifecycle-aware collection.
 
-## Loading/error modeling
+## Загрузка/error modeling
 
 `produceState` часто возвращает sealed state.
 
@@ -530,7 +530,7 @@ fun ProfileSummaryCard(
 }
 ```
 
-Для screen-level profile loading лучше ViewModel. Этот pattern полезен для reusable adapter или маленького source, который естественно живет около UI.
+Для screen-level profile загрузка лучше ViewModel. Этот pattern полезен для переиспользуемый adapter или маленького source, который естественно живет около UI.
 
 ## Улучшенный UI без unsafe casts
 
@@ -565,9 +565,9 @@ fun ProfileSummaryContent(
 }
 ```
 
-Этот вариант лучше для production UI, потому что не требует cast.
+Этот вариант лучше для боевой UI, потому что не требует cast.
 
-## Callback source with immediate value
+## Обратный вызов source with immediate value
 
 Некоторые APIs умеют отдать текущее значение сразу и затем отправлять обновления.
 
@@ -653,9 +653,9 @@ fun rememberReportState(
 
 `CancellationException` нужно пробрасывать, чтобы coroutine cancellation работала корректно.
 
-## Production-пример: permissions adapter
+## Боевой-пример: permissions adapter
 
-Допустим, у приложения есть абстракция, которая сообщает статус разрешения через callback.
+Допустим, у приложения есть абстракция, которая сообщает статус разрешения через обратный вызов.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -755,7 +755,7 @@ fun PermissionBanner(
 }
 ```
 
-Это хороший пример `produceState`: есть внешний callback source, есть cleanup, наружу возвращается простой `State<PermissionStatus>`.
+Это хороший пример `produceState`: есть внешний обратный вызов source, есть cleanup, наружу возвращается простой `State<PermissionStatus>`.
 
 ## Создание собственного effect
 
@@ -773,11 +773,11 @@ fun rememberOnlineState(
 }
 ```
 
-Такой wrapper дает команде понятное имя и скрывает детали callback API.
+Такой wrapper дает команде понятное имя и скрывает детали обратный вызов API.
 
 ## Типичные ошибки
 
-### Использовать для screen data loading вместо ViewModel
+### Использовать для screen data загрузка вместо ViewModel
 
 Если данные принадлежат экрану, должны переживать configuration changes и требуют бизнес-логики, используйте ViewModel.
 
@@ -785,7 +785,7 @@ fun rememberOnlineState(
 
 Producer не перезапустится при смене источника или сущности.
 
-### Не вызвать awaitDispose для callback API
+### Не вызвать awaitDispose для обратный вызов API
 
 Listener останется зарегистрированным после ухода composable.
 
@@ -795,7 +795,7 @@ Cancellation должна пробрасываться дальше.
 
 ### Возвращать слишком сложный state
 
-Adapter должен возвращать минимальный UI-friendly state. Большие модели лучше получать из repository/ViewModel.
+Adapter должен возвращать минимальный UI-friendly state. Большие модели лучше получать из репозиторий/ViewModel.
 
 ## Итоги
 
@@ -807,8 +807,8 @@ Adapter должен возвращать минимальный UI-friendly sta
 - отменяется при выходе из composition;
 - перезапускается при смене ключей;
 - conflates одинаковые значения;
-- использует `awaitDispose` для callback cleanup;
-- полезен для reusable adapters;
+- использует `awaitDispose` для обратный вызов cleanup;
+- полезен для переиспользуемый adapters;
 - для Flow из ViewModel в Android UI чаще подходит `collectAsStateWithLifecycle`;
 - для register/unregister без returned State часто достаточно `DisposableEffect`;
-- для screen-level loading чаще используйте ViewModel.
+- для screen-level загрузка чаще используйте ViewModel.

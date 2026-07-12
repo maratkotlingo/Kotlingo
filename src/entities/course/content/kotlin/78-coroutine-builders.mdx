@@ -1,8 +1,8 @@
 ---
-title: "Coroutine Builders"
+title: "Билдеры корутин"
 description: "Coroutine builders: runBlocking, launch, async, coroutineScope, supervisorScope, Job, Deferred, await/join, failure propagation и безопасный bridge между blocking и suspending кодом."
 order: 78
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что такое coroutine builder
 
-Coroutine builder — функция, которая создает coroutine, связывает ее с `CoroutineScope`, назначает ей `CoroutineContext` и определяет, как caller будет ждать результат.
+Coroutine builder — функция, которая создает coroutine, связывает ее с `CoroutineScope`, назначает ей `CoroutineContext` и определяет, как вызывающий код будет ждать результат.
 
 В Kotlin coroutines важно различать две вещи:
 
@@ -29,7 +29,7 @@ suspend fun loadTitle(slug: String): String {
 }
 ```
 
-Чтобы выполнить такой код из обычной `main`, теста, server entry point или существующего callback API, нужен builder.
+Чтобы выполнить такой код из обычной `main`, теста, server точка входа или существующего обратный вызов API, нужен builder.
 
 ```kotlin
 import kotlinx.coroutines.runBlocking
@@ -56,7 +56,7 @@ dependencies {
 }
 ```
 
-В production-проекте версию лучше фиксировать через version catalog.
+В боевой-проекте версию лучше фиксировать через version catalog.
 
 ```toml
 [versions]
@@ -95,10 +95,10 @@ fun main() {
 
 Главное свойство `runBlocking`: он не просто приостанавливает coroutine, а именно blocks thread. Поэтому он полезен как bridge:
 
-- в `fun main`, если entry point не объявлен как `suspend main`;
+- в `fun main`, если точка входа не объявлен как `suspend main`;
 - в маленьких CLI utilities;
 - в unit tests, если не используется `runTest`;
-- на границе legacy blocking API, где caller физически не может быть suspending.
+- на границе legacy blocking API, где вызывающий код физически не может быть suspending.
 
 ```kotlin
 import kotlinx.coroutines.runBlocking
@@ -179,7 +179,7 @@ fun CoroutineScope.startProgressPrinter(): kotlinx.coroutines.Job = launch {
 }
 ```
 
-`launch` используют, когда нужен side effect, но не нужен typed result:
+`launch` используют, когда нужен побочный эффект, но не нужен typed result:
 
 - отправить notification;
 - записать audit event;
@@ -312,7 +312,7 @@ suspend fun loadStats(slug: String): LessonStats {
 }
 ```
 
-`async` стоит использовать для concurrent computations, которые нужны caller-у как values.
+`async` стоит использовать для concurrent computations, которые нужны вызывающий код-у как values.
 
 Последовательный вариант:
 
@@ -373,7 +373,7 @@ suspend fun asyncFailureStillCancelsScope() = coroutineScope {
 ```
 
 <MouseTrap>
-Не используй `async`, если результат никому не нужен. Для side effects подходит `launch`; для value-producing parallel work подходит `async`.
+Не используй `async`, если результат никому не нужен. Для побочные эффекты подходит `launch`; для value-producing parallel work подходит `async`.
 </MouseTrap>
 
 ## `coroutineScope`
@@ -499,7 +499,7 @@ suspend fun loadRecommendationsWidget(slug: String): Widget {
 - optional widgets на странице;
 - независимые notification channels;
 - best-effort cache warming;
-- analytics events, которые не должны ломать основной request.
+- аналитика events, которые не должны ломать основной request.
 
 ```kotlin
 import kotlinx.coroutines.launch
@@ -570,7 +570,7 @@ fun joinExample() = runBlocking {
 }
 ```
 
-`Deferred.await()` waits for result:
+`Deferred.await()` ждет результата:
 
 ```kotlin
 import kotlinx.coroutines.async
@@ -608,7 +608,7 @@ fun cancelExample() = runBlocking {
 }
 ```
 
-`cancelAndJoin()` requests cancellation and waits for cleanup:
+`cancelAndJoin()` запрашивает отмену и ожидает очистки:
 
 ```kotlin
 import kotlinx.coroutines.cancelAndJoin
@@ -723,7 +723,7 @@ class WidgetRepository {
 
 Используй `launch`, когда нужна concurrent child coroutine без typed result.
 
-Используй `async`, когда нужна concurrent child coroutine с typed result и caller будет делать `await`.
+Используй `async`, когда нужна concurrent child coroutine с typed result и вызывающий код будет делать `await`.
 
 Используй `coroutineScope`, когда внутри `suspend fun` нужно запустить children и дождаться их с обычным fail-fast поведением.
 

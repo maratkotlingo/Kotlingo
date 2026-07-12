@@ -1,5 +1,5 @@
 ---
-title: "Enum classes"
+title: "Enum-классы"
 description: "Изучаем enum-константы, свойства и анонимные тела, entries API, valueOf, name и ordinal, исчерпывающий when, сериализацию и выбор между enum и sealed hierarchy."
 order: 28
 category: "Классы и объекты"
@@ -196,7 +196,7 @@ println(Difficulty.BEGINNER.name)
 
 Результат — `BEGINNER`, а не `displayName`.
 
-`name` полезен для diagnostics и технических mappings, но превращается в external contract, если сохранять его в database/JSON. Переименование source constant тогда ломает compatibility.
+`name` полезен для diagnostics и технических mappings, но превращается в external contract, если сохранять его в база данных/JSON. Переименование source constant тогда ломает compatibility.
 
 Стабильный внешний код лучше задать явно:
 
@@ -220,7 +220,7 @@ enum class ApiDifficulty(val code: String) {
 Теперь source name можно менять отдельно от wire code, если API code остаётся прежним.
 
 <CatTip title="Котосовет: внешний код должен быть явным property">
-Не используй `name` как незадокументированный database/API contract. Поле `code` выражает стабильность намеренно и позволяет aliases/migrations.
+Не используй `name` как незадокументированный база данных/API contract. Поле `code` выражает стабильность намеренно и позволяет aliases/migrations.
 </CatTip>
 
 ## `ordinal`
@@ -266,7 +266,7 @@ val sortedByHours = Difficulty.entries.sortedBy(Difficulty::recommendedHours)
 
 ## `entries`
 
-Современный Kotlin предоставляет статическую property `entries`, возвращающую специализированную read-only коллекцию `EnumEntries<T>`.
+Современный Kotlin предоставляет статическую property `entries`, возвращающую специализированную только для чтения коллекцию `EnumEntries<T>`.
 
 ```kotlin
 fun main() {
@@ -385,7 +385,7 @@ fun threshold(policy: ScorePolicy): Int = when (policy) {
 
 Используй `when`, когда:
 
-- поведение относится к конкретному use case;
+- поведение относится к конкретному сценарий использования;
 - разные modules интерпретируют enum по-разному;
 - enum должен оставаться простым data symbol.
 
@@ -401,7 +401,7 @@ if (difficulty == Difficulty.EXPERT) {
 }
 ```
 
-Не храни mutable state внутри enum entry:
+Не храни изменяемое состояние внутри enum entry:
 
 ```kotlin
 enum class UnsafeCounter {
@@ -411,7 +411,7 @@ enum class UnsafeCounter {
 }
 ```
 
-Это process-wide shared mutable state с race conditions и test leakage. State должен жить в service/session/repository.
+Это process-wide разделяемое изменяемое состояние с race conditions и test leakage. State должен жить в service/session/репозиторий.
 
 ## Parsing и aliases
 
@@ -486,7 +486,7 @@ val mentorPermissions: Set<Permission> = setOf(
 
 Каждая permission остаётся independent dimension.
 
-## Практический пример: workflow публикации
+## Практический пример: процесс публикации
 
 ```kotlin
 enum class PublicationState(val code: String) {
@@ -564,11 +564,11 @@ fun main() {
 - semicolon отделяет constants от members;
 - `name` отражает source identifier и может меняться при rename;
 - `ordinal` отражает позицию и не подходит как persistent ID;
-- `entries` предоставляет эффективную read-only коллекцию constants;
+- `entries` предоставляет эффективную только для чтения коллекцию constants;
 - `values()` возвращает legacy array form;
 - `valueOf` требует точного имени и выбрасывает exception;
 - exhaustive `when` помогает безопасно добавлять constants;
-- enum не должен хранить shared mutable state;
-- explicit code лучше `name`/`ordinal` для API и database;
+- enum не должен хранить разделяемое изменяемое состояние;
+- explicit code лучше `name`/`ordinal` для API и база данных;
 - sealed hierarchy нужна вариантам с разными payload и структурой.
 

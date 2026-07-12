@@ -33,7 +33,7 @@ val lessons: List<String> = listOf(
 )
 ```
 
-Возвращает read-only `List<T>`.
+Возвращает только для чтения `List<T>`.
 
 ```kotlin
 val empty = emptyList<String>()
@@ -95,7 +95,7 @@ val lessons: MutableList<String> = arrayListOf()
 val labels = List(5) { index -> "Урок ${index + 1}" }
 ```
 
-Initializer вызывается для каждого index от 0 до size - 1. Result read-only List.
+Initializer вызывается для каждого index от 0 до size - 1. Result только для чтения List.
 
 ```kotlin
 val squares = List(5) { index -> index * index }
@@ -122,7 +122,7 @@ val mutableCopy = source.toMutableList()
 
 Copies shallow: elements references общие.
 
-`toList()` может оптимизировать representation; contract — read-only list with same iteration order at conversion moment.
+`toList()` может оптимизировать representation; contract — только для чтения list with same iteration order at conversion moment.
 
 ## `setOf`
 
@@ -174,7 +174,7 @@ val orderedTags: LinkedHashSet<String> = linkedSetOf(
 val sortedTags = sortedSetOf("education", "kotlin", "collections")
 ```
 
-Использует natural order. Custom comparator:
+Использует natural order. Пользовательский comparator:
 
 ```kotlin
 val byLength = sortedSetOf(compareBy<String> { it.length }.thenBy { it })
@@ -217,7 +217,7 @@ val lessons: Map<Int, String> = mapOf(
 
 `to` создаёт `Pair`, который factory превращает в entry.
 
-Read-only Map не предоставляет `put`.
+Только для чтения Map не предоставляет `put`.
 
 ## Duplicate keys
 
@@ -281,7 +281,7 @@ val navigation = sortedMapOf(
 )
 ```
 
-Keys iterate sorted. Custom comparator:
+Keys iterate sorted. Пользовательский comparator:
 
 ```kotlin
 val descending = sortedMapOf<Int, String>(compareByDescending { it })
@@ -323,7 +323,7 @@ val lessons: List<String> = buildList {
 }
 ```
 
-Block получает MutableList receiver, result read-only List.
+Block получает MutableList receiver, result только для чтения List.
 
 Builder удобен для conditional/loop population без temporary mutable variable.
 
@@ -347,7 +347,7 @@ val tags = buildSet {
 }
 ```
 
-Result unique read-only Set. Optional initial capacity:
+Result unique только для чтения Set. Optional initial capacity:
 
 ```kotlin
 val tags = buildSet(capacity = 16) {
@@ -383,7 +383,7 @@ val mutable = mutableListOf<String>().apply {
 }
 ```
 
-Result mutable. `buildList` возвращает read-only result и лучше выражает «собрать и закрыть mutation phase».
+Result mutable. `buildList` возвращает только для чтения result и лучше выражает «собрать и закрыть mutation phase».
 
 ## Copy ownership при создании
 
@@ -404,7 +404,7 @@ val drafts = listOf(Draft("Collections"))
 drafts[0].title = "Изменено"
 ```
 
-Read-only list не делает elements immutable. Используй immutable element models/snapshots.
+Только для чтения list не делает elements immutable. Используй immutable element models/snapshots.
 
 ## Практический пример: построение навигации
 
@@ -461,11 +461,11 @@ fun main() {
 }
 ```
 
-Builders ограничивают mutation фазой construction, validate duplicate keys и возвращают read-only snapshots.
+Builders ограничивают mutation фазой construction, validate duplicate keys и возвращают только для чтения snapshots.
 
 ## Итоги
 
-- `listOf`/`setOf`/`mapOf` создают read-only contracts;
+- `listOf`/`setOf`/`mapOf` создают только для чтения contracts;
 - mutable factories создают write-capable collections;
 - concrete `arrayListOf`, `hashSetOf`, `linkedMapOf` нужны при важной implementation;
 - Hash variants не обещают order;

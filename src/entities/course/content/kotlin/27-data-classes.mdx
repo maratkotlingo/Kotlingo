@@ -1,6 +1,6 @@
 ---
-title: "Data classes"
-description: "Подробно разбираем сгенерированные equals, hashCode, toString, copy и componentN, ограничения primary constructor, destructuring и риски mutable data classes."
+title: "Классы данных"
+description: "Подробно разбираем сгенерированные equals, hashCode, toString, copy и componentN, ограничения primary constructor, destructuring и риски mutable классы данных."
 order: 27
 category: "Классы и объекты"
 difficulty: "Средний"
@@ -27,7 +27,7 @@ data class Lesson(
 - `hashCode(): Int`;
 - `toString(): String`;
 - `component1()`, `component2()`, `component3()`;
-- `copy(...)` с default arguments из текущего экземпляра.
+- `copy(...)` с аргументы по умолчанию из текущего экземпляра.
 
 ```kotlin
 fun main() {
@@ -185,7 +185,7 @@ fun main() {
 Объект физически остаётся в внутренней bucket structure, но новый hash может искать другой bucket. Lookup способен вернуть `false`.
 
 <MouseTrap title="Мышеловка: не меняй поля, участвующие в hashCode ключа">
-Для map/set keys используй immutable data classes с `val`. Если состояние должно меняться, ключом пусть будет стабильный `LessonId`, а mutable object хранится как value.
+Для map/set keys используй immutable классы данных с `val`. Если состояние должно меняться, ключом пусть будет стабильный `LessonId`, а mutable object хранится как value.
 </MouseTrap>
 
 ## `toString`
@@ -201,7 +201,7 @@ println(lesson)
 Lesson(id=27, title=Data classes, published=true)
 ```
 
-Это удобно для logs и debugging, но небезопасно для secrets:
+Это удобно для логов и отладки, но небезопасно для секретов:
 
 ```kotlin
 data class Credentials(
@@ -227,7 +227,7 @@ data class SafeCredentials(
 
 ## `copy`
 
-`copy` создаёт новый экземпляр, подставляя properties исходного объекта как defaults.
+`copy` создаёт новый экземпляр, подставляя properties исходного объекта как значения по умолчанию.
 
 ```kotlin
 val draft = Lesson(27, "Data classes", published = false)
@@ -300,7 +300,7 @@ val independent = original.copy(
 )
 ```
 
-Лучше хранить immutable/read-only structures и контролировать source mutation:
+Лучше хранить immutable/только для чтения structures и контролировать source mutation:
 
 ```kotlin
 data class SafeCourse(
@@ -314,7 +314,7 @@ fun safeCourse(title: String, lessons: List<String>): SafeCourse {
 ```
 
 <CatTip title="Котосовет: copy меняет форму, domain method меняет состояние">
-Используй `copy` в reducers, immutable UI state и простых transformations. Для business transitions создавай методы `publish`, `complete`, `cancel`, которые проверяют допустимость изменения.
+Используй `copy` в reducers, immutable UI-состояние и простых transformations. Для business transitions создавай методы `publish`, `complete`, `cancel`, которые проверяют допустимость изменения.
 </CatTip>
 
 ## `componentN`
@@ -355,7 +355,7 @@ println("$title | $published")
 
 Пропущенный component не обязан вычисляться.
 
-### Destructuring в lambda
+### Destructuring в лямбда
 
 ```kotlin
 val lessonsById = mapOf(
@@ -406,7 +406,7 @@ fun main() {
 
 Объекты равны, а `toString` показывает только `id`.
 
-Это уместно для derived/cache state, который сознательно не определяет identity. Но невидимое mutable state способно удивить `copy`: оно не переносится как property body.
+Это уместно для derived/cache state, который сознательно не определяет identity. Но невидимое изменяемое состояние способно удивить `copy`: оно не переносится как property body.
 
 ```kotlin
 val copied = first.copy()
@@ -456,11 +456,11 @@ data class LessonId private constructor(val value: Int) {
 
 ## Data class и serialization
 
-Data classes удобны для DTO, но `data` само по себе не определяет wire format. Serialization framework учитывает:
+Data classes удобны для DTO, но `data` само по себе не определяет формат обмена. Serialization framework учитывает:
 
 - annotations;
 - имена properties;
-- defaults;
+- значения по умолчанию;
 - nullability;
 - unknown fields;
 - versioning strategy.
@@ -599,5 +599,4 @@ fun main() {
 - domain transitions лучше выражать named methods поверх `copy`;
 - `componentN` и destructuring зависят от порядка properties;
 - body properties исключены из equality/copy/components;
-- immutable data classes подходят DTO, events, state snapshots и value models.
-
+- immutable классы данных подходят DTO, events, state snapshots и value models.

@@ -1,8 +1,8 @@
 ---
-title: "Selection controls"
+title: "Элементы выбора"
 description: "Разбираем элементы выбора в Compose: Checkbox, TriStateCheckbox, RadioButton, Switch, Slider, RangeSlider, chips, состояния checked/selected/enabled и правила доступного выбора."
 order: 15
-category: "Compose: UI Fundamentals"
+category: "Compose: основы UI"
 difficulty: "Начальный"
 ---
 
@@ -37,7 +37,7 @@ Checkbox(
 Основные параметры:
 
 - `checked` — выбран ли checkbox;
-- `onCheckedChange` — callback нового значения;
+- `onCheckedChange` — обратный вызов нового значения;
 - `modifier`;
 - `enabled`;
 - `colors`;
@@ -244,7 +244,7 @@ fun NotificationsSwitchRow(
 }
 ```
 
-Если переключение запускает долгую операцию, состояние должно отражать loading или disabled. Не меняй UI оптимистично, если ошибка приведет к обратному прыжку без объяснения.
+Если переключение запускает долгую операцию, состояние должно отражать загрузка или disabled. Не меняй UI оптимистично, если ошибка приведет к обратному прыжку без объяснения.
 
 ## `Slider`
 
@@ -491,7 +491,7 @@ fun CourseFiltersPanel(
 - binary setting сделан через `Switch`;
 - state хранится снаружи;
 - `Set<String>` удобно представляет множественный выбор;
-- callbacks описывают намерения, а не внутренние детали UI.
+- обратные вызовы описывают намерения, а не внутренние детали UI.
 
 ## Как выбирать control
 

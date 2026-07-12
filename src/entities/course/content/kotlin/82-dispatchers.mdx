@@ -1,8 +1,8 @@
 ---
-title: "Dispatchers"
-description: "Coroutine dispatchers в Kotlin: Dispatchers.Default, IO, Main, Unconfined, inheritance, withContext, limitedParallelism, custom dispatchers и практическое разделение CPU/I/O/UI работы."
+title: "Диспетчеры"
+description: "Coroutine dispatchers в Kotlin: Dispatchers.Default, IO, Main, Unconfined, inheritance, withContext, limitedParallelism, пользовательский dispatchers и практическое разделение CPU/I/O/UI работы."
 order: 82
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -68,7 +68,7 @@ fun overrideExample() = runBlocking(Dispatchers.Default) {
 }
 ```
 
-Не добавляй новый `Job()` ради смены dispatcher. Для dispatcher достаточно передать `Dispatchers.IO`, `Dispatchers.Default` или custom dispatcher.
+Не добавляй новый `Job()` ради смены dispatcher. Для dispatcher достаточно передать `Dispatchers.IO`, `Dispatchers.Default` или пользовательский dispatcher.
 
 ## `Dispatchers.Default`
 
@@ -101,10 +101,10 @@ data class Answer(
 )
 ```
 
-`Default` обычно использует shared pool, размер которого связан с количеством CPU cores. Поэтому не нужно отправлять туда blocking I/O: blocking call займет worker thread и ухудшит выполнение CPU tasks.
+`Default` обычно использует общий pool, размер которого связан с количеством CPU cores. Поэтому не нужно отправлять туда blocking I/O: blocking call займет worker thread и ухудшит выполнение CPU tasks.
 
 <MouseTrap>
-`Dispatchers.Default` не означает «любой background». Для blocking database/JDBC/filesystem/synchronous HTTP используй `Dispatchers.IO` или driver с настоящей suspending поддержкой.
+`Dispatchers.Default` не означает «любой background». Для blocking база данных/JDBC/filesystem/synchronous HTTP используй `Dispatchers.IO` или driver с настоящей suspending поддержкой.
 </MouseTrap>
 
 ## `Dispatchers.IO`
@@ -218,11 +218,11 @@ data class Lesson(
 )
 ```
 
-На backend JVM без UI module `Dispatchers.Main` обычно недоступен.
+На бэкенд JVM без UI module `Dispatchers.Main` обычно недоступен.
 
 ## `Dispatchers.Unconfined`
 
-`Dispatchers.Unconfined` начинает выполнение в caller thread, но после suspension resumes там, где решит suspending function.
+`Dispatchers.Unconfined` начинает выполнение в вызывающий код thread, но после suspension resumes там, где решит suspending function.
 
 ```kotlin
 import kotlinx.coroutines.Dispatchers
@@ -248,12 +248,12 @@ fun unconfinedExample() = runBlocking {
 Для application code `Unconfined` почти никогда не является хорошим default.
 
 <MouseTrap>
-`Dispatchers.Unconfined` не означает «быстрее». Он означает «без стабильной привязки к thread после suspension». Для UI, shared mutable state и predictable execution это опасный выбор.
+`Dispatchers.Unconfined` не означает «быстрее». Он означает «без стабильной привязки к thread после suspension». Для UI, разделяемое изменяемое состояние и predictable execution это опасный выбор.
 </MouseTrap>
 
 ## `withContext`
 
-`withContext` switches context for a block and returns result.
+`withContext` переключает контекст блока и возвращает результат.
 
 ```kotlin
 import kotlinx.coroutines.Dispatchers
@@ -298,7 +298,7 @@ suspend fun renderThenSave(slug: String): String {
 }
 ```
 
-`withContext` cooperates with cancellation. Если parent scope отменен до возврата value, caller не продолжит работать с уже неактуальным результатом.
+`withContext` cooperates with cancellation. Если parent scope отменен до возврата value, вызывающий код не продолжит работать с уже неактуальным результатом.
 
 ## `limitedParallelism`
 
@@ -354,9 +354,9 @@ class LegacySearchClient {
 }
 ```
 
-## Custom dispatchers
+## Пользовательский dispatchers
 
-Custom dispatcher нужен, когда:
+Пользовательский dispatcher нужен, когда:
 
 - есть dedicated executor;
 - external API требует single thread;
@@ -395,7 +395,7 @@ Dedicated thread is expensive. Не создавай new dispatcher per request.
 
 ## `newSingleThreadContext`
 
-`newSingleThreadContext` создает dedicated thread. Это удобно для demos, но в production чаще лучше executor plus `asCoroutineDispatcher`, потому что lifecycle становится явным.
+`newSingleThreadContext` создает dedicated thread. Это удобно для demos, но в боевой среде чаще лучше executor plus `asCoroutineDispatcher`, потому что lifecycle становится явным.
 
 ```kotlin
 import kotlinx.coroutines.newSingleThreadContext
@@ -415,7 +415,7 @@ fun singleThreadContextExample() {
 
 Если не закрыть dedicated dispatcher, thread останется жить.
 
-## Production pattern: dispatcher ownership
+## Боевой pattern: dispatcher ownership
 
 ```kotlin
 import kotlinx.coroutines.CoroutineDispatcher
@@ -448,9 +448,9 @@ data class LessonFile(
 
 Почему dispatcher передается через constructor:
 
-- test can inject test dispatcher;
+- тест может внедрить диспетчер тестирования;
 - class не hardcodes global dispatcher в каждом method;
-- production code сохраняет sensible default;
+- боевой код сохраняет sensible default;
 - ownership и intent становятся видимыми.
 
 <CatTip>

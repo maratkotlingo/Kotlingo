@@ -1,8 +1,8 @@
 ---
 title: "Row и Column"
-description: "Разбираем Row и Column в Compose: horizontalArrangement, verticalArrangement, alignment, weight, baseline alignment, spacing, nested layouts и production-паттерны линейной раскладки."
+description: "Разбираем Row и Column в Compose: horizontalArrangement, verticalArrangement, alignment, weight, baseline alignment, spacing, nested layouts и паттерны для боевого кода линейной раскладки."
 order: 20
-category: "Compose: Layouts, constraints и Modifier"
+category: "Compose: разметки, constraints и Modifier"
 difficulty: "Начальный"
 ---
 
@@ -37,7 +37,7 @@ fun RowAndColumnBasics() {
 }
 ```
 
-В Compose вложенные layout-компоненты обычно не являются проблемой сами по себе. Runtime и layout engine спроектированы так, чтобы вложенность была нормальным способом выражать UI. Проблемой становятся не вложенные `Row`/`Column`, а тяжелые измерения, лишние state reads, неограниченные списки без lazy containers и сложные intrinsics в горячих местах.
+В Compose вложенные layout-компоненты обычно не являются проблемой сами по себе. Runtime и layout engine спроектированы так, чтобы вложенность была нормальным способом выражать UI. Проблемой становятся не вложенные `Row`/`Column`, а тяжелые измерения, лишние чтения состояния, неограниченные списки без lazy containers и сложные intrinsics в горячих местах.
 
 ## `Row`
 

@@ -1,6 +1,6 @@
 ---
-title: "Anonymous functions"
-description: "Разбираем anonymous fun, block и expression body, локальный return, отличия от lambdas, receiver/suspend-типы, захват состояния и сценарии читаемости."
+title: "Анонимные функции"
+description: "Разбираем anonymous fun, block и expression body, локальный return, отличия от лямбды, receiver/suspend-типы, захват состояния и сценарии читаемости."
 order: 41
 category: "Функциональный Kotlin"
 difficulty: "Средний"
@@ -82,9 +82,9 @@ fun firstPassing(scores: List<Int>): Int? {
 }
 ```
 
-`return` завершает текущий callback invocation. `firstPassing` продолжает работу.
+`return` завершает текущий обратный вызов invocation. `firstPassing` продолжает работу.
 
-Эквивалентная lambda требует label:
+Эквивалентная лямбда требует label:
 
 ```kotlin
 scores.forEach { score ->
@@ -128,7 +128,7 @@ val positive = listOf(-1, 0, 1).filter(fun(value): Boolean {
 
 ## Передача только внутри parentheses
 
-Trailing lambda syntax работает только для lambda expressions.
+Trailing лямбда syntax работает только для лямбда expressions.
 
 ```kotlin
 val values = listOf("a", "bb").map(fun(value): Int {
@@ -138,7 +138,7 @@ val values = listOf("a", "bb").map(fun(value): Int {
 
 Нельзя вынести `fun(value) ...` после закрывающей скобки `map` как trailing literal.
 
-Это одна из причин, почему anonymous functions встречаются реже lambdas.
+Это одна из причин, почему anonymous functions встречаются реже лямбды.
 
 ## Несколько parameters
 
@@ -177,7 +177,7 @@ Nullable receiver обрабатывается явно.
 
 ## Suspend anonymous function
 
-Suspending function literal имеет suspend function type и вызывается только в suspend context. В зависимости от syntax/context можно использовать suspending lambda, которая обычно читается проще:
+Suspending function literal имеет suspend function type и вызывается только в suspend context. В зависимости от syntax/context можно использовать suspending лямбда, которая обычно читается проще:
 
 ```kotlin
 suspend fun loadTitle(id: Int): String = "Урок $id"
@@ -191,7 +191,7 @@ val loader: suspend (Int) -> String = { id ->
 
 ## Захват variables
 
-Anonymous function создаёт closure так же, как lambda.
+Anonymous function создаёт closure так же, как лямбда.
 
 ```kotlin
 fun thresholdPredicate(threshold: Int): (Int) -> Boolean {
@@ -248,10 +248,10 @@ Anonymous function лучше, когда:
 - block похож на обычную function;
 - return type/parameters важно видеть рядом;
 - non-local return нужно запретить syntax-level;
-- label lambda ухудшает чтение.
+- label лямбда ухудшает чтение.
 
 <MouseTrap title="Мышеловка: return меняет адрес назначения">
-В lambda bare return может выйти из enclosing function только в inline context; в anonymous function он всегда local. При замене одной формы другой перепроверь control flow.
+В лямбда bare return может выйти из enclosing function только в inline context; в anonymous function он всегда local. При замене одной формы другой перепроверь control flow.
 </MouseTrap>
 
 ## Function reference как третий вариант
@@ -264,9 +264,9 @@ val filtered = listOf(-1, 40, 101).filter(::validScore)
 
 Если logic уже имеет содержательное имя и переиспользуется, reference обычно лучше обоих literals.
 
-## Anonymous function и overload resolution
+## Anonymous function и перегрузка resolution
 
-Explicit parameters/return type могут помочь выбрать overload:
+Explicit parameters/return type могут помочь выбрать перегрузка:
 
 ```kotlin
 fun consume(transform: (String) -> Int): Int = transform("Kotlin")
@@ -276,7 +276,7 @@ val length = consume(fun(value: String): Int {
 })
 ```
 
-Не создавай overloads, различающиеся только function types с одинаковым erased JVM shape без `@JvmName`/разных names.
+Не создавай перегрузки, различающиеся только function types с одинаковым erased JVM shape без `@JvmName`/разных names.
 
 ## Практический пример: parser шагов курса
 
@@ -337,9 +337,9 @@ Anonymous function подходит parser block: каждый invalid condition
 - types могут выводиться из expected function type;
 - bare return всегда выходит из anonymous function;
 - anonymous function не использует implicit `it`;
-- trailing syntax доступна lambda, но не anonymous `fun`;
+- trailing syntax доступна лямбда, но не anonymous `fun`;
 - receiver anonymous function поддерживает `A.() -> B`;
-- closure захватывает outer state как lambda;
+- closure захватывает outer state как лямбда;
 - local named function лучше для recursion;
-- форма особенно полезна для длинного callback с guard clauses.
+- форма особенно полезна для длинного обратный вызов с guard clauses.
 

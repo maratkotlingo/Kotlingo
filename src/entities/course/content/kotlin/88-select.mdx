@@ -2,7 +2,7 @@
 title: "Select"
 description: "Select в Kotlin coroutines: experimental select expression, выбор первой доступной операции, onReceiveCatching, onSend, onAwait, timeouts, channel alternatives, biased selection и практические ограничения."
 order: 88
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -20,7 +20,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - await result `Deferred`;
 - timeout через `onTimeout`;
 - закрытие channel через `onReceiveCatching`;
-- custom selectable clauses from libraries.
+- пользовательский selectable clauses from libraries.
 
 ```kotlin
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -180,7 +180,7 @@ suspend fun biasedExample(
 - измеряй поведение под реальной нагрузкой;
 - избегай `select`, если обычный `merge` или `combine` выражает intent понятнее.
 
-## Selecting to send
+## Выбор отправки
 
 `onSend` позволяет выбрать channel, который готов принять value.
 
@@ -332,9 +332,9 @@ suspend fun receiveWithSimpleTimeout(
 }
 ```
 
-Use `select.onTimeout`, когда timeout is one alternative among several real operations.
+Используй `select.onTimeout`, когда timeout является одной из альтернатив среди нескольких реальных операций.
 
-## Switch latest deferred from channel
+## Переключить последнее отложенное из канала
 
 Пример, где `select` действительно полезен: есть channel of new requests and current deferred result. Если пришел новый request, старый result больше не нужен.
 
@@ -414,18 +414,18 @@ fun latestLessonCards(
 Риски:
 
 - experimental API может измениться;
-- biased selection can surprise;
-- loser alternatives are not automatically cancelled;
+- предвзятый отбор может удивить;
+- проигравшие альтернативы не отменяются автоматически;
 - closed channels require explicit handling;
-- reading such code harder than ordinary `coroutineScope`;
-- many use cases are simpler with Flow operators;
-- public API with select internals becomes harder to maintain.
+- читать такой код сложнее, чем обычный `coroutineScope`;
+- many сценарии использования are simpler with Flow operators;
+- общедоступный API с избранными внутренними компонентами становится сложнее поддерживать.
 
 <MouseTrap>
 Не используй `select` просто потому, что он выглядит продвинуто. Если задача выражается через `withTimeout`, `first`, `merge`, `flatMapLatest`, worker queue или `coroutineScope`, обычно это будет легче поддерживать.
 </MouseTrap>
 
-## Production pattern: first healthy source
+## Боевой pattern: first healthy source
 
 Ниже service выбирает первый ответ от primary/secondary sources, отменяет проигравшую работу и не проглатывает cancellation.
 
@@ -489,6 +489,5 @@ class LessonSource(
 - sources взаимозаменяемы;
 - нужен первый successful response;
 - slower request можно cancel;
-- caller owns cancellation через surrounding scope;
-- exceptions still propagate to caller.
-
+- вызывающий код owns cancellation через surrounding scope;
+- exceptions still propagate to вызывающий код.

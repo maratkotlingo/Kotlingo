@@ -1,8 +1,8 @@
 ---
-title: "Keyboard input"
+title: "Ввод с клавиатуры"
 description: "Разбираем keyboard input в Jetpack Compose: onKeyEvent, onPreviewKeyEvent, KeyEventType, modifier keys, IME actions, KeyboardOptions, KeyboardActions, shortcuts, Keyboard Shortcuts Helper и keyboard-first UI."
 order: 82
-category: "Compose: Input, gestures, focus and accessibility"
+category: "Compose: ввод, жесты, фокус и доступность"
 difficulty: "Средний"
 ---
 
@@ -80,7 +80,7 @@ Keyboard support начинается с focus. Если элемент не foc
 
 ## `onKeyEvent`
 
-`Modifier.onKeyEvent` вызывается после того, как focused child получил шанс обработать событие. Если lambda возвращает `true`, событие считается обработанным. Если возвращает `false`, событие может продолжить распространение.
+`Modifier.onKeyEvent` вызывается после того, как focused child получил шанс обработать событие. Если лямбда возвращает `true`, событие считается обработанным. Если возвращает `false`, событие может продолжить распространение.
 
 ```kotlin
 import androidx.compose.foundation.focusable
@@ -144,7 +144,7 @@ fun CounterWithKeyboard() {
 
 - `Ctrl+S` внутри editor, даже когда focused `TextField`;
 - `Escape` закрывает modal;
-- `Tab` управляет custom focus traversal;
+- `Tab` управляет пользовательский focus traversal;
 - `Enter` подтверждает form;
 - shortcuts на уровне экрана.
 
@@ -208,7 +208,7 @@ fun EditorWithSaveShortcut(
 `onPreviewKeyEvent` мощный, но легко сломать поведение child. Перехватывайте только конкретные shortcuts.
 
 <MouseTrap>
-Не возвращайте `true` для всех key events "на всякий случай". Так вы заблокируете ввод текста, навигацию, screen reader shortcuts и ожидаемое поведение дочерних компонентов.
+Не возвращайте `true` для всех key events "на всякий случай". Так вы заблокируете ввод текста, навигацию, программа чтения с экрана shortcuts и ожидаемое поведение дочерних компонентов.
 </MouseTrap>
 
 ## `KeyEvent`
@@ -304,7 +304,7 @@ fun TwoFieldKeyboardForm() {
 }
 ```
 
-Обычно Compose сам управляет Tab traversal. Ручная обработка нужна для custom forms, dialogs и desktop-like workflows.
+Обычно Compose сам управляет Tab traversal. Ручная обработка нужна для пользовательский forms, диалогах и desktop-like workflows.
 
 ## IME actions
 
@@ -458,7 +458,7 @@ fun Modifier.appShortcuts(
 
 ## Android Keyboard Shortcuts Helper
 
-Android может показывать системный overlay со shortcuts. Для этого Activity переопределяет `onProvideKeyboardShortcuts`.
+Android может показывать системный наложение со shortcuts. Для этого Activity переопределяет `onProvideKeyboardShortcuts`.
 
 ```kotlin
 import android.os.Bundle

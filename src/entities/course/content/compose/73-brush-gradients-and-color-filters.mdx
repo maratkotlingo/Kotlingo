@@ -1,8 +1,8 @@
 ---
-title: "Brush, gradients and color filters"
-description: "Разбираем Brush в Jetpack Compose: SolidColor, linear, horizontal, vertical, radial, sweep и mesh gradients, TileMode, colorStops, Brush в Canvas, background, border, TextStyle, ColorFilter.tint, ColorMatrix и production-паттерны."
+title: "Brush, градиенты и цветовые фильтры"
+description: "Разбираем Brush в Jetpack Compose: SolidColor, linear, horizontal, vertical, radial, sweep и mesh gradients, TileMode, colorStops, Brush в Canvas, background, border, TextStyle, ColorFilter.tint, ColorMatrix и паттерны для боевого кода."
 order: 73
-category: "Compose: Graphics, Canvas and drawing"
+category: "Compose: графика, Canvas и рисование"
 difficulty: "Средний"
 ---
 
@@ -69,7 +69,7 @@ fun GradientTile() {
 - border идет по цветовому кольцу;
 - текст заполнен градиентом;
 - поверх изображения применяется сложная маска;
-- custom drawing должен выглядеть как тепловая карта, диаграмма или освещенная поверхность.
+- собственное рисование должен выглядеть как тепловая карта, диаграмма или освещенная поверхность.
 
 ```kotlin
 import androidx.compose.foundation.Canvas
@@ -124,7 +124,7 @@ fun SolidBrushCanvas() {
 
 ## Основные фабрики `Brush`
 
-В production-коде чаще всего используются такие фабрики:
+В боевой коде чаще всего используются такие фабрики:
 
 - `Brush.solidColor(color)`: сплошная заливка через brush API;
 - `Brush.linearGradient(colors, start, end, tileMode)`: линейный градиент между двумя точками;
@@ -135,7 +135,7 @@ fun SolidBrushCanvas() {
 - `Brush.radialGradient(vararg colorStops, center, radius, tileMode)`: radial gradient с точными остановками;
 - `Brush.sweepGradient(colors, center)`: градиент по углу вокруг центра;
 - `Brush.sweepGradient(vararg colorStops, center)`: angular gradient с точными остановками;
-- `ShaderBrush`: базовый класс для custom shader brush;
+- `ShaderBrush`: базовый класс для пользовательский shader brush;
 - `MeshGradientPainter`: painter для mesh gradients, когда нужен многоточечный цветовой переход.
 
 `colors` распределяет цвета равномерно. `colorStops` дает точный контроль: `0f` означает начало, `1f` означает конец, значения между ними задают позицию конкретного цвета.
@@ -225,7 +225,7 @@ fun HealthScaleGradient() {
 }
 ```
 
-Такой подход удобен для risk indicators, charts, progress scales и heatmaps. Главное — не забыть текстовую альтернативу или semantics, если цвет несет смысл.
+Такой подход удобен для risk indicators, charts, прогресс scales и heatmaps. Главное — не забыть текстовую альтернативу или semantics, если цвет несет смысл.
 
 ## `horizontalGradient` и `verticalGradient`
 
@@ -378,7 +378,7 @@ fun RadialStatusGlow(
 
 ## `sweepGradient`
 
-`sweepGradient` распределяет цвета по окружности. Он особенно удобен для circular progress, color wheels и gradient borders.
+`sweepGradient` распределяет цвета по окружности. Он особенно удобен для circular прогресс, color wheels и gradient borders.
 
 ```kotlin
 import androidx.compose.foundation.BorderStroke
@@ -645,7 +645,7 @@ fun DesaturatedPreview(
 }
 ```
 
-Не делайте disabled state только серым. Добавьте semantics, disabled interaction или текстовую причину, если это важное действие.
+Не делайте отключенное состояние только серым. Добавьте semantics, disabled interaction или текстовую причину, если это важное действие.
 
 ## Brush и performance
 
@@ -688,7 +688,7 @@ Brush сам по себе обычно дешевле, чем bitmap background
 
 - `Color` подходит для одного цвета;
 - `Brush.solidColor` нужен, когда API ожидает brush;
-- `linearGradient`, `horizontalGradient`, `verticalGradient`, `radialGradient` и `sweepGradient` покрывают большинство production-задач;
+- `linearGradient`, `horizontalGradient`, `verticalGradient`, `radialGradient` и `sweepGradient` покрывают большинство задач боевого кода;
 - `colorStops` дают точное распределение цветов;
 - `TileMode` управляет поведением за пределами shader bounds;
 - `drawWithCache` помогает кешировать size-dependent brush-и;

@@ -1,8 +1,8 @@
 ---
-title: "Accessibility testing"
-description: "Разбираем accessibility testing в Jetpack Compose: semantics assertions, content descriptions, roles, stateDescription, error semantics, traversal, custom actions, font scale, touch targets, TalkBack сценарии и автоматизированные/ручные проверки."
+title: "Тестирование доступности"
+description: "Разбираем accessibility testing в Jetpack Compose: semantics assertions, content descriptions, roles, stateDescription, error semantics, traversal, пользовательский actions, font scale, touch targets, TalkBack сценарии и автоматизированные/ручные проверки."
 order: 114
-category: "Compose: Testing and quality"
+category: "Compose: тестирование и качество"
 difficulty: "Продвинутый"
 ---
 
@@ -13,11 +13,11 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 Accessibility testing проверяет, что UI понятен и управляем не только визуально. Compose делает semantics центральным слоем для:
 
-- screen readers;
+- программы чтения с экрана;
 - UI tests;
 - autofill;
 - accessibility services;
-- custom actions;
+- пользовательский actions;
 - traversal.
 
 Автоматические тесты не заменяют ручную проверку TalkBack, keyboard, font scale и real device behavior. Но они хорошо ловят regressions в semantics contract.
@@ -34,7 +34,7 @@ data class AccessibilityCheckItem(
 Accessibility — это не отдельная "последняя проверка". Это часть API вашего UI.
 
 <CatTip>
-Semantics — это публичный контракт компонента. Если вы меняете label, role или action, вы меняете поведение для screen reader и тестов.
+Semantics — это публичный контракт компонента. Если вы меняете label, role или action, вы меняете поведение для программа чтения с экрана и тестов.
 </CatTip>
 
 ## Content descriptions
@@ -82,7 +82,7 @@ class CloseButtonAccessibilityTest {
 }
 ```
 
-Декоративная icon должна иметь `contentDescription = null`, чтобы screen reader не читал шум.
+Декоративная icon должна иметь `contentDescription = null`, чтобы программа чтения с экрана не читал шум.
 
 ## Не дублировать text
 
@@ -98,7 +98,7 @@ Row {
 }
 ```
 
-Screen reader может прочитать "Настройки" дважды. Лучше:
+Программа чтения с экрана может прочитать "Настройки" дважды. Лучше:
 
 ```kotlin
 Row {
@@ -114,7 +114,7 @@ Row {
 
 ## Roles
 
-Custom interactive UI должен иметь role.
+Пользовательский interactive UI должен иметь role.
 
 ```kotlin
 import androidx.compose.foundation.clickable
@@ -156,7 +156,7 @@ composeRule
     .assertExists()
 ```
 
-Material components часто задают role сами. Custom components требуют внимания.
+компоненты Material часто задают role сами. Пользовательский components требуют внимания.
 
 ## State descriptions
 
@@ -273,9 +273,9 @@ fun hasError(
 }
 ```
 
-## Custom actions
+## Пользовательский actions
 
-Если gesture сложный, добавьте accessibility alternative через custom action.
+Если gesture сложный, добавьте accessibility alternative через пользовательское действие.
 
 ```kotlin
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -326,12 +326,12 @@ composeRule
 Жест не должен быть единственным способом выполнить важное действие.
 
 <MouseTrap>
-Swipe-to-delete без меню, кнопки или custom action недоступен части пользователей. Красивый жест не равен доступному действию.
+Swipe-to-delete без меню, кнопки или пользовательское действие недоступен части пользователей. Красивый жест не равен доступному действию.
 </MouseTrap>
 
-## Traversal and order
+## Обход и порядок
 
-Screen reader order обычно следует layout order. Если визуальный layout сложный, проверяйте traversal вручную и через semantics.
+Программа чтения с экрана order обычно следует layout order. Если визуальный layout сложный, проверяйте traversal вручную и через semantics.
 
 Автоматически проверить полный порядок сложно, но можно:
 
@@ -391,19 +391,19 @@ Accessibility testing включает large font.
 
 - текст не обрезается;
 - buttons не теряют label;
-- dialogs scrollable;
-- primary action доступен;
+- диалогах scrollable;
+- основное действие доступен;
 - list items не overlap;
 - error text виден.
 
 Screenshot tests хорошо подходят для font scale variants. UI tests могут проверить, что ключевые nodes все еще displayed.
 
-## Accessibility scanner and manual checks
+## Сканер доступности и ручные проверки
 
-Автоматические Compose tests не ловят все. Добавляйте ручной checklist:
+Автоматические Compose tests не ловят все. Добавляйте ручной проверочный список:
 
 - TalkBack linear navigation;
-- TalkBack local context menu/custom actions;
+- TalkBack local context menu/пользовательский actions;
 - keyboard navigation;
 - switch access, если важно;
 - font scale 1.3/2.0;
@@ -428,15 +428,15 @@ composeRule
 
 Используйте unmerged для диагностики, а assertions лучше писать к user-facing semantics.
 
-## Accessibility regression checklist
+## Accessibility регрессия проверочный список
 
 Для PR с новым component:
 
 - есть label у icon-only actions;
 - decorative images скрыты;
-- custom clickables имеют role;
+- пользовательский clickables имеют role;
 - state changes имеют stateDescription;
-- errors visible and semantic;
+- ошибки видимые и смысловые;
 - gestures имеют alternative action;
 - focus/traversal логичны;
 - font scale проверен;
@@ -456,13 +456,13 @@ data class AccessibilityRegressionCheck(
 
 ### Content description на декоративной иконке
 
-Screen reader читает лишний шум.
+Программа чтения с экрана читает лишний шум.
 
 ### Нет content description на icon button
 
 Пользователь слышит generic unlabeled action.
 
-### Custom clickable без role
+### Пользовательский clickable без role
 
 Элемент звучит не как кнопка/checkbox/switch.
 
@@ -484,10 +484,10 @@ Accessibility testing в Compose строится на semantics и ручной
 
 - content descriptions нужны meaningful non-text actions;
 - decorative images должны быть скрыты;
-- custom interactive components должны иметь role/action;
+- пользовательский interactive components должны иметь role/action;
 - `stateDescription` описывает состояние;
 - error semantics дополняет visible error text;
-- custom actions дают альтернативу сложным gestures;
+- пользовательский actions дают альтернативу сложным gestures;
 - headings и pane titles помогают navigation;
 - touch target и font scale нужно проверять отдельно;
 - merged semantics лучше отражает user-facing contract;

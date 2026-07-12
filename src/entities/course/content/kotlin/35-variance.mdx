@@ -1,8 +1,8 @@
 ---
-title: "Variance"
+title: "Вариантность"
 description: "Глубоко разбираем инвариантность, declaration-site out и in, use-site projections, star projections, producer/consumer reasoning, function variance и Java wildcards."
 order: 35
-category: "Generics и типовая система"
+category: "Дженерики и типовая система"
 difficulty: "Продвинутый"
 ---
 
@@ -75,7 +75,7 @@ interface Source<out T> {
 }
 ```
 
-`T` можно возвращать, использовать в covariant output structures и read-only properties.
+`T` можно возвращать, использовать в covariant output structures и только для чтения properties.
 
 ```kotlin
 interface Snapshot<out T> {
@@ -88,7 +88,7 @@ interface Snapshot<out T> {
 
 ## Почему `List` covariant
 
-Kotlin read-only `List` объявлена conceptually как `List<out E>`. Она возвращает elements и не принимает новые `E` для mutation.
+Kotlin только для чтения `List` объявлена conceptually как `List<out E>`. Она возвращает elements и не принимает новые `E` для mutation.
 
 ```kotlin
 val lessons: List<Lesson> = listOf(Lesson("Variance"))
@@ -97,7 +97,7 @@ val contents: List<Content> = lessons
 
 Через `contents` нельзя добавить Quiz, потому что `List` не имеет mutation API.
 
-Read-only не означает deep immutable: underlying mutable list может изменяться через другую reference.
+Только для чтения не означает deep immutable: underlying mutable list может изменяться через другую reference.
 
 ## Contravariance `in`
 
@@ -180,7 +180,7 @@ interface RepositoryWriter<in T> {
 }
 ```
 
-Разделение read/write interfaces позволяет variance, хотя полный mutable repository invariant:
+Разделение read/write interfaces позволяет variance, хотя полный mutable репозиторий invariant:
 
 ```kotlin
 interface Repository<T> : RepositoryReader<T>, RepositoryWriter<T>

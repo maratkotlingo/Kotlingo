@@ -1,8 +1,8 @@
 ---
-title: "Flow layouts and adaptive rows"
-description: "Разбираем FlowRow, FlowColumn и contextual flow layouts в Compose: перенос элементов, maxItemsInEachRow, spacing, weight, overflow, адаптивные chips, теги и production-паттерны."
+title: "Flow-разметки и адаптивные строки"
+description: "Разбираем FlowRow, FlowColumn и contextual flow layouts в Compose: перенос элементов, maxItemsInEachRow, spacing, weight, overflow, адаптивные chips, теги и паттерны для боевого кода."
 order: 25
-category: "Compose: Layouts, constraints и Modifier"
+category: "Compose: разметки, constraints и Modifier"
 difficulty: "Средний"
 ---
 
@@ -252,7 +252,7 @@ fun ResponsiveActionFlow(
 
 ## Contextual flow layouts
 
-В новых версиях foundation есть contextual variants, такие как `ContextualFlowRow`, которые помогают строить flow-контент с контекстом индекса и ограничениями видимости. API может быть experimental или меняться, поэтому перед production-использованием закрепи версию Compose BOM и проверь opt-in.
+В новых версиях foundation есть contextual variants, такие как `ContextualFlowRow`, которые помогают строить flow-контент с контекстом индекса и ограничениями видимости. API может быть experimental или меняться, поэтому перед использованием в боевой среде закрепи версию Compose BOM и проверь opt-in.
 
 Идея contextual flow: элемент знает свой индекс и может участвовать в логике показа. Например, можно показать ограниченное число тегов и отдельный chip с количеством скрытых элементов.
 

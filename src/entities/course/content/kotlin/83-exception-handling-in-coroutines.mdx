@@ -1,8 +1,8 @@
 ---
-title: "Exception Handling In Coroutines"
-description: "Обработка исключений в Kotlin coroutines: launch и async, CoroutineExceptionHandler, SupervisorJob, supervisorScope, CancellationException, recovery boundaries и production-паттерны."
+title: "Обработка исключений в корутинах"
+description: "Обработка исключений в Kotlin coroutines: launch и async, CoroutineExceptionHandler, SupervisorJob, supervisorScope, CancellationException, recovery boundaries и паттерны для боевого кода."
 order: 83
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -95,7 +95,7 @@ suspend fun sendAnalytics() {
 }
 ```
 
-`launch` подходит для side effects. Если operation должна вернуть value, обычно нужен `async` или plain suspending function.
+`launch` подходит для побочные эффекты. Если operation должна вернуть value, обычно нужен `async` или plain suspending function.
 
 ## `async` exceptions
 
@@ -373,7 +373,7 @@ Recovery boundary — место, где error превращается в по�
 Хорошие boundaries:
 
 - HTTP handler layer;
-- use case/service method;
+- сценарий использования/service method;
 - screen model;
 - worker iteration;
 - optional widget loader;
@@ -505,7 +505,7 @@ suspend fun <T> retryTransient(
 - retries only selected exception family;
 - has explicit attempt count;
 - не полагается на global exception handler;
-- keeps recovery local and visible.
+- сохраняет восстановление локальным и видимым.
 
 <CatTip>
 Хорошая обработка исключений похожа на чистый кошачий след: видно, где ошибка возникла, где стала result-ом, и почему cancellation не была проглочена.

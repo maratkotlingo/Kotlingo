@@ -255,7 +255,7 @@ if (output.notExists()) {
 
 ## Charsets
 
-Kotlin I/O text functions по умолчанию часто используют UTF-8, но production-код лучше делает charset явным, если file format важен.
+Kotlin I/O text functions по умолчанию часто используют UTF-8, но боевой код лучше делает charset явным, если file format важен.
 
 ```kotlin
 val text = file.readText(Charsets.UTF_8)
@@ -325,7 +325,7 @@ class SafeLessonStorage(
 Никогда не делай `base.resolve(userInput)` без validation, если userInput может содержать `..`, separator или absolute path. Это классическая path traversal ошибка.
 </MouseTrap>
 
-## Production-пример: чтение manifest файла
+## Боевой-пример: чтение manifest файла
 
 ```kotlin
 import java.nio.file.Path

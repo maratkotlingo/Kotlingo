@@ -1,8 +1,8 @@
 ---
-title: "JVM Performance Model"
-description: "Модель производительности Kotlin/JVM: allocation, escape analysis, boxing, primitive arrays, inline/value classes, collections overhead, sequences, lambdas, hot paths, JIT и измерения через benchmark."
+title: "Модель производительности JVM"
+description: "Модель производительности Kotlin/JVM: allocation, escape analysis, boxing, primitive arrays, inline/value classes, collections overhead, sequences, лямбды, hot paths, JIT и измерения через benchmark."
 order: 76
-category: "Java и JVM interoperability"
+category: "Java и JVM-интероперабельность"
 difficulty: "Эксперт"
 ---
 
@@ -26,7 +26,7 @@ fun totalViews(stats: List<LessonStat>): Int {
 }
 ```
 
-Этот код выглядит компактно. В hot path важно понимать, создаются ли intermediate collections, boxing, lambdas, iterators и может ли JIT это оптимизировать.
+Этот код выглядит компактно. В hot path важно понимать, создаются ли intermediate collections, boxing, лямбды, iterators и может ли JIT это оптимизировать.
 
 <CatTip>
 JVM performance похожа на кошачью охоту в темной комнате: сначала посмотри, где реально шуршит, потом прыгай. Без измерений легко атаковать не ту коробку.
@@ -167,10 +167,10 @@ fun loadLesson(id: LessonId): String {
 
 В некоторых contexts wrapper может быть represented без allocation. Но boxing все равно возможен:
 
-- when used as nullable;
-- when used as generic type;
-- when cast to interface;
-- when type erasure requires object representation.
+- когда используется как обнуляемый;
+- при использовании в качестве универсального типа;
+- при приведении к интерфейсу;
+- когда стирание типа требует представления объекта.
 
 ```kotlin
 val id = LessonId("01-introduction")
@@ -198,7 +198,7 @@ fun countMatching(values: IntArray, predicate: (Int) -> Boolean): Int {
 }
 ```
 
-Если lambda captures variable, ей нужно хранить captured state.
+Если лямбда captures variable, ей нужно хранить captured state.
 
 ```kotlin
 fun countAbove(values: IntArray, min: Int): Int {
@@ -209,7 +209,7 @@ fun countAbove(values: IntArray, min: Int): Int {
 }
 ```
 
-Inline functions могут убрать часть overhead call/lambda.
+Inline functions могут убрать часть overhead call/лямбда.
 
 ```kotlin
 inline fun countMatchingInline(values: IntArray, predicate: (Int) -> Boolean): Int {
@@ -257,7 +257,7 @@ val result = lessons
     .toList()
 ```
 
-Sequence убирает intermediate collections и дает lazy processing, но добавляет iterator/lambda overhead. Для маленьких lists обычная collection pipeline может быть быстрее и проще.
+Sequence убирает intermediate collections и дает lazy processing, но добавляет iterator/лямбда overhead. Для маленьких lists обычная collection pipeline может быть быстрее и проще.
 
 Manual loop:
 
@@ -338,7 +338,7 @@ fun joinFast(values: List<String>): String {
 val csv = values.joinToString(separator = ",")
 ```
 
-## Hot paths and measuring
+## Горячие пути и измерения
 
 Hot path — участок кода, который выполняется часто и влияет на latency/throughput/cpu/gc. Оптимизируй hot paths после измерения.
 
@@ -381,7 +381,7 @@ class LessonStatsBenchmark {
 
 ## Performance-friendly API design
 
-Не заставляй caller создавать collection, если достаточно sequence/iterator callback.
+Не заставляй вызывающий код создавать collection, если достаточно sequence/iterator обратный вызов.
 
 ```kotlin
 fun renderAll(lessons: Iterable<Lesson>): String {
@@ -391,7 +391,7 @@ fun renderAll(lessons: Iterable<Lesson>): String {
 }
 ```
 
-Для hot streaming API можно дать callback.
+Для hot streaming API можно дать обратный вызов.
 
 ```kotlin
 fun forEachPublishedLesson(
@@ -408,7 +408,7 @@ fun forEachPublishedLesson(
 
 Если API library public, учитывай compatibility before changing return types from `List` to `Sequence` or vice versa.
 
-## Production-пример: оптимизация только hot участка
+## Боевой-пример: оптимизация только hot участка
 
 ```kotlin
 data class Lesson(

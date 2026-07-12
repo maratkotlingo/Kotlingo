@@ -1,8 +1,8 @@
 ---
-title: "Type-safe navigation"
-description: "Разбираем type-safe navigation в Navigation Compose: @Serializable routes, composable<T>, navigate(route), toRoute, SavedStateHandle.toRoute, typeMap, custom NavType, deep links и безопасную миграцию со строковых routes."
+title: "Типобезопасная навигация"
+description: "Разбираем type-safe navigation в Navigation Compose: @Serializable routes, composable<T>, navigate(route), toRoute, SavedStateHandle.toRoute, typeMap, пользовательский NavType, deep links и безопасную миграцию со строковых routes."
 order: 55
-category: "Compose: Navigation and architecture"
+category: "Compose: навигация и архитектура"
 difficulty: "Средний"
 ---
 
@@ -82,7 +82,7 @@ dependencies {
 
 - `data object`: destination без аргументов;
 - `data class`: destination с обязательными или опциональными аргументами;
-- class с default values: route, где все параметры имеют значения по умолчанию;
+- class с значения по умолчанию: route, где все параметры имеют значения по умолчанию;
 - sealed interface или sealed class: удобная группировка routes, но конкретные destinations все равно регистрируются отдельными типами.
 
 ```kotlin
@@ -109,7 +109,7 @@ data class SearchRoute(
 ) : NewsRoute
 ```
 
-`NewsFeedRoute` и `BookmarksRoute` не несут данных. `ArticleRoute` требует `articleId`, но имеет default value для `openedFrom`. `SearchRoute` допускает `null`, если экран поиска открывается без начального запроса.
+`NewsFeedRoute` и `BookmarksRoute` не несут данных. `ArticleRoute` требует `articleId`, но имеет значение по умолчанию для `openedFrom`. `SearchRoute` допускает `null`, если экран поиска открывается без начального запроса.
 
 ## NavHost с composable<T>
 
@@ -221,7 +221,7 @@ navController.navigate(
 
 - нельзя забыть обязательный аргумент;
 - нельзя передать `Int`, если route ожидает `String`;
-- default values остаются частью Kotlin API;
+- значения по умолчанию остаются частью Kotlin API;
 - IDE подсказывает имена параметров;
 - refactoring переименует property во всех местах;
 - route можно тестировать как обычную модель.
@@ -247,7 +247,7 @@ fun NavController.navigateToBookmarks() {
 
 ## toRoute в destination
 
-`NavBackStackEntry.toRoute<T>()` нужен, когда destination должен прочитать аргументы внутри composable destination lambda.
+`NavBackStackEntry.toRoute<T>()` нужен, когда destination должен прочитать аргументы внутри composable destination лямбда.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -448,9 +448,9 @@ fun NavigationSelectionDebugText(
 
 Helper нужен только для удобной обработки nullable `NavDestination`. Сам `hasRoute<T>()` проверяет, соответствует ли destination заданному route type.
 
-## Optional arguments и default values
+## Optional arguments и значения по умолчанию
 
-Type-safe route может иметь nullable аргументы и default values.
+Type-safe route может иметь nullable аргументы и значения по умолчанию.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -481,11 +481,11 @@ navController.navigate(
 )
 ```
 
-Такой route хорошо читается, но важно не переусердствовать. Если route начинает содержать десять фильтров, диапазоны цен, сложные сортировки и пользовательский search object, подумайте о сохранении фильтра в state holder или repository. Route должен описывать способ попасть на экран, а не становиться переносной базой данных.
+Такой route хорошо читается, но важно не переусердствовать. Если route начинает содержать десять фильтров, диапазоны цен, сложные сортировки и пользовательский search object, подумайте о сохранении фильтра в держатель состояния или репозиторий. Route должен описывать способ попасть на экран, а не становиться переносной базой данных.
 
-## Custom NavType для сложных типов
+## Пользовательский NavType для сложных типов
 
-Navigation лучше всего работает с простыми аргументами: `String`, `Int`, `Long`, `Boolean`, enum и nullable/default values. Но иногда нужно передать небольшой serializable object. Тогда можно зарегистрировать custom `NavType` через `typeMap`.
+Navigation лучше всего работает с простыми аргументами: `String`, `Int`, `Long`, `Boolean`, enum и nullable/значения по умолчанию. Но иногда нужно передать небольшой serializable object. Тогда можно зарегистрировать пользовательский `NavType` через `typeMap`.
 
 ```kotlin
 import android.net.Uri
@@ -563,7 +563,7 @@ composable<AdvancedSearchRoute>(
 }
 ```
 
-Custom `NavType` — инструмент для редких случаев. Если object большой, чувствительный или часто меняется, лучше передать ID и загрузить данные из repository.
+Пользовательский `NavType` — инструмент для редких случаев. Если object большой, чувствительный или часто меняется, лучше передать ID и загрузить данные из репозиторий.
 
 ## Deep links с type-safe routes
 
@@ -644,9 +644,9 @@ navController.navigate(
 
 Шаг 4. Удалите legacy constants, когда на них больше никто не ссылается.
 
-## Production-пример: feature API
+## Боевой-пример: feature API
 
-В production-коде удобно отделить публичную навигацию feature от внутреннего UI.
+В боевой коде удобно отделить публичную навигацию feature от внутреннего UI.
 
 ```kotlin
 package feature.profile.api
@@ -787,27 +787,27 @@ internal fun ProfileRouteContent(
 
 ### Считать type-safe navigation заменой архитектуры
 
-Type-safe route делает аргументы безопаснее, но не решает state management, loading, error handling и ownership ViewModel. Это все еще задачи архитектуры.
+Type-safe route делает аргументы безопаснее, но не решает state management, загрузка, error handling и ownership ViewModel. Это все еще задачи архитектуры.
 
 ### Передавать доменную модель целиком
 
-Не передавайте `Article`, `User`, `Order` и другие большие модели через route. Передавайте ID, а данные загружайте из repository.
+Не передавайте `Article`, `User`, `Order` и другие большие модели через route. Передавайте ID, а данные загружайте из репозиторий.
 
-### Забывать default values
+### Забывать значения по умолчанию
 
-Если аргумент действительно необязательный, задайте default value. Это делает route проще и помогает миграции.
+Если аргумент действительно необязательный, задайте значение по умолчанию. Это делает route проще и помогает миграции.
 
 ### Смешивать route и screen
 
-`ProfileRoute` как navigation model и `ProfileScreen` как UI-функция должны иметь разные роли. Не превращайте route data class в UI state.
+`ProfileRoute` как navigation model и `ProfileScreen` как UI-функция должны иметь разные роли. Не превращайте route data class в UI-состояние.
 
 ### Дублировать navigation calls
 
 Если одна и та же feature открывается из многих мест, создайте `navigateToFeature`. Иначе параметры начнут расходиться.
 
-### Использовать custom NavType без необходимости
+### Использовать пользовательский NavType без необходимости
 
-Custom `NavType` полезен, но увеличивает сложность сериализации, совместимости и тестирования. Сначала проверьте, нельзя ли передать простой ID.
+Пользовательский `NavType` полезен, но увеличивает сложность сериализации, совместимости и тестирования. Сначала проверьте, нельзя ли передать простой ID.
 
 ## Итоги
 
@@ -821,6 +821,6 @@ Type-safe navigation делает Navigation Compose надежнее:
 - `navController.navigate(route)` принимает route object;
 - `backStackEntry.toRoute<T>()` восстанавливает аргументы в destination;
 - `SavedStateHandle.toRoute<T>()` читает аргументы во ViewModel;
-- `typeMap` и custom `NavType` нужны только для специальных сложных типов;
+- `typeMap` и пользовательский `NavType` нужны только для специальных сложных типов;
 - навигацию лучше инкапсулировать через `navigateToFeature` и `featureDestination`;
 - через route передают минимальные данные, обычно идентификаторы и небольшие flags.

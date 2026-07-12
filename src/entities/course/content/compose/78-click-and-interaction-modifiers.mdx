@@ -1,8 +1,8 @@
 ---
-title: "Click and interaction modifiers"
-description: "Разбираем input и interaction modifiers в Jetpack Compose: clickable, combinedClickable, selectable, toggleable, triStateToggleable, InteractionSource, MutableInteractionSource, indication, ripple, accessibility roles и state hoisting."
+title: "Модификаторы клика и взаимодействия"
+description: "Разбираем input и interaction modifiers в Jetpack Compose: clickable, combinedClickable, selectable, toggleable, triStateToggleable, InteractionSource, MutableInteractionSource, indication, ripple, accessibility roles и подъем состояния."
 order: 78
-category: "Compose: Input, gestures, focus and accessibility"
+category: "Compose: ввод, жесты, фокус и доступность"
 difficulty: "Средний"
 ---
 
@@ -19,7 +19,7 @@ Compose предлагает несколько уровней input API. Выб
 - низкоуровневый `pointerInput`;
 - interop с View input, если экран мигрирует постепенно.
 
-Готовые components обычно дают больше accessibility, focus, keyboard support, hover behavior и visual feedback. Modifier-ы нужны, когда кликабельность добавляется к custom surface.
+Готовые components обычно дают больше accessibility, focus, keyboard support, hover behavior и визуальная обратная связь. Modifier-ы нужны, когда кликабельность добавляется к пользовательская поверхность.
 
 ```kotlin
 import androidx.compose.material3.Button
@@ -36,7 +36,7 @@ fun PreferredButton(
 }
 ```
 
-Если задача выглядит как button, начните с `Button`. Если задача выглядит как custom card, можно использовать `clickable`.
+Если задача выглядит как button, начните с `Button`. Если задача выглядит как пользовательская карточка, можно использовать `clickable`.
 
 <CatTip>
 Высокий уровень API в Compose — это не ограничение, а готовый пакет поведения: semantics, focus, keyboard, hover, indication и тестируемость.
@@ -52,7 +52,7 @@ fun PreferredButton(
 - `onClickLabel`: текст действия для accessibility services;
 - `role`: роль элемента, например `Role.Button`;
 - `interactionSource`: источник interactions;
-- `indication`: visual feedback;
+- `indication`: визуальная обратная связь;
 - `onClick`: действие.
 
 ```kotlin
@@ -103,7 +103,7 @@ fun ClickableArticleRow(
 
 ## `enabled`
 
-`enabled = false` отключает interaction. Визуальное disabled-состояние нужно показать отдельно.
+`enabled = false` отключает interaction. Визуальное отключенное состояние нужно показать отдельно.
 
 ```kotlin
 import androidx.compose.foundation.clickable
@@ -188,9 +188,9 @@ fun PhotoTileActions(
 
 Long click и double click должны быть дополнительными путями, а не единственным способом выполнить важное действие. На touch devices discoverability таких gestures ограничена.
 
-## Haptic feedback для long click
+## Haptic обратная связь для long click
 
-Для долгого нажатия часто уместна haptic feedback.
+Для долгого нажатия часто уместна тактильный отклик.
 
 ```kotlin
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -225,7 +225,7 @@ fun SelectableMediaTile(
 }
 ```
 
-Не добавляйте haptic feedback на каждое мелкое действие. Он должен подтверждать значимое interaction.
+Не добавляйте тактильный отклик на каждое мелкое действие. Он должен подтверждать значимое interaction.
 
 ## `selectable`
 
@@ -487,7 +487,7 @@ Release и cancel ссылаются на исходный `PressInteraction.Pre
 
 ## Indication и ripple
 
-`indication` отвечает за визуальный feedback. Material components по умолчанию используют ripple. В новых версиях Compose Material ripple создается через `ripple()` и не требует `remember`.
+`indication` отвечает за визуальный обратная связь. компоненты Material по умолчанию используют ripple. В новых версиях Compose Material ripple создается через `ripple()` и не требует `remember`.
 
 ```kotlin
 import androidx.compose.foundation.clickable
@@ -524,7 +524,7 @@ fun CustomRippleBox(
 
 ## Отключение indication
 
-Иногда ripple не нужен, но feedback должен остаться.
+Иногда ripple не нужен, но обратная связь должен остаться.
 
 ```kotlin
 import androidx.compose.animation.core.animateFloatAsState
@@ -573,9 +573,9 @@ fun RippleFreeIconButton(
 }
 ```
 
-Если `indication = null`, проверьте pressed, focused и hovered states. Без visible feedback custom control будет ощущаться сломанным.
+Если `indication = null`, проверьте pressed, focused и hovered states. Без visible обратная связь пользовательский элемент управления будет ощущаться сломанным.
 
-## State hoisting
+## Подъем состояния
 
 Interaction modifiers должны получать state сверху и отправлять events вверх.
 
@@ -643,7 +643,7 @@ fun FavoriteToggleRow(
 
 ## Минимальный размер touch target
 
-Интерактивные элементы должны иметь удобную область нажатия. Material components обычно уже учитывают это. Для custom controls задавайте размер явно.
+Интерактивные элементы должны иметь удобную область нажатия. компоненты Material обычно уже учитывают это. Для пользовательские элементы управления задавайте размер явно.
 
 ```kotlin
 import androidx.compose.foundation.clickable
@@ -712,7 +712,7 @@ class ClickableArticleRowTest {
 }
 ```
 
-Если тест не может найти action, проверьте semantics, enabled state и то, где расположен clickable modifier.
+Если тест не может найти action, проверьте semantics, включенное состояние и то, где расположен clickable modifier.
 
 ## Типичные ошибки
 
@@ -724,13 +724,13 @@ class ClickableArticleRowTest {
 
 Disabled состояние должно быть единым: interaction выключен, визуальный стиль изменен, state не меняется.
 
-### Прятать ripple без замены feedback
+### Прятать ripple без замены обратная связь
 
 Пользователь должен видеть, что нажатие принято.
 
 ### Не задавать role
 
-Custom clickable surface может быть кнопкой, checkbox, switch или radio option. Role помогает accessibility.
+Пользовательский clickable surface может быть кнопкой, checkbox, switch или radio option. Role помогает accessibility.
 
 ### Дублировать обработчик в child и parent
 
@@ -742,7 +742,7 @@ Custom clickable surface может быть кнопкой, checkbox, switch и
 
 ## Итоги
 
-Interaction modifiers превращают custom UI в полноценный interactive UI:
+Interaction modifiers превращают пользовательский UI в полноценный interactive UI:
 
 - готовые components предпочтительны, когда подходят по смыслу;
 - `clickable` добавляет click, semantics, focus, hover, keyboard и indication;
@@ -752,6 +752,6 @@ Interaction modifiers превращают custom UI в полноценный i
 - `triStateToggleable` описывает group-derived mixed state;
 - `InteractionSource` позволяет наблюдать press, hover, focus и drag;
 - `ripple()` — современный способ задать Material ripple;
-- `indication = null` требует альтернативного feedback;
+- `indication = null` требует альтернативного обратная связь;
 - state должен быть hoisted;
 - accessibility role, label и touch target так же важны, как сам `onClick`.

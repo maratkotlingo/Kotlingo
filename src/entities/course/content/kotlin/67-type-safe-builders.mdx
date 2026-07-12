@@ -1,8 +1,8 @@
 ---
-title: "Type-Safe Builders"
-description: "Type-safe builders в Kotlin: lambdas with receiver, builder scopes, nested builders, init functions, validation inside builders, immutable result models и построение DSL для курса."
+title: "Типобезопасные builder-DSL"
+description: "Type-safe builders в Kotlin: лямбды with receiver, builder scopes, nested builders, init functions, validation inside builders, immutable result models и построение DSL для курса."
 order: 67
-category: "DSL, аннотации и metaprogramming"
+category: "DSL, аннотации и метапрограммирование"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Type-safe builder строит объект через Kotlin DSL
 
-Type-safe builder — это API, который позволяет создавать сложную структуру через вложенные lambdas with receiver.
+Type-safe builder — это API, который позволяет создавать сложную структуру через вложенные лямбды with receiver.
 
 ```kotlin
 val course = course {
@@ -30,7 +30,7 @@ val course = course {
 Builder DSL — это конструктор кошачьего домика: блоки вкладываются друг в друга, а compiler следит, чтобы полки, миски и лежанки оказались в правильных местах.
 </CatTip>
 
-## Lambda with receiver
+##Лямбда с приёмником
 
 Фундамент builder-а — function type with receiver.
 
@@ -62,7 +62,7 @@ fun course(init: CourseBuilder.() -> Unit): String {
 }
 ```
 
-Когда caller пишет `course { title("Kotlin") }`, внутри lambda `this` имеет тип `CourseBuilder`.
+Когда вызывающий код пишет `course { title("Kotlin") }`, внутри лямбда `this` имеет тип `CourseBuilder`.
 
 ```kotlin
 val name = course {
@@ -171,7 +171,7 @@ fun course(init: CourseDslBuilder.() -> Unit): Course {
 }
 ```
 
-Usage:
+Использование:
 
 ```kotlin
 val kotlinCourse = course {
@@ -259,7 +259,7 @@ class AlternativeCourseBuilder {
 }
 ```
 
-Function style лучше, когда нужно validation, normalization или несколько overloads. Property style проще, когда это обычная настройка.
+Function style лучше, когда нужно validation, normalization или несколько перегрузки. Property style проще, когда это обычная настройка.
 
 ```kotlin
 course {
@@ -317,7 +317,7 @@ fun lesson(slug: String, title: String) {
 }
 ```
 
-## Production-пример: DSL для навигации
+## Боевой-пример: DSL для навигации
 
 ```kotlin
 data class NavItem(

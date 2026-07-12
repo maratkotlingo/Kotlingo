@@ -1,8 +1,8 @@
 ---
-title: "Sheets"
-description: "Разбираем Material 3 sheets в Jetpack Compose: ModalBottomSheet, SheetState, rememberModalBottomSheetState, partial sheets, scrim, dragHandle, confirmValueChange, show/hide и production-паттерны."
+title: "Листы"
+description: "Разбираем Material 3 sheets в Jetpack Compose: ModalBottomSheet, SheetState, rememberModalBottomSheetState, partial sheets, scrim, dragHandle, confirmValueChange, show/hide и паттерны для боевого кода."
 order: 49
-category: "Compose: Material 3 components and app structure"
+category: "Compose: компоненты Material 3 и структура приложения"
 difficulty: "Средний"
 ---
 
@@ -160,7 +160,7 @@ fun RememberSheetStateDemo() {
 Параметры:
 
 - `skipPartiallyExpanded`: пропускать ли частично раскрытое состояние;
-- `confirmValueChange`: callback, который может разрешить или запретить переход в новое состояние.
+- `confirmValueChange`: обратный вызов, который может разрешить или запретить переход в новое состояние.
 
 ## show и hide
 
@@ -402,7 +402,7 @@ fun SheetWithCustomScrim(
 
 Не делайте scrim полностью прозрачным без сильной причины. Modal sheet должен визуально отделяться от основного контента.
 
-## Production-пример: фильтры каталога
+## Боевой-пример: фильтры каталога
 
 ```kotlin
 import androidx.compose.foundation.layout.Column
@@ -538,7 +538,7 @@ fun CatalogFilterSheet(
 
 ### Делать сетевые запросы прямо внутри sheet
 
-Для screen-level данных используйте ViewModel. Sheet должен получать state и callbacks.
+Для screen-level данных используйте ViewModel. Sheet должен получать state и обратные вызовы.
 
 ### Использовать sheet вместо экрана
 
@@ -546,7 +546,7 @@ fun CatalogFilterSheet(
 
 ### Игнорировать back и dismiss
 
-`onDismissRequest` должен синхронизировать UI state. Пользователь может закрыть sheet не только кнопкой.
+`onDismissRequest` должен синхронизировать UI-состояние. Пользователь может закрыть sheet не только кнопкой.
 
 ### Запрещать закрытие без объяснения
 

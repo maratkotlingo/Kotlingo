@@ -1,5 +1,5 @@
 ---
-title: "Sealed classes и sealed interfaces"
+title: "Sealed-классы и sealed-интерфейсы"
 description: "Разбираем закрытые иерархии Kotlin, exhaustive when, правила package и module, data object, error models, domain states и эволюцию sealed API."
 order: 29
 category: "Классы и объекты"
@@ -189,7 +189,7 @@ fun unsafeRender(state: LoadState): String = when (state) {
 `else` оправдан, если business semantics сознательно объединяет все остальные варианты и добавление нового варианта действительно должно автоматически следовать той же ветке. Такое решение стоит документировать тестом.
 
 <CatTip title="Котосовет: exhaustive when — бесплатная миграционная карта">
-Не скрывай варианты catch-all веткой. При расширении модели compiler покажет every use case, renderer и mapper, где нужно принять осознанное решение.
+Не скрывай варианты catch-all веткой. При расширении модели compiler покажет every сценарий использования, renderer и mapper, где нужно принять осознанное решение.
 </CatTip>
 
 ## Sealed и `data object`
@@ -208,7 +208,7 @@ sealed interface SaveResult {
 
 - generated `toString` возвращает stable declaration name без `@hash`;
 - equality/hash semantics согласованы с data-ориентированной hierarchy;
-- symmetry с data classes делает debugging output понятнее.
+- симметрия с data classes делает вывод отладки понятнее.
 
 Для singleton identity обычный `object` тоже корректен; `data object` подчёркивает участие в value model.
 
@@ -401,7 +401,7 @@ Conceptual JSON:
 
 - стабильные serial names независимо от class rename;
 - unknown subtype от более новой версии producer;
-- defaults и missing fields;
+- значения по умолчанию и missing fields;
 - migration старых variants;
 - security: нельзя без whitelist создавать произвольный class по имени.
 
@@ -543,4 +543,3 @@ Design properties:
 - state models исключают некорректные combinations;
 - public sealed hierarchy остаётся API, добавление subtype влияет на clients;
 - serialization требует стабильного discriminator и unknown-variant strategy.
-

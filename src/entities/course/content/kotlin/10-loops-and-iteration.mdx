@@ -195,7 +195,7 @@ fun main() {
 
 ## Destructuring в цикле
 
-Цикл может распаковывать пары, data classes и map entries.
+Цикл может распаковывать пары, классы данных и map entries.
 
 ```kotlin
 fun main() {
@@ -432,7 +432,7 @@ fun main() {
 
 `forEach` хорош для простых действий. Но если нужны `break` или `continue`, обычный `for` часто понятнее.
 
-В lambda можно использовать label-return:
+В лямбда можно использовать label-return:
 
 ```kotlin
 fun main() {
@@ -448,7 +448,7 @@ fun main() {
 }
 ```
 
-Это похоже на `continue`, но только для lambda.
+Это похоже на `continue`, но только для лямбда.
 
 ## Последовательности и ленивость
 
@@ -576,7 +576,7 @@ fun main() {
 - `..`, `..<`, `until`, `downTo`, `step` покрывают основные числовые маршруты;
 - `indices` безопаснее ручного диапазона индексов;
 - `withIndex()` дает индекс и значение без ручного счетчика;
-- destructuring удобен для map entries и data classes;
+- destructuring удобен для map entries и классы данных;
 - `break` завершает цикл;
 - `continue` пропускает итерацию;
 - labels помогают во вложенных циклах, но ими не стоит злоупотреблять;

@@ -1,8 +1,8 @@
 ---
-title: "Screenshot and visual regression testing"
-description: "Разбираем screenshot и visual regression testing для Jetpack Compose: Paparazzi-style и Roborazzi-style подходы, fixtures, deterministic rendering, device differences, fonts, dark theme, RTL, font scale, baselines, diffs, CI workflow и ограничения pixel tests."
+title: "Скриншоты и тестирование визуальных регрессий"
+description: "Разбираем screenshot и visual регрессия testing для Jetpack Compose: Paparazzi-style и Roborazzi-style подходы, fixtures, deterministic rendering, device differences, fonts, dark theme, RTL, font scale, baselines, diffs, CI рабочий процесс и ограничения pixel tests."
 order: 113
-category: "Compose: Testing and quality"
+category: "Compose: тестирование и качество"
 difficulty: "Продвинутый"
 ---
 
@@ -19,7 +19,7 @@ Compose UI tests хорошо проверяют semantics и поведение
 - не поменялся ли цвет;
 - не развалился ли layout на expanded width;
 - не сломалась ли dark theme;
-- не появился ли visual regression после refactor.
+- не появился ли visual регрессия после refactor.
 
 Screenshot tests сравнивают rendered output с baseline image. Это полезно для дизайн-систем, карточек, экранов, adaptive layouts и критичных visual states.
 
@@ -36,7 +36,7 @@ data class ScreenshotCase(
 Скриншотный тест должен быть deterministic: одинаковый input → одинаковое изображение.
 
 <CatTip>
-Screenshot test — это не проверка красоты. Это датчик: "внешний вид изменился". Человек все равно решает, изменение ожидаемое или regression.
+Screenshot test — это не проверка красоты. Это датчик: "внешний вид изменился". Человек все равно решает, изменение ожидаемое или регрессия.
 </CatTip>
 
 ## Что тестировать скриншотами
@@ -45,8 +45,8 @@ Screenshot test — это не проверка красоты. Это датч
 
 - design system components;
 - cards/list items;
-- empty/loading/error/content states;
-- dialogs/sheets;
+- empty/загрузка/error/content states;
+- диалогах/sheets;
 - adaptive breakpoints;
 - typography-heavy screens;
 - dark/light theme;
@@ -98,7 +98,7 @@ object CourseCardFixtures {
 }
 ```
 
-Preview/test content:
+Предпросмотр/test content:
 
 ```kotlin
 @Composable
@@ -216,7 +216,7 @@ Pixel-perfect screenshots зависят от:
 Скриншотный тест без фиксированной среды может стать генератором случайных diffs. Тогда команда быстро перестанет ему доверять.
 </MouseTrap>
 
-## Font scale and RTL
+## Масштаб шрифта и RTL
 
 Обязательно покрывайте:
 
@@ -296,7 +296,7 @@ ArticleCardState(
 - фиксируйте clock;
 - снимайте final state;
 - избегайте shimmer baselines;
-- используйте static loading state.
+- используйте static состояние загрузки.
 
 ```kotlin
 @Composable
@@ -317,16 +317,16 @@ Screenshot:
 LoadingCard(animated = false)
 ```
 
-Visual regression должен ловить layout, а не случайную фазу shimmer.
+Visual регрессия должен ловить layout, а не случайную фазу shimmer.
 
 ## Baseline review
 
-Workflow:
+Рабочий процесс:
 
-- test fails with diff;
+- тест не пройден с помощью diff;
 - открыть expected/actual/diff;
-- определить: regression или expected change;
-- если regression — исправить UI;
+- определить: регрессия или expected change;
+- если регрессия — исправить UI;
 - если expected — обновить baseline;
 - baseline update должен быть reviewable в PR.
 
@@ -371,13 +371,13 @@ val courseCardCases = listOf(
 
 Matrix должна покрывать риск, а не все математические комбинации.
 
-## Combining with semantics tests
+## Объединение с тестами семантики
 
 Screenshot test может показать, что кнопка выглядит правильно. Он не докажет, что:
 
 - кнопка имеет role;
 - contentDescription корректный;
-- disabled state доступен;
+- отключенное состояние доступен;
 - click action работает;
 - traversal order верный.
 
@@ -398,7 +398,7 @@ fun deleteButton_hasAccessibleLabel() {
 
 Visual и semantics tests закрывают разные риски.
 
-## CI workflow
+## CI рабочий процесс
 
 В CI сохраняйте:
 
@@ -408,7 +408,7 @@ Visual и semantics tests закрывают разные риски.
 - device/config info;
 - test name;
 - Compose/library versions;
-- artifact link.
+- артефакт link.
 
 Правила:
 
@@ -421,7 +421,7 @@ Visual и semantics tests закрывают разные риски.
 
 ### Screenshot всего приложения
 
-Тесты становятся медленными и шумными. Лучше fixtures и component/screen states.
+Тесты становятся медленными и шумными. Лучше fixtures и component/состояния экрана.
 
 ### Remote images в baseline
 
@@ -429,13 +429,13 @@ Visual и semantics tests закрывают разные риски.
 
 ### Автоматически принимать все diffs
 
-Regression превращается в новый baseline.
+Регрессия превращается в новый baseline.
 
 ### Не фиксировать fonts/locale/device
 
 Pixel diffs становятся случайными.
 
-### Проверять только light/default state
+### Проверять только light/состояние по умолчанию
 
 Dark, long text и font scale остаются без защиты.
 
@@ -445,7 +445,7 @@ Dark, long text и font scale остаются без защиты.
 
 ## Итоги
 
-Screenshot testing закрывает visual regressions:
+Screenshot testing закрывает визуальные регрессии:
 
 - используйте fixture-first composables;
 - Paparazzi-style tests быстры для component screenshots;
@@ -455,4 +455,4 @@ Screenshot testing закрывает visual regressions:
 - matrix должна покрывать risk states: dark, long text, font scale, RTL, adaptive width;
 - baseline diffs требуют review;
 - screenshots дополняют, а не заменяют semantics/action tests;
-- CI должен сохранять expected/actual/diff artifacts.
+- CI должен сохранять expected/actual/diff артефакты.

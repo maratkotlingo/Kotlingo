@@ -1,8 +1,8 @@
 ---
-title: "Finding nodes"
-description: "Разбираем поиск nodes в Compose UI tests: onNodeWithText, onNodeWithContentDescription, testTag, SemanticsMatcher, merged и unmerged tree, ancestor/child matchers, custom semantics keys, debugging tree и устойчивые selectors."
+title: "Поиск узлов"
+description: "Разбираем поиск nodes в Compose UI tests: onNodeWithText, onNodeWithContentDescription, testTag, SemanticsMatcher, merged и unmerged tree, ancestor/child matchers, пользовательские semantics keys, отладка дерева и устойчивые selectors."
 order: 110
-category: "Compose: Testing and quality"
+category: "Compose: тестирование и качество"
 difficulty: "Средний"
 ---
 
@@ -18,8 +18,8 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - role;
 - state;
 - actions;
-- test tag;
-- custom semantics properties.
+- тестовый тег;
+- пользовательский semantics properties.
 
 Поиск node должен отражать пользовательский смысл, а не внутреннюю структуру composable.
 
@@ -194,7 +194,7 @@ composeRule
     .assertExists()
 ```
 
-Используйте unmerged tree для debugging и редких precise checks. В обычном тесте лучше проверять merged user-facing semantics.
+Используйте unmerged tree для отладки и редких точных проверок. В обычном тесте лучше проверять merged user-facing semantics.
 
 ## Печать дерева
 
@@ -218,7 +218,7 @@ composeRule
 - какие nodes merged;
 - где есть click action;
 - какие roles/state descriptions установлены;
-- есть ли test tags;
+- есть ли тестовые теги;
 - почему matcher не находит node.
 
 ## `SemanticsMatcher`
@@ -242,7 +242,7 @@ composeRule
     .assertExists()
 ```
 
-Custom matcher:
+Пользовательский matcher:
 
 ```kotlin
 fun hasErrorMessage(
@@ -258,7 +258,7 @@ fun hasErrorMessage(
 
 Описание matcher должно быть понятным: оно появится в error output.
 
-## Ancestor and child matchers
+## Сопоставление предков и дочерних элементов
 
 Можно искать node в контексте.
 
@@ -278,9 +278,9 @@ composeRule
 
 Но если ancestor text стал частью merged node, matcher может вести себя иначе. Смотрите semantics tree.
 
-## Custom semantics keys
+## Пользовательский semantics keys
 
-Для domain-specific тестов можно добавить custom semantics property.
+Для domain-specific тестов можно добавить пользовательский semantics property.
 
 ```kotlin
 import androidx.compose.ui.semantics.SemanticsPropertyKey
@@ -330,7 +330,7 @@ composeRule
     .assertExists()
 ```
 
-Custom semantics useful, но не превращайте tests в проверку internal ids, если можно проверить visible behavior.
+Пользовательский semantics useful, но не превращайте tests в проверку internal ids, если можно проверить visible behavior.
 
 ## Collection nodes
 
@@ -374,15 +374,15 @@ composeRule
 - contentDescription для icon actions;
 - role + text для buttons;
 - testTag для containers/lists;
-- custom semantics для domain identity;
+- пользовательский semantics для domain identity;
 - ancestor context для repeated items.
 
 Хрупкие selectors:
 
 - index position;
-- random generated test tags;
+- random generated тестовые теги;
 - translated text в locale-independent тесте;
-- internal implementation-only tags;
+- внутренние теги только для реализации;
 - substring слишком общего текста;
 - unmerged tree без причины.
 
@@ -394,7 +394,7 @@ composeRule
 - получать string resource из Activity;
 - использовать testTag для container;
 - проверять role/action;
-- использовать fake labels в isolated component test.
+- использовать фиктивный labels в isolated component test.
 
 ```kotlin
 val saveText = composeRule.activity.getString(R.string.save)
@@ -440,8 +440,8 @@ Compose test errors часто показывают доступные nodes и 
 - `onNodeWithContentDescription` подходит для icon/non-text actions;
 - `testTag` полезен для containers, lists и технически стабильных selectors;
 - merged tree отражает user-facing semantics;
-- unmerged tree нужен для debugging и редких precise checks;
-- `SemanticsMatcher` позволяет комбинировать role, text, actions и custom properties;
-- custom semantics keys помогают domain-specific tests;
+- unmerged tree нужен для отладки и редких точных проверок;
+- `SemanticsMatcher` позволяет комбинировать role, text, actions и пользовательский properties;
+- пользовательский semantics keys помогают domain-specific tests;
 - lazy items нужно сначала прокрутить в viewport;
 - устойчивый selector проверяет смысл UI, а не случайную структуру composables.

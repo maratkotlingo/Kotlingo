@@ -1,8 +1,8 @@
 ---
 title: "Animatable"
-description: "Разбираем Animatable в Jetpack Compose: coroutine-driven animation, animateTo, snapTo, stop, animateDecay, updateBounds, velocity, cancellation, gestures, sequences, Color и custom type converters."
+description: "Разбираем Animatable в Jetpack Compose: coroutine-driven animation, animateTo, snapTo, stop, animateDecay, updateBounds, velocity, cancellation, gestures, sequences, Color и пользовательский тип converters."
 order: 66
-category: "Compose: Animation and motion"
+category: "Compose: анимация и движение"
 difficulty: "Продвинутый"
 ---
 
@@ -18,13 +18,13 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - sequence из нескольких шагов;
 - реакция на gesture;
 - fling или decay;
-- drag with snap back;
+- перетащить с оснасткой назад;
 - animation, стартующая из event handler;
 - ручная отмена;
 - мгновенный `snapTo`;
 - bounds;
 - синхронизация с pointer input;
-- custom animation type.
+- пользовательский animation type.
 
 ```kotlin
 import androidx.compose.animation.core.Animatable
@@ -330,7 +330,7 @@ fun DraggableSnapBox() {
 }
 ```
 
-Для production gesture code часто используют `coroutineScope` прямо внутри `pointerInput`, чтобы не создавать много независимых jobs. Ниже будет более аккуратный вариант.
+Для боевой gesture code часто используют `coroutineScope` прямо внутри `pointerInput`, чтобы не создавать много независимых jobs. Ниже будет более аккуратный вариант.
 
 ## Pointer input и coroutine scope
 
@@ -542,7 +542,7 @@ fun DecayDemoBox() {
 }
 ```
 
-В реальном drag/fling лучше использовать velocity tracker или gesture APIs, которые дают velocity. Постоянная velocity в примере нужна только для демонстрации.
+В реальном drag/fling лучше использовать velocity tracker или API жестов, которые дают velocity. Постоянная velocity в примере нужна только для демонстрации.
 
 ## Sequence animation
 
@@ -674,11 +674,11 @@ fun PressScaleCard() {
 }
 ```
 
-Для обычных кнопок Material ripple и interaction states уже решают большую часть задач. Такой custom press scale нужен для специальных компонентов.
+Для обычных кнопок Material ripple и состояния взаимодействия уже решают большую часть задач. Такой пользовательский press scale нужен для специальных компонентов.
 
-## Color и custom converters
+## Color и пользовательский converters
 
-`Animatable` поддерживает `Float` и `Color` через готовые converters. Для custom type нужен `TwoWayConverter`.
+`Animatable` поддерживает `Float` и `Color` через готовые converters. Для пользовательский тип нужен `TwoWayConverter`.
 
 ```kotlin
 import androidx.compose.animation.core.Animatable
@@ -747,9 +747,9 @@ fun AnimatedPointCanvas(
 }
 ```
 
-Custom type должен быть численно интерполируемым. Если тип содержит business fields, строки или nested collections, он обычно не подходит для `Animatable`.
+Пользовательский type должен быть численно интерполируемым. Если тип содержит business fields, строки или nested collections, он обычно не подходит для `Animatable`.
 
-## Production-пример: swipe to dismiss
+## Боевой-пример: swipe to dismiss
 
 Соберем упрощенный swipe-to-dismiss. В реальном продукте лучше рассмотреть готовые Material/Foundation APIs, если они подходят, но этот пример показывает механику `Animatable`.
 
@@ -855,7 +855,7 @@ fun SwipeDismissCard(
 
 Threshold приходит в пикселях, потому что pointer input работает в pixel coordinates. Если threshold задан в `Dp`, преобразуйте его через `LocalDensity`.
 
-## Production-пример: snackbar-like entrance sequence
+## Боевой-пример: snackbar-like entrance sequence
 
 Последовательность может сочетать `snapTo`, `animateTo`, delay и возврат.
 
@@ -954,7 +954,7 @@ fun FloatingMessage(
 - `pointerInput`: animation связана с gesture;
 - ViewModel scope: обычно не нужен для UI animation, потому что animation value принадлежит UI layer.
 
-`Animatable` почти всегда должен жить в UI state holder уровня composable, а не в ViewModel. ViewModel сообщает target или business event, UI решает, как это анимировать.
+`Animatable` почти всегда должен жить в UI держатель состояния уровня composable, а не в ViewModel. ViewModel сообщает target или business event, UI решает, как это анимировать.
 
 <MouseTrap>
 Не храните `Animatable` во ViewModel без очень веской причины. Он зависит от UI motion и frame clock, а ViewModel должна описывать состояние и бизнес-события, а не пиксельное движение.
@@ -1010,7 +1010,7 @@ fun TestableAnimatableProgress(
 }
 ```
 
-В production composable можно передавать spec как parameter с default value. В тесте — использовать `snap` или короткий `tween`.
+В боевой composable можно передавать spec как parameter с значение по умолчанию. В тесте — использовать `snap` или короткий `tween`.
 
 ## Типичные ошибки
 
@@ -1053,7 +1053,7 @@ Pointer input может приходить часто. Следите, чтоб
 - `stop` останавливает текущую animation;
 - `updateBounds` ограничивает диапазон;
 - `animateDecay` подходит для fling-like движения;
-- хорошо работает для gestures, sequences, press effects и custom type converters;
+- хорошо работает для gestures, sequences, press effects и пользовательский тип converters;
 - требует coroutine scope и аккуратного lifecycle;
 - не должен заменять `animate*AsState` для простых target-based animations;
 - чаще принадлежит UI layer, а не ViewModel.

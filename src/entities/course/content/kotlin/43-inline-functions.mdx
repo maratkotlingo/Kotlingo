@@ -1,5 +1,5 @@
 ---
-title: "Inline functions"
+title: "Inline-функции"
 description: "Глубоко разбираем inline, noinline и crossinline, non-local returns и jumps, reified parameters, производительность, code size, public ABI и PublishedApi."
 order: 43
 category: "Функциональный Kotlin"
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что означает `inline`
 
-Compiler может вставить body inline function и inlinable lambda arguments непосредственно в call site.
+Compiler может вставить body inline function и inlinable лямбда arguments непосредственно в место вызова.
 
 ```kotlin
 inline fun measure(block: () -> Unit): Long {
@@ -28,35 +28,35 @@ fun main() {
 }
 ```
 
-Conceptually call превращается в code `measure` плюс lambda body. Точный bytecode выбирает compiler/backend.
+Conceptually call превращается в code `measure` плюс лямбда body. Точный bytecode выбирает compiler/бэкенд.
 
 ## Зачем inline higher-order functions
 
 Обычная higher-order call может включать:
 
-- object для lambda closure;
+- object для лямбда closure;
 - virtual `invoke`;
 - captured fields;
 - дополнительный call boundary.
 
 Inlining способен убрать часть overhead, особенно в hot loops и маленьких utilities.
 
-Но inline увеличивает code size: body копируется в каждый call site. Это trade-off, не universal optimization.
+Но inline увеличивает code size: body копируется в каждый место вызова. Это trade-off, не universal optimization.
 
 ## Что inline не гарантирует
 
 - JIT всё равно принимает собственные решения;
-- captured/escaped `noinline` lambdas могут аллоцироваться;
+- captured/escaped `noinline` лямбды могут аллоцироваться;
 - большой body раздувает bytecode;
 - reflection/I/O не становятся дешёвыми;
 - cross-module clients содержат старую копию body до recompilation;
-- backend representation отличается между JVM/JS/Native.
+- бэкенд representation отличается между JVM/JS/Native.
 
 <CatTip title="Котосовет: inline маленький control-flow wrapper">
-Лучшие кандидаты — короткие functions с lambda parameters, reified type parameters или non-local control flow. Большой business algorithm оставляй обычной function.
+Лучшие кандидаты — короткие functions с лямбда parameters, reified type parameters или non-local control flow. Большой business algorithm оставляй обычной function.
 </CatTip>
 
-## Inlinable lambda parameter
+## Inlinable лямбда parameter
 
 ```kotlin
 inline fun <T> repeatValue(
@@ -78,7 +78,7 @@ Parameter `producer` по умолчанию inlinable. Его можно:
 
 ## `noinline`
 
-`noinline` запрещает inlining конкретного lambda parameter и разрешает обращаться с ним как обычным object value.
+`noinline` запрещает inlining конкретного лямбда parameter и разрешает обращаться с ним как обычным object value.
 
 ```kotlin
 class ListenerRegistry {
@@ -105,7 +105,7 @@ inline fun registerAndRun(
 
 `stored` передаётся non-inline `add` и сохраняется. `immediate` вставляется/called inline.
 
-`noinline` доступен только lambda parameters inline function.
+`noinline` доступен только лямбда parameters inline function.
 
 ## Когда вся function теряет смысл inline
 
@@ -119,7 +119,7 @@ inline fun registerAndRun(
 
 ## Non-local return
 
-Bare return из lambda inline call может завершить enclosing named function.
+Bare return из лямбда inline call может завершить enclosing named function.
 
 ```kotlin
 fun firstInvalid(scores: List<Int>): Int? {
@@ -130,7 +130,7 @@ fun firstInvalid(scores: List<Int>): Int? {
 }
 ```
 
-`forEach` inline, поэтому lambda body находится в control-flow context `firstInvalid`.
+`forEach` inline, поэтому лямбда body находится в control-flow context `firstInvalid`.
 
 Собственный API:
 
@@ -156,11 +156,11 @@ inspect(listOf(-1, 60, 80)) { value ->
 }
 ```
 
-`return@inspect` завершает текущий lambda invocation, enclosing function продолжается.
+`return@inspect` завершает текущий лямбда invocation, enclosing function продолжается.
 
 ## Почему non-local return иногда невозможен
 
-Если lambda вызывается не непосредственно, а внутри local object, nested non-inline function, stored callback или другого execution context, bare return нельзя безопасно перенести в caller.
+Если лямбда вызывается не непосредственно, а внутри local object, nested non-inline function, stored обратный вызов или другого execution context, bare return нельзя безопасно перенести в вызывающий код.
 
 ```kotlin
 inline fun runDirect(block: () -> Unit) {
@@ -180,7 +180,7 @@ inline fun asRunnable(crossinline block: () -> Unit): Runnable {
 }
 ```
 
-Lambda захвачена object/later execution. `crossinline` запрещает caller использовать non-local return, но позволяет compiler inline/capture body в разрешённой форме.
+Lambda захвачена object/later execution. `crossinline` запрещает вызывающий код использовать non-local return, но позволяет compiler inline/capture body в разрешённой форме.
 
 ```kotlin
 fun main() {
@@ -196,24 +196,24 @@ fun main() {
 
 `noinline`:
 
-- lambda остаётся ordinary object;
+- лямбда остаётся ordinary object;
 - её можно хранить/возвращать/передавать куда угодно;
 - non-local returns невозможны.
 
 `crossinline`:
 
 - compiler всё ещё может inline body;
-- lambda можно вызвать из nested execution context, разрешённого compiler;
+- лямбда можно вызвать из nested execution context, разрешённого compiler;
 - non-local returns запрещены;
 - произвольное хранение/return как обычного value не становится автоматически допустимым.
 
 <MouseTrap title="Мышеловка: crossinline не означает асинхронность">
-Он описывает control-flow restriction, потому что callback может быть вызван не напрямую. Реальный thread, scheduling и lifetime определяет implementation/API contract.
+Он описывает control-flow restriction, потому что обратный вызов может быть вызван не напрямую. Реальный thread, scheduling и lifetime определяет implementation/API contract.
 </MouseTrap>
 
 ## Non-local `break` и `continue`
 
-Актуальный Kotlin разрешает non-local jump expressions в lambdas подходящих inline functions, когда control-flow structurally окружает loop.
+Актуальный Kotlin разрешает non-local jump expressions в лямбды подходящих inline functions, когда control-flow structurally окружает loop.
 
 ```kotlin
 fun processRows(rows: List<String>) {
@@ -227,7 +227,7 @@ fun processRows(rows: List<String>) {
 }
 ```
 
-`run` inline, поэтому `continue` относится к enclosing loop. В старых language versions feature могла требовать preview flag; фиксируй compiler version проекта.
+`run` inline, поэтому `continue` относится к enclosing loop. В старых language versions feature могла требовать предпросмотр flag; фиксируй compiler version проекта.
 
 Не заменяй понятный `for` цепочкой inline scopes, если control flow становится скрытым.
 
@@ -245,7 +245,7 @@ inline fun <reified T> Any?.castOrNull(): T? {
 val title: String? = "Inline".castOrNull<String>()
 ```
 
-Inlining подставляет concrete type at call site. Nested generic erasure остаётся.
+Inlining подставляет concrete type at место вызова. Nested generic erasure остаётся.
 
 ## Inline и recursion
 
@@ -295,7 +295,7 @@ private object StatusHolder {
 }
 ```
 
-Global mutable state здесь только демонстрирует syntax, не рекомендуемую архитектуру. Accessor с backing field нельзя inline.
+Global изменяемое состояние здесь только демонстрирует syntax, не рекомендуемую архитектуру. Accessor с backing field нельзя inline.
 
 ## Inline не связан с value class напрямую
 
@@ -359,7 +359,7 @@ Client хранит inlined old body. После обновления library б
 // }
 ```
 
-Каждый call site получает копию. Вынеси heavy core:
+Каждый место вызова получает копию. Вынеси heavy core:
 
 ```kotlin
 inline fun <reified T> decode(raw: String): T {
@@ -383,7 +383,7 @@ Unchecked cast опирается на строгую связь branch и KClas
 
 ## Contracts и inline
 
-Inline помогает compiler видеть lambda body, но smart casts/calls-in-place не выводятся автоматически для каждого custom function. Kotlin contracts явно описывают invocation behavior и рассматриваются в следующем уроке силлабуса после scope functions.
+Inline помогает compiler видеть лямбда body, но smart casts/calls-in-place не выводятся автоматически для каждого пользовательский function. Kotlin contracts явно описывают invocation behavior и рассматриваются в следующем уроке силлабуса после scope functions.
 
 ## Benchmarking
 
@@ -451,13 +451,13 @@ fun main() {
 
 ## Итоги
 
-- inline вставляет body function/lambda в call site при compiler transformation;
-- главная выгода HOF — уменьшение lambda allocation и invoke overhead;
+- inline вставляет body function/лямбда в место вызова при compiler transformation;
+- главная выгода HOF — уменьшение лямбда allocation и invoke overhead;
 - inlining увеличивает code size;
 - inlinable parameter нельзя произвольно хранить;
-- `noinline` оставляет lambda ordinary value;
+- `noinline` оставляет лямбда ordinary value;
 - `crossinline` запрещает non-local return при indirect invocation;
-- bare return из direct inline lambda может завершить enclosing function;
+- bare return из direct inline лямбда может завершить enclosing function;
 - non-local break/continue зависят от подходящего inline loop context/language version;
 - reified доступен только inline type parameter;
 - recursive/virtual designs не подходят inline;

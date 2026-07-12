@@ -1,5 +1,5 @@
 ---
-title: "Contracts"
+title: "Контракты"
 description: "Разбираем Kotlin contracts: contract DSL, returns и implies, returnsNotNull, callsInPlace и InvocationKind, smart casts, definite assignment, experimental status и ответственность автора API."
 order: 45
 category: "Функциональный Kotlin"
@@ -52,9 +52,9 @@ fun example(title: String?) {
 
 Compiler не выводит межпроцедурно произвольные postconditions из body. Contract делает ограниченный effect частью signature metadata.
 
-## Custom contracts experimental
+## Пользовательский contracts experimental
 
-API `kotlin.contracts` для объявления custom contracts помечен `ExperimentalContracts`. Нужно opt-in:
+API `kotlin.contracts` для объявления пользовательский contracts помечен `ExperimentalContracts`. Нужно opt-in:
 
 ```kotlin
 @file:OptIn(kotlin.contracts.ExperimentalContracts::class)
@@ -62,7 +62,7 @@ API `kotlin.contracts` для объявления custom contracts помече
 
 или annotation на declaration/file/module compiler setting.
 
-Experimental означает, что DSL/API/поддерживаемые effects могут меняться. Standard library contracts могут использоваться клиентами без того, чтобы каждый call site объявлял custom contract.
+Experimental означает, что DSL/API/поддерживаемые effects могут меняться. Standard library contracts могут использоваться клиентами без того, чтобы каждый место вызова объявлял пользовательский contract.
 
 Extended contracts, включая новые effects вроде `holdsIn`, имеют отдельный более экспериментальный opt-in и зависят от актуальной compiler version.
 
@@ -191,11 +191,11 @@ returns(true) implies (value is Lesson)
 returnsNotNull() implies (value != null)
 ```
 
-Condition должна быть безопасно анализируемой: null checks, type checks, boolean parameters и поддерживаемые combinations. Нельзя описать arbitrary database state, collection size mutation или временную зависимость как надёжный compile-time fact.
+Condition должна быть безопасно анализируемой: null checks, type checks, boolean parameters и поддерживаемые combinations. Нельзя описать arbitrary база данных state, collection size mutation или временную зависимость как надёжный compile-time fact.
 
 ## `callsInPlace`
 
-Contract сообщает, что lambda вызывается только во время owner function и не сохраняется после её завершения.
+Contract сообщает, что лямбда вызывается только во время owner function и не сохраняется после её завершения.
 
 ```kotlin
 @OptIn(kotlin.contracts.ExperimentalContracts::class)
@@ -218,7 +218,7 @@ exactlyOnce {
 println(title.length)
 ```
 
-Без guarantee compiler не знает, была ли lambda вызвана.
+Без guarantee compiler не знает, была ли лямбда вызвана.
 
 ## InvocationKind
 
@@ -333,9 +333,9 @@ fun broken(value: String?) {
 
 1. все normal return paths;
 2. все boolean result paths;
-3. exceptions до lambda invocation;
-4. количество lambda calls;
-5. сохранение/передачу lambda;
+3. exceptions до лямбда invocation;
+4. количество лямбда calls;
+5. сохранение/передачу лямбда;
 6. future changes body;
 7. concurrency/reentrancy;
 8. tests на null/type/control-flow boundaries.
@@ -351,11 +351,11 @@ Review contract так же строго, как unsafe cast. Изменение
 - inline — code transformation/performance/control flow;
 - contract — declarative effect для analysis.
 
-Inline сам по себе не обещает exact call count. Function может не вызвать lambda или вызвать несколько раз.
+Inline сам по себе не обещает exact call count. Function может не вызвать лямбда или вызвать несколько раз.
 
 ## Contract и smart cast stability
 
-Даже правильный contract не отменяет правила стабильности variable. Mutable property с custom getter/open access может не smart-cast:
+Даже правильный contract не отменяет правила стабильности variable. Mutable property с пользовательский getter/open access может не smart-cast:
 
 ```kotlin
 class Holder(var title: String?)
@@ -435,13 +435,13 @@ fun main() {
 ## Итоги
 
 - contract описывает compile-time effect вызова;
-- custom DSL остаётся experimental и требует opt-in;
+- пользовательский DSL остаётся experimental и требует opt-in;
 - contract statement должен находиться в начале top-level function;
 - `returns()` связывает normal return с condition;
 - `returns(true/false)` описывает конкретный boolean result;
 - `returnsNotNull()` описывает non-null result;
 - `implies` поддерживает ограниченные stable conditions;
-- `callsInPlace` описывает lifetime и количество lambda invocations;
+- `callsInPlace` описывает lifetime и количество лямбда invocations;
 - InvocationKind бывает EXACTLY_ONCE, AT_MOST_ONCE, AT_LEAST_ONCE и UNKNOWN;
 - contract не выполняет runtime validation;
 - ложный effect делает compiler assumptions небезопасными;

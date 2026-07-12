@@ -1,8 +1,8 @@
 ---
 title: "AnimatedContent"
-description: "Разбираем AnimatedContent в Jetpack Compose: targetState, transitionSpec, ContentTransform, togetherWith, SizeTransform, slideIntoContainer, contentKey, targetState lambda, state machines и production-паттерны."
+description: "Разбираем AnimatedContent в Jetpack Compose: targetState, transitionSpec, ContentTransform, togetherWith, SizeTransform, slideIntoContainer, contentKey, targetState лямбда, state machines и паттерны для боевого кода."
 order: 63
-category: "Compose: Animation and motion"
+category: "Compose: анимация и движение"
 difficulty: "Средний"
 ---
 
@@ -15,7 +15,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 Типичные сценарии:
 
-- loading, content, error;
+- загрузка, content, error;
 - шаги onboarding;
 - счетчик с направлением изменения;
 - переключение compact/expanded layout;
@@ -73,9 +73,9 @@ fun ProfileStateContent(
 `AnimatedContent` лучше всего раскрывается, когда состояние описано типом: enum или sealed interface. Тогда переходы читаются как маленькая state machine, а не как набор разрозненных booleans.
 </CatTip>
 
-## Главное правило target lambda
+## Главное правило target лямбда
 
-Внутри content lambda нужно использовать параметр `targetState`, который передал `AnimatedContent`, а не внешнюю переменную `state`.
+Внутри content лямбда нужно использовать параметр `targetState`, который передал `AnimatedContent`, а не внешнюю переменную `state`.
 
 Правильно:
 
@@ -102,7 +102,7 @@ AnimatedContent(
 Почему это важно: во время transition `AnimatedContent` одновременно отображает outgoing и incoming content. Lambda вызывается для разных state. Если вы игнорируете `targetState` и читаете внешнее `state`, оба content могут начать рисовать одно и то же новое значение, и анимация станет неверной.
 
 <MouseTrap>
-Самая частая ошибка с `AnimatedContent` — использовать внешнюю переменную вместо lambda-параметра. Всегда называйте параметр явно: `{ targetState -> Text(text = targetState.toString()) }`.
+Самая частая ошибка с `AnimatedContent` — использовать внешнюю переменную вместо лямбда-параметра. Всегда называйте параметр явно: `{ targetState -> Text(text = targetState.toString()) }`.
 </MouseTrap>
 
 ## `transitionSpec`
@@ -412,9 +412,9 @@ fun AnimatedCounter(
 
 Значение, которое рисует `Text`, должно быть `targetCount`, а не внешний `count`.
 
-## Production-пример: loading/content/error
+## Боевой-пример: загрузка/контент/ошибка
 
-Соберем production-ready state container.
+Соберем готовый к боевому использованию state container.
 
 ```kotlin
 import androidx.compose.runtime.Immutable
@@ -518,13 +518,13 @@ fun ArticleFeedBody(
 }
 ```
 
-`contentKey = target::class` означает: анимация нужна при переходе между Loading, Empty, Error и Content, но не при каждом обновлении списка внутри Content.
+`contentKey = target::class` означает: анимация нужна при переходе между Загрузка, Empty, Error и Content, но не при каждом обновлении списка внутри Content.
 
 <CatTip>
 Для экранных body-state transitions почти всегда полезно подумать о `contentKey`. Иначе небольшие изменения данных могут запускать большую анимацию всего body.
 </CatTip>
 
-## Production-пример: режимы карточки
+## Боевой-пример: режимы карточки
 
 `AnimatedContent` хорошо подходит для компонента с несколькими режимами.
 
@@ -653,7 +653,7 @@ fun ToolbarContent(
 
 Практические правила:
 
-- если размеры похожи, default behavior часто достаточно;
+- если размеры похожи, поведение по умолчанию часто достаточно;
 - если new content больше, проверьте, не обрезается ли он;
 - если slide выходит за границы, подумайте о `clip = false`;
 - если layout вокруг прыгает, задайте внешние constraints;
@@ -706,7 +706,7 @@ fun StableHeightStatus(
 
 - правильный content для state;
 - отсутствие старого content после завершения transition;
-- callbacks внутри target content;
+- обратные вызовы внутри target content;
 - semantics в каждом режиме.
 
 ```kotlin
@@ -777,9 +777,9 @@ fun contentAppearsAfterStateChange() {
 
 ## Типичные ошибки
 
-### Использовать внешний state внутри lambda
+### Использовать внешний state внутри лямбда
 
-Всегда используйте lambda-параметр `targetState`. Иначе outgoing и incoming content могут рисовать одно и то же значение.
+Всегда используйте лямбда-параметр `targetState`. Иначе outgoing и incoming content могут рисовать одно и то же значение.
 
 ### Запускать animation при каждом мелком изменении data class
 
@@ -805,8 +805,8 @@ fun contentAppearsAfterStateChange() {
 
 `AnimatedContent` анимирует смену content на основе `targetState`:
 
-- подходит для loading/content/error, counters, stepper и state machines;
-- внутри lambda нужно использовать `targetState`;
+- подходит для загрузка/контент/ошибка, counters, stepper и state machines;
+- внутри лямбда нужно использовать `targetState`;
 - `transitionSpec` видит `initialState` и `targetState`;
 - `togetherWith` соединяет enter и exit transitions;
 - `SizeTransform` управляет изменением размера;

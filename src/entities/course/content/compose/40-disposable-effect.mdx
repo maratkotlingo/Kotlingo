@@ -1,8 +1,8 @@
 ---
 title: "DisposableEffect"
-description: "Подробно разбираем DisposableEffect в Jetpack Compose: подписки, LifecycleObserver, register/unregister, cleanup через onDispose, правильные ключи, rememberUpdatedState и production-интеграции с внешними listener API."
+description: "Подробно разбираем DisposableEffect в Jetpack Compose: подписки, LifecycleObserver, register/unregister, cleanup через onDispose, правильные ключи, rememberUpdatedState и боевой-интеграции с внешними listener API."
 order: 40
-category: "Compose: Side Effects, coroutines и CompositionLocal"
+category: "Compose: побочные эффекты, корутины и CompositionLocal"
 difficulty: "Средний"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что делает DisposableEffect
 
-`DisposableEffect` нужен для side effects, у которых есть setup и cleanup.
+`DisposableEffect` нужен для побочные эффекты, у которых есть настройка и cleanup.
 
 Он подходит, когда нужно:
 
@@ -19,9 +19,9 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - подписаться на внешний источник;
 - добавить `LifecycleObserver`;
 - открыть session во внешнем SDK;
-- подключить callback API;
+- подключить обратный вызов API;
 - выполнить cleanup, когда composable ушел из composition;
-- выполнить cleanup и заново setup при смене ключей.
+- выполнить cleanup и заново настройка при смене ключей.
 
 Типовая форма:
 
@@ -102,11 +102,11 @@ fun LifecycleAnalyticsEffect(
 
 - `lifecycleOwner` является ключом, потому что listener зарегистрирован именно на нем;
 - если owner изменится, старый observer будет удален;
-- `rememberUpdatedState` дает observer актуальные callbacks без перерегистрации;
+- `rememberUpdatedState` дает observer актуальные обратные вызовы без перерегистрации;
 - `onDispose` снимает observer.
 
 <MouseTrap>
-Если забыть `lifecycleOwner` в ключах, observer может остаться на старом owner. Это особенно неприятно в Navigation, Preview, dialogs и nested lifecycle-сценариях.
+Если забыть `lifecycleOwner` в ключах, observer может остаться на старом owner. Это особенно неприятно в Navigation, Предпросмотр, диалогах и nested lifecycle-сценариях.
 </MouseTrap>
 
 ## Когда ключи меняются
@@ -114,10 +114,10 @@ fun LifecycleAnalyticsEffect(
 `DisposableEffect(key)` работает так:
 
 1. Effect входит в composition.
-2. Выполняется setup.
-3. Key остается тем же при recomposition: setup не повторяется.
+2. Выполняется настройка.
+3. Key остается тем же при recomposition: настройка не повторяется.
 4. Key изменился: вызывается `onDispose` старого effect.
-5. Выполняется setup нового effect.
+5. Выполняется настройка нового effect.
 6. Effect вышел из composition: вызывается `onDispose`.
 
 ```kotlin
@@ -144,11 +144,11 @@ fun ChatRoomConnectionEffect(
 }
 ```
 
-Если пользователь перейдет из комнаты `general` в `android`, старый connection cleanup выполнится до setup нового.
+Если пользователь перейдет из комнаты `general` в `android`, старый connection cleanup выполнится до настройка нового.
 
 ## rememberUpdatedState внутри DisposableEffect
 
-Callbacks часто не должны быть ключами, если смена callback не требует перерегистрации listener.
+Обратные вызовы часто не должны быть ключами, если смена обратный вызов не требует перерегистрации listener.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -186,11 +186,11 @@ fun ConnectivityEffect(
 }
 ```
 
-Почему callback не ключ:
+Почему обратный вызов не ключ:
 
 - listener registration зависит от `monitor`;
-- смена lambda не требует remove/add listener;
-- listener должен вызывать свежую lambda;
+- смена лямбда не требует remove/add listener;
+- listener должен вызывать свежую лямбда;
 - `rememberUpdatedState` решает это без restart.
 
 ## External SDK session
@@ -223,9 +223,9 @@ fun ScreenSessionEffect(
 
 Если screenName изменится, old session будет остановлена, new session начнется.
 
-## Callback-based source
+## Обратный вызов-based source
 
-Если внешний источник не coroutine и не Flow, `DisposableEffect` может адаптировать подписку к callback.
+Если внешний источник не coroutine и не Flow, `DisposableEffect` может адаптировать подписку к обратный вызов.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -364,7 +364,7 @@ fun EmptyDisposeFixed(
 Пустой `onDispose` почти всегда означает, что `DisposableEffect` выбран не по назначению. Исключения редки и должны быть явно объяснены в коде.
 </MouseTrap>
 
-## Production-пример: lifecycle-aware analytics
+## Боевой-пример: lifecycle-aware аналитика
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -419,7 +419,7 @@ fun ScreenVisibilityAnalytics(
 
 Если смена `screenName` должна закрывать старую session и открывать новую, тогда `screenName` должен стать ключом.
 
-## Production-пример: listener с domain id
+## Боевой-пример: listener с domain id
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -475,11 +475,11 @@ fun DocumentChangeEffect(
 
 - `documentId`, потому что подписка относится к конкретному документу;
 - `source`, потому что подписка зарегистрирована на этом объекте;
-- callback не ключ, потому что используется `rememberUpdatedState`.
+- обратный вызов не ключ, потому что используется `rememberUpdatedState`.
 
 ## DisposableEffect и состояние
 
-Можно менять Compose state из listener, но нужно помнить о snapshot и threading. Если callback приходит не на main thread, лучше привести событие к main-safe архитектурному слою или использовать Flow/ViewModel adapter.
+Можно менять Compose state из listener, но нужно помнить о snapshot и threading. Если обратный вызов приходит не на main thread, лучше привести событие к main-safe архитектурному слою или использовать Flow/ViewModel adapter.
 
 Простой main-thread пример:
 
@@ -531,9 +531,9 @@ fun ExternalSelectionCounter(
 
 Если listener зарегистрирован на `source`, `source` должен быть ключом. Если подписка относится к `userId`, `userId` должен быть ключом.
 
-### Сделать callback ключом без необходимости
+### Сделать обратный вызов ключом без необходимости
 
-Это может заставить listener удаляться и добавляться при каждой смене lambda. Часто лучше `rememberUpdatedState`.
+Это может заставить listener удаляться и добавляться при каждой смене лямбда. Часто лучше `rememberUpdatedState`.
 
 ### Оставить пустой onDispose
 
@@ -541,7 +541,7 @@ fun ExternalSelectionCounter(
 
 ### Забыть cleanup
 
-Без cleanup остаются утечки, двойные listener callbacks и неверные lifecycle-события.
+Без cleanup остаются утечки, двойные listener обратные вызовы и неверные lifecycle-события.
 
 ### Выполнять suspend cleanup
 
@@ -551,12 +551,12 @@ fun ExternalSelectionCounter(
 
 `DisposableEffect` управляет lifecycle внешней подписки:
 
-- выполняет setup при входе в composition;
+- выполняет настройка при входе в composition;
 - требует `onDispose`;
 - вызывает cleanup при выходе из composition;
-- вызывает cleanup и повторный setup при смене ключей;
+- вызывает cleanup и повторный настройка при смене ключей;
 - подходит для listener, observer, register/unregister API;
 - ключи должны описывать объект, на котором выполнена регистрация;
-- `rememberUpdatedState` помогает listener видеть свежие callbacks;
+- `rememberUpdatedState` помогает listener видеть свежие обратные вызовы;
 - пустой `onDispose` почти всегда является ошибкой выбора API;
 - для suspend-работы чаще подходит `LaunchedEffect`.

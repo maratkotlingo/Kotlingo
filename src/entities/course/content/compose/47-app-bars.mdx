@@ -1,21 +1,21 @@
 ---
-title: "App bars"
-description: "Разбираем Material 3 app bars в Compose: TopAppBar, CenterAlignedTopAppBar, MediumTopAppBar, LargeTopAppBar, BottomAppBar, navigationIcon, actions, TopAppBarDefaults, scrollBehavior и динамические панели."
+title: "Панели приложения"
+description: "Разбираем Material 3 панели приложения в Compose: TopAppBar, CenterAlignedTopAppBar, MediumTopAppBar, LargeTopAppBar, BottomAppBar, navigationIcon, actions, TopAppBarDefaults, scrollBehavior и динамические панели."
 order: 47
-category: "Compose: Material 3 components and app structure"
+category: "Compose: компоненты Material 3 и структура приложения"
 difficulty: "Средний"
 ---
 
 import CatTip from "../../ui/CatTip.vue";
 import MouseTrap from "../../ui/MouseTrap.vue";
 
-## Зачем нужны app bars
+## Зачем нужны панели приложения
 
 App bar — это панель навигации, заголовка и ключевых действий экрана.
 
 В Material 3 есть:
 
-- top app bars — верхние панели;
+- top панели приложения — верхние панели;
 - bottom app bar — нижняя панель действий.
 
 Top app bar обычно содержит:
@@ -73,7 +73,7 @@ fun BasicTopAppBar(
 App bar — часть структуры экрана. Она должна показывать действия текущего контекста, а не становиться свалкой всех возможностей приложения.
 </CatTip>
 
-## Виды top app bars
+## Виды top панели приложения
 
 Material 3 предоставляет несколько верхних панелей.
 
@@ -475,7 +475,7 @@ fun SelectionTopAppBar(
 
 ## BottomAppBar
 
-`BottomAppBar` — нижняя панель действий. Она отличается от `NavigationBar`: bottom app bar чаще содержит действия текущего экрана, а navigation bar переключает top-level destinations.
+`BottomAppBar` — нижняя панель действий. Она отличается от `NavigationBar`: bottom app bar чаще содержит действия текущего экрана, а панель навигации переключает top-level destinations.
 
 ```kotlin
 import androidx.compose.material.icons.Icons
@@ -573,7 +573,7 @@ fun MessagesScreen(
 }
 ```
 
-`Scaffold` передает content padding, а app bar остается отдельным slot.
+`Scaffold` передает внутренние отступы контента, а app bar остается отдельным slot.
 
 ## Типичные ошибки
 
@@ -595,7 +595,7 @@ Scroll behavior не заработает без подключения nested s
 
 ### Использовать BottomAppBar как NavigationBar
 
-Для top-level navigation используйте navigation surfaces.
+Для top-level navigation используйте навигационные поверхности.
 
 ## Итоги
 
@@ -610,4 +610,4 @@ App bars помогают организовать экран:
 - `TopAppBarDefaults` задает colors и scroll behavior;
 - scroll behavior требует `Modifier.nestedScroll`;
 - динамическая app bar должна получать selection state сверху;
-- app bars обычно размещаются в `Scaffold`.
+- панели приложения обычно размещаются в `Scaffold`.

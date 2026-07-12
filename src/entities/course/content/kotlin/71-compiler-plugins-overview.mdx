@@ -1,8 +1,8 @@
 ---
-title: "Compiler Plugins Overview"
+title: "Обзор плагинов компилятора"
 description: "Обзор Kotlin compiler plugins: зачем они нужны, serialization plugin, Compose compiler, all-open, no-arg, power-assert, отличие от KSP, Gradle подключение, риски и правила выбора."
 order: 71
-category: "DSL, аннотации и metaprogramming"
+category: "DSL, аннотации и метапрограммирование"
 difficulty: "Продвинутый"
 ---
 
@@ -26,19 +26,19 @@ Compiler plugin глубже KSP. KSP читает symbols и генерируе
 KSP — это кошачий писарь, который читает исходники и дописывает новые файлы. Compiler plugin — это помощник прямо у компилятора, который может менять правила обработки.
 </CatTip>
 
-## Когда нужен compiler plugin
+## Когда нужен плагин компилятора
 
 Compiler plugin нужен, когда обычной библиотеки недостаточно.
 
 Типичные причины:
 
 - compiler должен сгенерировать code, недоступный через обычные APIs;
-- нужны transformations на IR/backend level;
+- нужны transformations на IR/бэкенд level;
 - framework ожидает JVM shape, не совпадающий с idiomatic Kotlin;
 - нужно повлиять на bytecode или metadata;
 - требуется compile-time integration с language semantics.
 
-Если можно решить задачу обычной функцией, annotation processing или KSP, compiler plugin может быть избыточен.
+Если можно решить задачу обычной функцией, annotation processing или KSP, плагин компилятора может быть избыточен.
 
 ## Serialization plugin
 
@@ -79,12 +79,12 @@ val json = Json.encodeToString(lesson)
 Plugin нужен, потому что serializer должен знать структуру class compile-time и корректно работать с Kotlin-specific features.
 
 <MouseTrap>
-Одной зависимости `kotlinx-serialization-json` недостаточно для `@Serializable` classes. Нужен и runtime library, и serialization compiler plugin.
+Одной зависимости `kotlinx-serialization-json` недостаточно для `@Serializable` classes. Нужен и runtime library, и serialization плагин компилятора.
 </MouseTrap>
 
 ## Compose compiler
 
-Compose compiler plugin обрабатывает `@Composable` functions и превращает declarative UI calls в код, который умеет recomposition, state tracking и efficient updates.
+Compose плагин компилятора обрабатывает `@Composable` functions и превращает declarative UI calls в код, который умеет recomposition, state tracking и efficient updates.
 
 ```kotlin
 plugins {
@@ -92,7 +92,7 @@ plugins {
 }
 ```
 
-С Kotlin 2.0 Compose compiler находится в Kotlin repository и выпускается совместимо с версией Kotlin.
+С Kotlin 2.0 Compose compiler находится в Kotlin репозиторий и выпускается совместимо с версией Kotlin.
 
 ```kotlin
 @Composable
@@ -101,7 +101,7 @@ fun LessonTitle(title: String) {
 }
 ```
 
-Этот код выглядит как обычная function, но compiler plugin меняет модель вызовов для Compose runtime.
+Этот код выглядит как обычная function, но плагин компилятора меняет модель вызовов для Compose runtime.
 
 ## All-open plugin
 
@@ -245,9 +245,9 @@ KSP:
 - проще и стабильнее для annotation-driven code generation;
 - подходит для adapters, registries, factories, mappers.
 
-Если задача — «найти annotations и сгенерировать file», начинай с KSP. Если задача — «изменить, как compiler понимает declarations или calls», нужен compiler plugin.
+Если задача — «найти annotations и сгенерировать file», начинай с KSP. Если задача — «изменить, как compiler понимает declarations или calls», нужен плагин компилятора.
 
-## Production decision checklist
+## Боевой decision проверочный список
 
 Перед подключением plugin спроси:
 
@@ -269,10 +269,10 @@ plugins {
 Версии official Kotlin compiler plugins обычно должны совпадать с версией Kotlin plugin.
 
 <MouseTrap>
-Не подключай compiler plugin «на всякий случай». Он становится частью toolchain и может влиять на время сборки, IDE diagnostics и стратегию обновления Kotlin.
+Не подключай плагин компилятора «на всякий случай». Он становится частью toolchain и может влиять на время сборки, IDE diagnostics и стратегию обновления Kotlin.
 </MouseTrap>
 
-## Практический пример: backend module
+## Практический пример: бэкенд module
 
 ```kotlin
 plugins {

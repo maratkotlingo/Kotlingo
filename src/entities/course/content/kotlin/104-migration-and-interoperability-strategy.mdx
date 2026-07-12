@@ -1,35 +1,35 @@
 ---
-title: "Migration And Interoperability Strategy"
+title: "Стратегия миграции и интероперабельности"
 description: "Migration and interoperability strategy: Java to Kotlin, Kotlin version upgrades, language feature flags, deprecation cycles, compatibility guides, mixed modules, nullability migration и safe rollout."
 order: 104
-category: "Architecture"
+category: "Архитектура"
 difficulty: "Продвинутый"
 ---
 
 import CatTip from "../../ui/CatTip.vue";
 import MouseTrap from "../../ui/MouseTrap.vue";
 
-## Migration is a product process
+## Миграция — это процесс продукта
 
-Migration is not only code conversion. It changes build, APIs, tests, tooling and team habits.
+Миграция — это не только преобразование кода. Он меняет сборку, API, тесты, инструменты и привычки команды.
 
 Examples:
 
-- Java to Kotlin;
+— Java для Котлина;
 - Kotlin version upgrade;
 - Gradle plugin upgrade;
 - Java target upgrade;
 - enabling explicit API mode;
-- migrating to coroutines;
-- moving code to KMP common source sets;
-- changing serialization format;
+- переход на сопрограммы;
+- перенос кода в общие исходные наборы KMP;
+- изменение формата сериализации;
 - deprecating old API.
 
 Safe migration has:
 
 - small steps;
 - rollback path;
-- tests before broad rewrites;
+- тесты перед масштабными переписываниями;
 - compatibility rules;
 - CI coverage;
 - release notes;
@@ -39,27 +39,27 @@ Safe migration has:
 Миграция — это не прыжок с шкафа, а серия аккуратных шагов по полке: проверил лапу, перенес вес, пошел дальше.
 </CatTip>
 
-## Java to Kotlin
+## Java в Котлин
 
-Mixed Java/Kotlin projects are normal. You do not need to convert everything at once.
+Смешанные проекты Java/Kotlin — это нормально. Вам не нужно конвертировать все сразу.
 
-Good first targets:
+Хорошие первые цели:
 
 - tests;
 - small value objects;
-- leaf utilities with tests;
+- листовые утилиты с тестами;
 - new features;
 - internal services;
 - DTO mappers;
-- code with low inheritance complexity.
+- код с низкой сложностью наследования.
 
 Risky first targets:
 
-- public Java API heavily used by external consumers;
+- публичный Java API, активно используемый внешними потребителями;
 - annotation-processor-heavy code;
 - reflection-heavy frameworks;
 - generated code;
-- concurrency primitives with subtle memory behavior;
+- примитивы параллелизма с тонким поведением памяти;
 - giant inheritance hierarchies.
 
 Java class:
@@ -97,11 +97,11 @@ data class Lesson(
 )
 ```
 
-But public API compatibility may differ: Java constructor, getters, `equals`, `hashCode`, `toString` and nullability annotations must be considered.
+Но совместимость общедоступных API может отличаться: необходимо учитывать конструктор Java, геттеры, `equals`, `hashCode`, `toString` и аннотации, допускающие значение NULL.
 
 ## Nullability migration
 
-Java nullability is often implicit. Kotlin forces a contract.
+Обнуляемость Java часто бывает неявной. Котлин заставляет заключить контракт.
 
 Java:
 
@@ -127,7 +127,7 @@ interface StrictLessonRepository {
 }
 ```
 
-Decide based on behavior, not converter output.
+Принимайте решения, основываясь на поведении, а не на выходе преобразователя.
 
 Boundary normalization:
 
@@ -154,7 +154,7 @@ class JavaRepositoryAdapter(
 
 ## Java-facing Kotlin APIs
 
-When migrated Kotlin code is called from Java, keep Java ergonomics.
+Когда мигрированный код Kotlin вызывается из Java, сохраняйте эргономику Java.
 
 ```kotlin
 class LessonFacade {
@@ -172,7 +172,7 @@ class LessonFacade {
 }
 ```
 
-For Java checked exception expectations:
+Для проверенных ожиданий исключений Java:
 
 ```kotlin
 import java.io.IOException
@@ -185,7 +185,7 @@ class LessonFileReader {
 }
 ```
 
-Use Java tests for Java-facing API.
+Используйте тесты Java для API, ориентированного на Java.
 
 ```java
 import org.junit.jupiter.api.Test;
@@ -214,19 +214,19 @@ Kotlin upgrade affects:
 - KSP/kapt;
 - binary compatibility;
 - IDE behavior;
-- warnings and diagnostics.
+- предупреждения и диагностика.
 
 Upgrade process:
 
-- read official compatibility guide for target version;
-- update Kotlin Gradle plugin in one branch;
-- update compiler plugin versions together;
+- прочитать официальное руководство по совместимости целевой версии;
+- обновить плагин Kotlin Gradle в одной ветке;
+- update плагин компилятора versions together;
 - run clean build;
-- run tests for all targets;
+- запустить тесты для всех целей;
 - fix new warnings deliberately;
-- check generated code and annotation processors;
-- test publishing if library;
-- roll out gradually if monorepo is large.
+- проверка сгенерированного кода и обработчиков аннотаций;
+- тестовая издательская библиотека;
+- развертывать постепенно, если монорепо большое.
 
 Gradle:
 
@@ -236,7 +236,7 @@ plugins {
 }
 ```
 
-Language/API version can be pinned during migration.
+Версию языка/API можно закрепить во время миграции.
 
 ```kotlin
 kotlin {
@@ -247,19 +247,19 @@ kotlin {
 }
 ```
 
-Do not jump versions blindly in a library consumed by many services.
+Не переходите вслепую к версиям библиотеки, используемой множеством сервисов.
 
 ## Language feature flags
 
-Some Kotlin features require opt-in or compiler flags before becoming stable.
+Некоторые функции Kotlin требуют согласия или флагов компилятора, прежде чем они станут стабильными.
 
 Examples:
 
-- experimental APIs with `@OptIn`;
-- preview language features;
-- compiler plugin features;
-- context-sensitive resolution before stable release;
-- progressive mode for earlier diagnostics.
+- экспериментальные API с `@OptIn`;
+- предпросмотр language features;
+- плагин компилятора features;
+- контекстно-зависимое разрешение перед стабильным выпуском;
+- прогрессивный режим для более ранней диагностики.
 
 Localized opt-in:
 
@@ -272,7 +272,7 @@ fun useExperimentalApi() {
 }
 ```
 
-Prefer local opt-in over global project-wide opt-in when usage is isolated.
+Предпочитайте локальную подписку, а не глобальную подписку на весь проект, когда использование изолировано.
 
 Gradle opt-in:
 
@@ -284,7 +284,7 @@ kotlin {
 }
 ```
 
-Document why a flag exists and when to remove it.
+Задокументируйте, почему существует флаг и когда его удалить.
 
 <CatTip>
 Feature flag без даты пересмотра — как коробка на шкафу: все привыкли, что она там, но никто не помнит, что внутри.
@@ -292,16 +292,16 @@ Feature flag без даты пересмотра — как коробка на
 
 ## Deprecation cycles
 
-Public API removal should be staged.
+Удаление общедоступного API должно быть поэтапным.
 
 Typical cycle:
 
 - introduce replacement;
-- mark old API as `WARNING`;
+- пометить старый API как `WARNING`;
 - update internal callers;
 - publish release notes;
-- later raise to `ERROR`;
-- remove in next major version or documented breaking release.
+- позже поднять до `ERROR`;
+- удалить в следующей основной версии или в документально подтвержденном выпуске.
 
 ```kotlin
 class LessonApi {
@@ -333,24 +333,24 @@ fun openOld(slug: String): Lesson {
 }
 ```
 
-Use `ReplaceWith` to make IDE migration easier.
+Используйте `ReplaceWith`, чтобы упростить миграцию IDE.
 
 ## Binary compatibility during migration
 
-Migration can accidentally break binary compatibility.
+Миграция может случайно нарушить двоичную совместимость.
 
 Risky changes:
 
-- converting Java class to Kotlin data class;
-- changing constructor signature;
-- replacing Java static method with companion method without `@JvmStatic`;
-- changing package or top-level file name;
-- adding default parameters without Java overloads where Java callers need them;
-- changing nullability annotations in public API;
-- changing return type from platform type to stricter type;
-- removing old overload too early.
+- преобразование класса Java в класс данных Kotlin;
+- изменение подписи конструктора;
+- замена статического метода Java сопутствующим методом без `@JvmStatic`;
+- изменение имени пакета или файла верхнего уровня;
+- adding параметры по умолчанию without Java перегрузки where Java callers need them;
+- изменение аннотаций обнуления в публичном API;
+- изменение типа возвращаемого значения с типа платформы на более строгий тип;
+- removing old перегрузка too early.
 
-Use binary compatibility validation for published libraries.
+Используйте проверку двоичной совместимости для опубликованных библиотек.
 
 ```kotlin
 plugins {
@@ -362,7 +362,7 @@ apiValidation {
 }
 ```
 
-Validate public ABI in CI before publishing.
+Перед публикацией проверьте общедоступный ABI в CI.
 
 ## Compatibility guides
 
@@ -373,22 +373,22 @@ Official compatibility guides tell what changed between Kotlin versions:
 - standard library behavior;
 - Gradle plugin changes;
 - multiplatform changes;
-- deprecations and removals.
+- устаревания и удаления.
 
-Migration checklist for a Kotlin upgrade:
+Проверочный список миграции for a Kotlin upgrade:
 
-- read guide before changing version;
-- search codebase for mentioned APIs;
-- run build with warnings visible;
+- прочитайте руководство перед сменой версии;
+- поиск по кодовой базе упомянутых API;
+- запустить сборку с видимыми предупреждениями;
 - upgrade ecosystem plugins together;
 - check generated code;
 - check binary compatibility;
-- check runtime behavior on all targets;
-- update docs and sample code.
+- проверить поведение во время выполнения на всех целях;
+- обновить документацию и пример кода.
 
 ## Interoperability strategy
 
-Interop should have boundaries.
+Взаимодействие должно иметь границы.
 
 Java boundary:
 
@@ -433,25 +433,25 @@ sealed interface SearchResult {
 }
 ```
 
-Do not force one surface to satisfy every consumer. Use adapters when Java, Kotlin, JS or Swift callers need different ergonomics.
+Не заставляйте одну поверхность удовлетворять каждого потребителя. Используйте адаптеры, когда вызывающим программам Java, Kotlin, JS или Swift требуется другая эргономика.
 
-## Production migration plan
+## Боевой migration plan
 
-Example plan for Java-to-Kotlin service migration:
+Пример плана миграции сервисов с Java на Kotlin:
 
-- add Kotlin plugin without converting production code;
-- convert tests or small leaf classes;
-- add `kotlin.test` and JUnit Platform setup;
+- add Kotlin plugin without converting боевой код;
+- конвертировать тесты или небольшие листовые классы;
+- add `kotlin.test` and JUnit Platform настройка;
 - define nullability policy;
 - convert internal value objects;
 - convert services behind existing interfaces;
-- keep Java-facing facade stable;
-- add Java tests for facade;
-- introduce deprecations for old overloads;
+- сохранять стабильность фасада, обращенного к Java;
+- добавить Java-тесты для фасада;
+- introduce deprecations for old перегрузки;
 - validate binary compatibility;
-- remove deprecated APIs only in planned breaking release.
+- удалять устаревшие API только в запланированном последнем выпуске.
 
-Example plan for Kotlin version upgrade:
+Пример плана обновления версии Kotlin:
 
 - read compatibility guide;
 - update version catalog;
@@ -459,30 +459,29 @@ Example plan for Kotlin version upgrade:
 - run clean build;
 - run all target tests;
 - fix warnings intentionally;
-- update code style/formatting if needed;
+- при необходимости обновить стиль/форматирование кода;
 - check public ABI;
 - publish release candidate internally;
-- monitor runtime errors after rollout.
+- отслеживать ошибки времени выполнения после развертывания.
 
 <MouseTrap>
-Big-bang migration feels fast until the first rollback. A good migration leaves the system releasable after every meaningful step.
+Миграция «большого взрыва» кажется быстрой до первого отката. Хорошая миграция оставляет систему доступной для выпуска после каждого значимого шага.
 </MouseTrap>
 
-## Final checklist
+## Итоговый проверочный список
 
-For migration and interop:
+Для миграции и взаимодействия:
 
-- convert behavior with tests, not syntax alone;
+- конвертировать поведение с помощью тестов, а не только синтаксиса;
 - choose nullability contracts manually;
-- keep Java API stable with annotations where needed;
-- read compatibility guides before version upgrades;
-- use feature flags locally and document them;
-- deprecate before removing;
-- validate binary compatibility for libraries;
-- keep adapters for different language consumers;
-- make rollback possible.
+- поддерживать стабильность Java API с помощью аннотаций там, где это необходимо;
+- прочтите руководства по совместимости перед обновлением версии;
+- использовать флаги функций локально и документировать их;
+- устаревать перед удалением;
+- проверка бинарной совместимости библиотек;
+- держать адаптеры для разных языков потребителей;
+- сделать возможным откат.
 
 <CatTip>
 Самая сильная миграционная стратегия — та, после которой никто не замечает драму: код стал лучше, релизы идут, старые callers не сломались, а команда понимает следующий шаг.
 </CatTip>
-

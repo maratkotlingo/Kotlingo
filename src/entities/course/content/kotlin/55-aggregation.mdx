@@ -1,6 +1,6 @@
 ---
-title: "Aggregation"
-description: "Агрегация коллекций: count, sum, sumOf, min, max, minBy, maxBy, fold, reduce, runningFold, runningReduce, empty collections, nullable results и production-статистика."
+title: "Агрегация"
+description: "Агрегация коллекций: count, sum, sumOf, min, max, minBy, maxBy, fold, reduce, runningFold, runningReduce, empty collections, nullable results и боевой-статистика."
 order: 55
 category: "Коллекции"
 difficulty: "Продвинутый"
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Aggregation сворачивает много значений в одно
 
-Aggregation operation берет collection и получает summary: count, sum, min, max, average, custom state, running totals.
+Aggregation operation берет collection и получает summary: count, sum, min, max, average, пользовательский state, running totals.
 
 ```kotlin
 val minutes = listOf(14, 28, 35)
@@ -83,7 +83,7 @@ val totalMinutes = course
 println(totalMinutes) // 77
 ```
 
-Для primitive numeric lists доступны specialized overloads. Для nullable values сначала убери `null` или задай default.
+Для primitive numeric lists доступны specialized перегрузки. Для nullable values сначала убери `null` или задай default.
 
 ```kotlin
 val optionalScores: List<Int?> = listOf(10, null, 20)
@@ -130,7 +130,7 @@ println(totalCents) // 5000
 ```
 
 <MouseTrap>
-Не используй `Double` для денег. Для учебных примеров это кажется удобным, но production-суммы лучше хранить в минимальных единицах валюты или в `BigDecimal`.
+Не используй `Double` для денег. Для учебных примеров это кажется удобным, но боевой-суммы лучше хранить в минимальных единицах валюты или в `BigDecimal`.
 </MouseTrap>
 
 ## `min`, `max`, `minOrNull`, `maxOrNull`
@@ -307,7 +307,7 @@ val cumulativeMinutes = minutes.runningFold(initial = 0) { accumulator, value ->
 println(cumulativeMinutes) // [0, 14, 42, 77]
 ```
 
-Это полезно для графиков, progress bars, audit trail и пошаговых explainers.
+Это полезно для графиков, прогресс bars, audit trail и пошаговых explainers.
 
 ```kotlin
 data class ProgressPoint(
@@ -373,7 +373,7 @@ println(rightSentence) // кот пьет молоко
 
 Для сложения порядок не важен, но для строк, деревьев и parsers порядок может менять смысл.
 
-## Production-пример: отчет по платежам
+## Боевой-пример: отчет по платежам
 
 ```kotlin
 enum class PaymentStatus {
@@ -439,7 +439,7 @@ fun buildPaymentReport(payments: List<Payment>): PaymentReport {
 
 Такой `fold` хорошо тестируется: на вход даешь список payments, на выходе ожидаемый immutable report.
 
-## Aggregation checklist
+## Aggregation проверочный список
 
 Для суммы поля используй `sumOf`.
 
@@ -453,7 +453,7 @@ val total = course.sumOf { lesson -> lesson.minutes }
 val completed = course.count { lesson -> lesson.completed }
 ```
 
-Для custom immutable state используй `fold`.
+Для пользовательский неизменяемое состояние используй `fold`.
 
 ```kotlin
 val titles = course.fold(initial = emptyList<String>()) { accumulator, lesson ->

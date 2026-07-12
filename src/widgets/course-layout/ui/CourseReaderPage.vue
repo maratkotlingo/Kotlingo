@@ -4,13 +4,9 @@ import { RouterLink } from 'vue-router'
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   CheckCircle2,
   Circle,
-  Code2,
-  Compass,
   Filter,
-  GraduationCap,
   Heart,
   Home,
   LayoutList,
@@ -25,7 +21,6 @@ import Tag from 'primevue/tag'
 import AppSelect from '@/shared/ui/AppSelect.vue'
 import SearchField from '@/shared/ui/SearchField.vue'
 import CourseTopBar from '@/widgets/course-layout/ui/CourseTopBar.vue'
-import MetricCard from '@/widgets/course-layout/ui/MetricCard.vue'
 import type { CourseLesson, CourseModule, CourseStats } from '@/entities/course/model/course'
 import { useCourseProgressStore } from '@/entities/course/model/courseProgress'
 import { markdown } from '@/shared/config/markdown'
@@ -457,7 +452,7 @@ function updateActiveHeading() {
             </div>
           </div>
 
-          <header class="border-b border-line bg-gradient-to-b from-panel-raised to-panel px-6 py-9 sm:px-10 lg:px-14">
+          <header class="border-b border-line bg-linear-to-b from-panel-raised to-panel px-6 py-9 sm:px-10 lg:px-14">
             <div class="mb-5 flex flex-wrap items-center gap-2">
               <Tag :value="currentLesson.difficulty" :class="difficultyClass(currentLesson.difficulty)" />
               <span

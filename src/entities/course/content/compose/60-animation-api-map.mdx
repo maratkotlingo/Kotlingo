@@ -1,8 +1,8 @@
 ---
-title: "Animation API map"
+title: "Карта Animation API"
 description: "Разбираем карту animation API в Jetpack Compose: animate*AsState, AnimatedVisibility, AnimatedContent, Crossfade, animateContentSize, updateTransition, Animatable, rememberInfiniteTransition, animation specs и выбор правильного инструмента."
 order: 60
-category: "Compose: Animation and motion"
+category: "Compose: анимация и движение"
 difficulty: "Средний"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Почему в Compose так много animation API
 
-Compose дает много animation API, потому что анимации бывают разными по природе. Иногда нужно плавно изменить один цвет. Иногда нужно показать или скрыть целый блок. Иногда состояние экрана меняется между несколькими режимами, и сразу несколько параметров должны анимироваться согласованно. Иногда анимация управляется жестом или coroutine. Иногда она бесконечно повторяется как loading indicator.
+Compose дает много animation API, потому что анимации бывают разными по природе. Иногда нужно плавно изменить один цвет. Иногда нужно показать или скрыть целый блок. Иногда состояние экрана меняется между несколькими режимами, и сразу несколько параметров должны анимироваться согласованно. Иногда анимация управляется жестом или coroutine. Иногда она бесконечно повторяется как загрузка indicator.
 
 Главный навык — выбрать самый простой API, который точно выражает задачу:
 
@@ -232,7 +232,7 @@ fun ErrorDetails(
 Используйте `AnimatedVisibility`, когда presence content меняется. Если content всегда должен оставаться в composition, но быть прозрачным, используйте alpha animation.
 
 <MouseTrap>
-Не используйте `AnimatedVisibility` для скрытия важного state holder, если удаление из composition сбрасывает нужный remembered state. В таком случае либо hoist state выше, либо используйте другой способ визуального скрытия.
+Не используйте `AnimatedVisibility` для скрытия важного держатель состояния, если удаление из composition сбрасывает нужный remembered state. В таком случае либо hoist state выше, либо используйте другой способ визуального скрытия.
 </MouseTrap>
 
 ## Modifier.animateEnterExit
@@ -285,7 +285,7 @@ fun NotificationBanner(
 
 ## AnimatedContent
 
-`AnimatedContent` подходит, когда один content заменяется другим на основании `targetState`. Например, loading/content/error, stepper, счетчик, режим карточки.
+`AnimatedContent` подходит, когда один content заменяется другим на основании `targetState`. Например, загрузка/контент/ошибка, stepper, счетчик, режим карточки.
 
 ```kotlin
 import androidx.compose.animation.AnimatedContent
@@ -826,17 +826,17 @@ fun Modifier.animatedScale(
 
 ### Забывать label
 
-`label` помогает в tooling и отладке. Для production-кода это маленькая привычка с большим выигрышем.
+`label` помогает в tooling и отладке. Для боевой кода это маленькая привычка с большим выигрышем.
 
 ### Хранить animation state не там
 
-Если анимация зависит от screen state, target должен приходить из state. Если локальный interaction state достаточно локален, не поднимайте его в ViewModel.
+Если анимация зависит от состояние экрана, target должен приходить из state. Если локальный состояние взаимодействия достаточно локален, не поднимайте его в ViewModel.
 
 ### Менять layout на каждом кадре без необходимости
 
 Layout animation может быть дороже draw animation. Если можно выразить движение через `graphicsLayer`, часто это лучше.
 
-### Использовать infinite animation без условия
+### Использовать бесконечную анимацию без условия
 
 Бесконечные анимации должны исчезать из composition, когда больше не нужны. Не держите shimmer под реальным content.
 
@@ -851,6 +851,6 @@ Animation API в Compose выбирается по задаче:
 - `animateContentSize` — изменение размера content;
 - `updateTransition` — несколько значений от одного state;
 - `Animatable` — coroutine-driven и gesture-driven animation;
-- `rememberInfiniteTransition` — бесконечные loading/pulse циклы;
+- `rememberInfiniteTransition` — бесконечные загрузка/pulse циклы;
 - `AnimationSpec` задает характер движения;
 - анимация должна быть частью UX-смысла, а не декоративным шумом.

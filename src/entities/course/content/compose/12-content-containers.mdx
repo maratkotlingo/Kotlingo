@@ -1,8 +1,8 @@
 ---
 title: "Простые контейнеры контента"
-description: "Разбираем Surface, Card, ElevatedCard, OutlinedCard, ListItem, HorizontalDivider, VerticalDivider и Spacer: семантика контейнеров, параметры, правильное размещение и production-примеры."
+description: "Разбираем Surface, Card, ElevatedCard, OutlinedCard, ListItem, HorizontalDivider, VerticalDivider и Spacer: семантика контейнеров, параметры, правильное размещение и примеры для боевого кода."
 order: 12
-category: "Compose: UI Fundamentals"
+category: "Compose: основы UI"
 difficulty: "Начальный"
 ---
 
@@ -64,7 +64,7 @@ fun InfoSurface() {
 }
 ```
 
-`Surface` не обязан быть кликабельным. Если поверхность должна реагировать на клик, можно использовать overload с `onClick` или добавить соответствующий clickable-паттерн осознанно.
+`Surface` не обязан быть кликабельным. Если поверхность должна реагировать на клик, можно использовать перегрузка с `onClick` или добавить соответствующий clickable-паттерн осознанно.
 
 ## `Card`
 
@@ -185,7 +185,7 @@ fun QuizOptionCard(
 
 ## Clickable cards
 
-Material 3 cards имеют overload с `onClick`. Это лучше, чем вручную вешать `Modifier.clickable` на произвольный внутренний элемент, потому что весь контейнер получает корректное interaction-поведение.
+Material 3 cards имеют перегрузка с `onClick`. Это лучше, чем вручную вешать `Modifier.clickable` на произвольный внутренний элемент, потому что весь контейнер получает корректное interaction-поведение.
 
 ```kotlin
 @Composable
@@ -216,7 +216,7 @@ fun ClickableLessonCard(
 
 ## `CardDefaults`
 
-Для настройки карточек используй defaults:
+Для настройки карточек используй значения по умолчанию:
 
 - `CardDefaults.cardColors`;
 - `CardDefaults.elevatedCardColors`;

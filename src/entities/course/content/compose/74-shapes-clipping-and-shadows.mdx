@@ -1,8 +1,8 @@
 ---
-title: "Shapes, clipping and shadows"
-description: "Разбираем Shape в Jetpack Compose: RoundedCornerShape, CutCornerShape, CircleShape, RectangleShape, GenericShape, custom Shape, Outline, clip, background(shape), border(shape), shadow, dropShadow, innerShadow и порядок modifier-ов."
+title: "Формы, обрезка и тени"
+description: "Разбираем Shape в Jetpack Compose: RoundedCornerShape, CutCornerShape, CircleShape, RectangleShape, GenericShape, пользовательский Shape, Outline, clip, background(shape), border(shape), shadow, dropShadow, innerShadow и порядок modifier-ов."
 order: 74
-category: "Compose: Graphics, Canvas and drawing"
+category: "Compose: графика, Canvas и рисование"
 difficulty: "Средний"
 ---
 
@@ -73,7 +73,7 @@ Shape — это не layout. Он меняет визуальную и hit/sema
 - `Outline.Rounded`: rounded rectangle;
 - `Outline.Generic`: arbitrary path.
 
-Rounded outline обычно дешевле generic path. Поэтому простые формы лучше выражать built-in shape-ами, а custom path использовать там, где он действительно нужен.
+Rounded outline обычно дешевле generic path. Поэтому простые формы лучше выражать built-in shape-ами, а пользовательский path использовать там, где он действительно нужен.
 
 ## Built-in shapes
 
@@ -443,9 +443,9 @@ fun PressedInputSurface() {
 
 `innerShadow` обычно ставится после `background`, иначе фон может закрыть внутреннюю тень.
 
-## Custom `Shape`
+## Пользовательский `Shape`
 
-Custom shape нужен, когда built-in shapes не выражают нужную геометрию. Реализуйте `Shape` и возвращайте `Outline`.
+Пользовательский shape нужен, когда built-in shapes не выражают нужную геометрию. Реализуйте `Shape` и возвращайте `Outline`.
 
 ```kotlin
 import androidx.compose.foundation.background
@@ -516,7 +516,7 @@ fun TicketSurface() {
 }
 ```
 
-Custom shape должен быть deterministic: один и тот же `size` и `layoutDirection` должны давать одну и ту же геометрию.
+Пользовательский shape должен быть deterministic: один и тот же `size` и `layoutDirection` должны давать одну и ту же геометрию.
 
 ## `GenericShape`
 
@@ -697,7 +697,7 @@ fun PressableShadowSurface(
 }
 ```
 
-Если вы отключаете ripple через `indication = null`, обязательно оставьте другой понятный pressed feedback.
+Если вы отключаете ripple через `indication = null`, обязательно оставьте другой понятный pressed обратная связь.
 
 ## Performance и качество
 
@@ -714,9 +714,9 @@ Shape, clipping и shadows могут влиять на performance:
 
 ## Типичные ошибки
 
-### Разные shapes для background и click feedback
+### Разные shapes для background и click обратная связь
 
-Если surface скруглена, ripple и semantics должны восприниматься как та же surface. Для Material components передавайте shape в компонент.
+Если surface скруглена, ripple и semantics должны восприниматься как та же surface. Для компоненты Material передавайте shape в компонент.
 
 ### Ставить `innerShadow` перед `background`
 
@@ -726,7 +726,7 @@ Shape, clipping и shadows могут влиять на performance:
 
 Тень рисуется визуально, но не увеличивает layout size. Parent может обрезать ее, если clipping включен выше.
 
-### Использовать custom `Shape` без учета RTL
+### Использовать пользовательский `Shape` без учета RTL
 
 Если форма содержит start/end-смысл, используйте `layoutDirection`.
 
@@ -746,5 +746,5 @@ Shapes управляют геометрией поверхностей:
 - `shadow` подходит для Material elevation;
 - `dropShadow` дает radius, spread, color и offset;
 - `innerShadow` рисуется поверх surface и зависит от порядка modifiers;
-- custom shape нужен для специфической геометрии;
+- пользовательский shape нужен для специфической геометрии;
 - сложные shapes и shadows нужно проверять на performance.

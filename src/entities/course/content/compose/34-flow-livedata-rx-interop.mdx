@@ -1,8 +1,8 @@
 ---
-title: "Flow, LiveData and Rx interop"
-description: "Разбираем интеграцию Compose с Flow, StateFlow, LiveData и RxJava: collectAsStateWithLifecycle, collectAsState, observeAsState, subscribeAsState, initial value, lifecycle, cancellation и production-паттерны."
+title: "Интероперабельность Flow, LiveData и Rx"
+description: "Разбираем интеграцию Compose с Flow, StateFlow, LiveData и RxJava: collectAsStateWithLifecycle, collectAsState, observeAsState, subscribeAsState, initial value, lifecycle, cancellation и паттерны для боевого кода."
 order: 34
-category: "Compose: State, snapshots и управление данными UI"
+category: "Compose: состояние, snapshots и управление данными UI"
 difficulty: "Средний"
 ---
 
@@ -150,8 +150,8 @@ fun ProfileScreen(
 Это классическая граница:
 
 - route знает про Flow;
-- screen знает только про immutable UI state;
-- reusable UI-компоненты не зависят от lifecycle и ViewModel.
+- screen знает только про immutable UI-состояние;
+- переиспользуемый UI-компоненты не зависят от lifecycle и ViewModel.
 
 ## collectAsStateWithLifecycle: initialValue
 
@@ -202,7 +202,7 @@ fun SharedCounterText(
 Когда использовать:
 
 - общий UI-код Compose Multiplatform;
-- preview/test окружение без Android lifecycle;
+- предпросмотр/test окружение без Android lifecycle;
 - источник уже управляется внешним lifecycle;
 - вы точно понимаете lifetime collection.
 
@@ -219,7 +219,7 @@ fun SharedCounterText(
 
 ## StateFlow в ViewModel
 
-`StateFlow` хорошо подходит для screen UI state. Он всегда имеет текущее значение и отдает его новому collector.
+`StateFlow` хорошо подходит для screen UI-состояние. Он всегда имеет текущее значение и отдает его новому collector.
 
 ```kotlin
 import androidx.lifecycle.ViewModel
@@ -285,9 +285,9 @@ fun InboxRoute(
 }
 ```
 
-## stateIn для screen state
+## stateIn для состояние экрана
 
-Часто UI state собирается из repository Flow через `stateIn`.
+Часто UI-состояние собирается из репозиторий Flow через `stateIn`.
 
 ```kotlin
 import androidx.lifecycle.ViewModel
@@ -368,7 +368,7 @@ fun LegacyUserName(
 
 ## RxJava: subscribeAsState
 
-Для RxJava есть отдельные artifacts и extension-функции `subscribeAsState`.
+Для RxJava есть отдельные артефакты и extension-функции `subscribeAsState`.
 
 RxJava 3 пример:
 
@@ -403,7 +403,7 @@ import androidx.compose.runtime.rxjava2.subscribeAsState
 
 UI должен иметь состояние до первого emission.
 
-Вариант с loading sealed interface:
+Вариант с загрузка sealed interface:
 
 ```kotlin
 sealed interface OrdersUiState {
@@ -440,11 +440,11 @@ fun NullableUserName(
 }
 ```
 
-Для экранов чаще лучше sealed UI state, потому что он явно описывает loading, content и error. Nullable подходит для локальных простых значений.
+Для экранов чаще лучше sealed UI-состояние, потому что он явно описывает загрузка, content и error. Nullable подходит для локальных простых значений.
 
-## Ошибки Flow и UI state
+## Ошибки Flow и UI-состояние
 
-Flow exception не должен молча ломать экран. Ошибку лучше превратить в UI state во ViewModel.
+Flow exception не должен молча ломать экран. Ошибку лучше превратить в UI-состояние во ViewModel.
 
 ```kotlin
 import androidx.lifecycle.ViewModel
@@ -533,7 +533,7 @@ fun ProductTitleWrong(
 Почему плохо:
 
 - маленький UI-компонент знает про Flow;
-- Preview становится сложнее;
+- Предпросмотр становится сложнее;
 - тесту нужен Flow;
 - collection размазывается по дереву;
 - компонент труднее переиспользовать.
@@ -579,7 +579,7 @@ fun StartedCollection(
 
 `STARTED` — обычный безопасный выбор для UI. Более ранние состояния требуют осторожности, потому что UI может еще не быть готов к активной работе.
 
-## Production-пример: каталог с поиском
+## Боевой-пример: каталог с поиском
 
 ViewModel:
 
@@ -724,15 +724,15 @@ fun CatalogScreen(
 
 ### Не моделировать initial state
 
-У UI всегда должно быть состояние до первой emission: loading, empty, cached value или nullable value.
+У UI всегда должно быть состояние до первой emission: загрузка, empty, cached value или nullable value.
 
 ### Отправлять ошибки наружу как исключения Flow до UI
 
-Экран должен получить `Error` UI state, а не рухнувший collector.
+Экран должен получить `Error` UI-состояние, а не рухнувший collector.
 
 ### Делать LiveData и Flow одновременно источниками истины
 
-Выберите один основной observable holder для screen state. Мосты нужны для миграции, а не для постоянного раздвоения модели.
+Выберите один основной observable holder для состояние экрана. Мосты нужны для миграции, а не для постоянного раздвоения модели.
 
 ## Итоги
 
@@ -741,10 +741,10 @@ Interop с observable data holders строится вокруг `State<T>`:
 - Compose читает `State<T>`;
 - `collectAsStateWithLifecycle` рекомендуется для Flow в Android UI;
 - `collectAsState` подходит для platform-agnostic Compose;
-- `StateFlow` удобен для screen UI state;
+- `StateFlow` удобен для screen UI-состояние;
 - `stateIn` превращает Flow в горячий StateFlow с initial value;
 - `observeAsState` подключает LiveData;
 - `subscribeAsState` подключает RxJava;
 - initial value обязателен для источников без текущего значения;
 - collection лучше делать на route/screen boundary;
-- UI-компоненты должны получать plain values и callbacks.
+- UI-компоненты должны получать plain values и обратные вызовы.

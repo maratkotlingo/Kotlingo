@@ -1,8 +1,8 @@
 ---
 title: "Box"
-description: "Подробно разбираем Box в Jetpack Compose: stack layout, contentAlignment, Modifier.align, matchParentSize, overlay, scrim, badges, loading layers и правильное разделение слоев."
+description: "Подробно разбираем Box в Jetpack Compose: stack layout, contentAlignment, Modifier.align, matchParentSize, наложение, scrim, badges, загрузка layers и правильное разделение слоев."
 order: 19
-category: "Compose: Layouts, constraints и Modifier"
+category: "Compose: разметки, constraints и Modifier"
 difficulty: "Начальный"
 ---
 
@@ -39,7 +39,7 @@ fun CenteredBoxExample() {
 }
 ```
 
-Если в `Box` один ребенок, `Box` часто используется для выравнивания. Если детей несколько, он становится overlay-контейнером.
+Если в `Box` один ребенок, `Box` часто используется для выравнивания. Если детей несколько, он становится наложение-контейнером.
 
 ## Главные параметры `Box`
 
@@ -226,9 +226,9 @@ fun DisabledCardOverlay(
 
 `matchParentSize` отличается от `fillMaxSize`: он не заставляет родителя расти. Он только подгоняет ребенка под уже измеренный размер `Box`.
 
-## Overlay loading layer
+## Наложение загрузка layer
 
-Частый production-паттерн: показывать контент и полупрозрачный loading layer поверх него.
+Частый паттерн для боевого кода: показывать контент и полупрозрачный загрузка layer поверх него.
 
 ```kotlin
 import androidx.compose.foundation.background
@@ -281,7 +281,7 @@ fun LessonContentWithLoadingOverlay(
 }
 ```
 
-Если overlay блокирует действия, добавь semantics и корректное enabled-состояние интерактивных элементов. Визуального затемнения недостаточно для accessibility.
+Если наложение блокирует действия, добавь semantics и корректное enabled-состояние интерактивных элементов. Визуального затемнения недостаточно для accessibility.
 
 ## Scrim под текстом
 
@@ -358,7 +358,7 @@ fun ImageHeaderWithScrim(
 
 ## Badge через `Box`
 
-Для простого бейджа на иконке можно использовать `BadgedBox`, но `Box` полезен для кастомных overlay.
+Для простого бейджа на иконке можно использовать `BadgedBox`, но `Box` полезен для кастомных наложение.
 
 ```kotlin
 import androidx.compose.foundation.background
@@ -411,7 +411,7 @@ fun CustomNotificationBadge(
 
 Для стандартного Material badge предпочитай `BadgedBox`. Кастомный `Box` уместен, если форма, offset или содержимое сильно отличаются от Material default.
 
-## Полный пример: карточка с overlay-состояниями
+## Полный пример: карточка с наложение-состояниями
 
 ```kotlin
 import androidx.compose.foundation.Image
@@ -523,8 +523,8 @@ fun BoxLessonCard(
 
 - основной контент идет первым;
 - badge закрытого урока рисуется поверх;
-- loading overlay рисуется последним, поэтому перекрывает весь контент;
-- `matchParentSize` подгоняет overlay под карточку;
+- загрузка наложение рисуется последним, поэтому перекрывает весь контент;
+- `matchParentSize` подгоняет наложение под карточку;
 - `align(Alignment.TopEnd)` ставит badge в верхний конец;
 - карточка сохраняет один корневой `modifier`.
 
@@ -536,7 +536,7 @@ fun BoxLessonCard(
 - `contentAlignment` задает общее выравнивание;
 - `Modifier.align` задает позицию конкретного ребенка;
 - `matchParentSize` растягивает ребенка до размера `Box`, не увеличивая сам `Box`;
-- `Box` идеально подходит для overlay, scrim, loading layer и badges;
+- `Box` идеально подходит для наложение, scrim, загрузка layer и badges;
 - для обычных вертикальных и горизонтальных списков лучше использовать `Column`, `Row` и lazy containers;
-- overlay должен быть не только визуальным, но и семантически честным.
+- наложение должен быть не только визуальным, но и семантически честным.
 

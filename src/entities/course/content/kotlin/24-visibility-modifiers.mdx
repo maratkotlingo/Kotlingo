@@ -456,7 +456,7 @@ Java-код может видеть surface иначе, особенно при 
 
 ## Архитектурные patterns видимости
 
-### Public interface, internal implementation
+### Публичный интерфейс, внутренняя реализация
 
 ```kotlin
 interface LessonStore {
@@ -572,7 +572,7 @@ public fun createLessonCatalog(): LessonCatalog {
 Границы ясны:
 
 - `LessonSummary`, `LessonCatalog`, factory — public API;
-- storage model и default implementation — internal;
+- storage model и реализация по умолчанию — internal;
 - index и mapping extension — private details класса;
 - public signatures не раскрывают internal types;
 - клиент не может создавать implementation в обход factory;
@@ -594,4 +594,3 @@ public fun createLessonCatalog(): LessonCatalog {
 - `@PublishedApi` делает internal declaration частью ABI;
 - visibility — архитектурная compile-time граница, а не security mechanism;
 - минимальная достаточная visibility сохраняет свободу изменений.
-

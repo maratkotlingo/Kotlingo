@@ -1,6 +1,6 @@
 ---
-title: "Multiplatform Gradle Setup"
-description: "Gradle setup для Kotlin Multiplatform: plugin, targets, sourceSets, common and platform dependencies, compiler options, Android target, JS/Wasm basics, native targets, publication basics и проектные практики."
+title: "Настройка Multiplatform Gradle"
+description: "настройка Gradle для Kotlin Multiplatform: plugin, targets, sourceSets, common and platform dependencies, compiler options, Android target, JS/Wasm basics, native targets, publication basics и проектные практики."
 order: 92
 category: "Kotlin Multiplatform"
 difficulty: "Продвинутый"
@@ -24,7 +24,7 @@ kotlin {
 }
 ```
 
-The same plugin can declare many targets.
+Один и тот же плагин может объявлять множество целей.
 
 ```kotlin
 plugins {
@@ -45,12 +45,12 @@ kotlin {
 ```
 
 <CatTip>
-Gradle setup в KMP — это карта кошачьего дома: targets говорят, где будут комнаты, source sets говорят, какие вещи лежат в каждой комнате.
+настройка Gradle в KMP — это карта кошачьего дома: targets говорят, где будут комнаты, source sets говорят, какие вещи лежат в каждой комнате.
 </CatTip>
 
 ## `settings.gradle.kts`
 
-Project repositories and plugin repositories belong in settings.
+Репозитории проектов и репозитории плагинов находятся в настройках.
 
 ```kotlin
 // settings.gradle.kts
@@ -74,11 +74,11 @@ dependencyResolutionManagement {
 rootProject.name = "kotlingo-shared"
 ```
 
-Use `google()` only if project uses Android or artifacts from Google Maven.
+Используй `google()` только если проект использует Android или артефакты из Google Maven.
 
 ## Targets
 
-Target declaration controls what platform binaries can be built.
+Объявление цели определяет, какие двоичные файлы платформы могут быть созданы.
 
 JVM:
 
@@ -146,7 +146,7 @@ kotlin {
 }
 ```
 
-Choose targets deliberately. Every extra target increases build matrix, dependency constraints and test surface.
+Выбирайте цели осознанно. Каждая дополнительная цель увеличивает матрицу сборки, ограничения зависимостей и поверхность тестирования.
 
 <MouseTrap>
 Не добавляй target «на всякий случай». Если project не тестируется на этой platform, target быстро превращается в красный build после очередного common dependency.
@@ -154,7 +154,7 @@ Choose targets deliberately. Every extra target increases build matrix, dependen
 
 ## Source sets block
 
-`sourceSets` configures common and platform source sets.
+`sourceSets` настраивает общие наборы исходных кодов и исходные коды платформы.
 
 ```kotlin
 kotlin {
@@ -193,13 +193,13 @@ kotlin {
 }
 ```
 
-Common dependencies are visible to all dependent source sets.
+Общие зависимости видны всем зависимым исходным наборам.
 
-Platform dependencies are visible only in that platform source set and its children.
+Зависимости платформы видны только в этом исходном наборе платформы и его дочерних элементах.
 
 ## Version catalog
 
-Production builds should centralize versions in `libs.versions.toml`.
+Боевой builds should centralize versions in `libs.versions.toml`.
 
 ```toml
 # gradle/libs.versions.toml
@@ -242,11 +242,11 @@ kotlin {
 }
 ```
 
-This avoids version drift across modules.
+Это позволяет избежать дрейфа версий между модулями.
 
 ## Common dependencies
 
-Common source set can depend only on common-compatible libraries.
+Общий исходный набор может зависеть только от общесовместимых библиотек.
 
 ```kotlin
 kotlin {
@@ -260,7 +260,7 @@ kotlin {
 }
 ```
 
-Common dependency should publish multiplatform metadata. If library is JVM-only, it cannot be used in `commonMain`.
+Общая зависимость должна публиковать многоплатформенные метаданные. Если библиотека предназначена только для JVM, ее нельзя использовать в `commonMain`.
 
 Wrong:
 
@@ -317,7 +317,7 @@ kotlin {
 }
 ```
 
-iOS dependency from a multiplatform library:
+Зависимость iOS от мультиплатформенной библиотеки:
 
 ```kotlin
 kotlin {
@@ -341,13 +341,13 @@ kotlin {
 }
 ```
 
-Rule: dependency should be declared at the highest source set where it is valid and needed.
+Правило: зависимость должна быть объявлена ​​в самом высоком исходном наборе, где она действительна и необходима.
 
 ## Intermediate source sets
 
-Sometimes default hierarchy is enough. Sometimes you need custom sharing.
+Sometimes default hierarchy is enough. Sometimes you need пользовательский sharing.
 
-Example: share code only between JVM and JS.
+Пример: обмениваться кодом только между JVM и JS.
 
 ```kotlin
 kotlin {
@@ -376,11 +376,11 @@ kotlin {
 }
 ```
 
-Use custom intermediate source sets only when sharing pattern is real. Otherwise the build graph becomes hard to reason about.
+Используй пользовательские intermediate source sets только когда паттерн шаринга реален. Иначе граф сборки становится сложным для понимания.
 
 ## Compiler options
 
-Modern Gradle setup should configure compiler options explicitly.
+современная настройка Gradle should configure compiler options explicitly.
 
 ```kotlin
 kotlin {
@@ -397,7 +397,7 @@ kotlin {
 }
 ```
 
-Use target-specific compiler options when platform requires them.
+Используйте параметры компилятора для конкретной цели, когда они требуются платформе.
 
 ```kotlin
 kotlin {
@@ -409,11 +409,11 @@ kotlin {
 }
 ```
 
-Do not scatter compiler flags across subprojects without documentation. Flags are part of build contract.
+Не разбрасывайте флаги компилятора по подпроектам без документации. Флаги являются частью контракта на строительство.
 
 ## Android target details
 
-For Android library:
+Для библиотеки Android:
 
 ```kotlin
 plugins {
@@ -449,11 +449,11 @@ android {
 }
 ```
 
-Android source sets are connected to Android Gradle Plugin concepts. Keep Android framework usage out of `commonMain`.
+Наборы исходных кодов Android связаны с концепциями плагинов Android Gradle. Не допускайте использования платформы Android в `commonMain`.
 
 ## Native framework basics
 
-For iOS integration, you often create framework binaries.
+Для интеграции с iOS вы часто создаете двоичные файлы платформы.
 
 ```kotlin
 kotlin {
@@ -469,20 +469,20 @@ kotlin {
 }
 ```
 
-This creates framework artifacts for native targets. Apple integration details will be covered in later platform-specific lessons.
+Это создает framework-артефакты для native targets. Детали интеграции с Apple будут разобраны в последующих платформенных уроках.
 
 ## Publication basics
 
-Kotlin Multiplatform publication is not one artifact.
+Kotlin Multiplatform publication is not one артефакт.
 
-It usually includes:
+Обычно оно включает в себя:
 
-- target-specific publications, например JVM artifact;
-- platform-specific Native artifacts;
-- metadata artifacts;
-- root `kotlinMultiplatform` publication that points consumers to target-specific artifacts.
+- target-specific publications, например JVM артефакт;
+- platform-specific Native артефакты;
+- metadata артефакты;
+- root `kotlinMultiplatform` publication that points consumers to target-specific артефакты.
 
-Minimal Maven publish setup:
+Minimal Maven publish настройка:
 
 ```kotlin
 plugins {
@@ -509,7 +509,7 @@ publishing {
 }
 ```
 
-Consumers should depend on root coordinates from common source set, and Gradle resolves target artifacts.
+Consumers should depend on root coordinates from common source set, and Gradle resolves target артефакты.
 
 ```kotlin
 kotlin {
@@ -521,13 +521,13 @@ kotlin {
 }
 ```
 
-Publication requires careful metadata, signing and repository configuration for public repositories. Do not publish half-configured target sets.
+Публикация требует аккуратных metadata, signing и настройки репозитория для публичных репозиториев. Не публикуй наполовину настроенные наборы target.
 
 <MouseTrap>
-В KMP library publishing важно публиковать весь набор artifacts consistently. Если root publication указывает на target artifact, которого нет в repository, consumers получат странные dependency resolution failures.
+В KMP library publishing важно публиковать весь набор артефакты consistently. Если root publication указывает на target артефакт, которого нет в репозиторий, consumers получат странные dependency resolution failures.
 </MouseTrap>
 
-## Full production-style sample
+## Full в стиле боевого кода sample
 
 ```kotlin
 // build.gradle.kts
@@ -606,32 +606,31 @@ publishing {
 }
 ```
 
-Почему это production-style:
+Почему это в стиле боевого кода:
 
 - versions centralized через catalog;
 - targets declared explicitly;
-- dependencies live in correct source sets;
+- зависимости живут в правильных исходных наборах;
 - `explicitApi` protects library API;
 - tests have common coroutine test dependency;
-- Android configuration isolated in `android` block;
+- Конфигурация Android изолирована в блоке `android`;
 - publication configured intentionally.
 
-## Setup checklist
+## Проверочный список настройки
 
-Перед тем как считать KMP Gradle setup готовым, проверь:
+Перед тем как считать KMP настройка Gradle готовым, проверь:
 
-- targets correspond to real supported platforms;
-- common dependencies are truly multiplatform;
-- platform dependencies are not leaking into `commonMain`;
-- tests exist in `commonTest` and platform tests where needed;
+- цели соответствуют реальным поддерживаемым платформам;
+- общие зависимости действительно мультиплатформенны;
+- зависимости платформы не просачиваются в `commonMain`;
+- тесты существуют в `commonTest` и тесты платформы там, где это необходимо;
 - source set hierarchy matches real sharing;
-- Android namespace and SDK configured;
+- настроено пространство имен Android и SDK;
 - JS/Wasm executable/browser/node settings match product;
-- Native binaries configured only where needed;
-- publication includes all target artifacts you promise;
-- CI runs tasks for every supported target.
+- Собственные двоичные файлы настраиваются только там, где это необходимо;
+- publication includes all target артефакты you promise;
+- CI запускает задачи для каждой поддерживаемой цели.
 
 <CatTip>
 Хороший KMP build script скучно предсказуем: targets сверху, source sets ясно разделены, dependencies лежат там, где им место, а publication не обещает лишнего.
 </CatTip>
-

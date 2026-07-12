@@ -1,8 +1,8 @@
 ---
-title: "Drawing modifiers"
+title: "Модификаторы рисования"
 description: "Разбираем drawing modifiers в Compose: drawBehind, drawWithContent, drawWithCache, DrawScope, порядок рисования, drawContent, cache invalidation, Brush, Path, BlendMode, graphicsLayer и performance-паттерны."
 order: 71
-category: "Compose: Graphics, Canvas and drawing"
+category: "Compose: графика, Canvas и рисование"
 difficulty: "Средний"
 ---
 
@@ -11,12 +11,12 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что такое drawing modifiers
 
-Drawing modifiers — это modifiers, которые позволяют рисовать custom graphics вокруг любого composable. В Compose не обязательно создавать отдельный `Canvas`, чтобы нарисовать фон, overlay, highlight, progress, scrim или custom border. Часто достаточно добавить modifier к уже существующему UI.
+Drawing modifiers — это modifiers, которые позволяют рисовать собственная графика вокруг любого composable. В Compose не обязательно создавать отдельный `Canvas`, чтобы нарисовать фон, наложение, highlight, прогресс, scrim или пользовательский border. Часто достаточно добавить modifier к уже существующему UI.
 
 Основные drawing modifiers:
 
 - `Modifier.drawBehind`: рисует позади content;
-- `Modifier.drawWithContent`: дает полный контроль над порядком рисования content и custom drawing;
+- `Modifier.drawWithContent`: дает полный контроль над порядком рисования content и собственное рисование;
 - `Modifier.drawWithCache`: кеширует объекты, созданные для drawing, и затем рисует через `onDrawBehind` или `onDrawWithContent`.
 
 ```kotlin
@@ -106,10 +106,10 @@ fun CenterDot() {
 
 Подходит для:
 
-- custom background;
+- пользовательский background;
 - декоративного highlight;
-- simple custom border;
-- progress behind text;
+- simple пользовательский border;
+- прогресс behind text;
 - chart background;
 - separators;
 - selection background.
@@ -162,8 +162,8 @@ fun BottomDividerContainer(
 
 Варианты:
 
-- drawing before content: сначала custom drawing, затем `drawContent()`;
-- drawing after content: сначала `drawContent()`, затем overlay;
+- drawing before content: сначала собственное рисование, затем `drawContent()`;
+- drawing after content: сначала `drawContent()`, затем наложение;
 - не вызвать `drawContent()`: полностью заменить drawing content.
 
 ```kotlin
@@ -317,10 +317,10 @@ fun CachedGradientBackground() {
 
 ## `onDrawBehind` и `onDrawWithContent`
 
-Внутри `drawWithCache` нужно вернуть один из drawing callbacks:
+Внутри `drawWithCache` нужно вернуть один из drawing обратные вызовы:
 
 - `onDrawBehind`: рисовать behind content;
-- `onDrawWithContent`: управлять content и overlay.
+- `onDrawWithContent`: управлять content и наложение.
 
 ```kotlin
 import androidx.compose.foundation.layout.Box
@@ -353,7 +353,7 @@ fun CachedOverlayLabel(
 }
 ```
 
-Если overlay color зависит только от параметра, `drawWithCache` может быть избыточным. Он полезен, когда есть дорогая подготовка.
+Если цвет наложения зависит только от параметра, `drawWithCache` может быть избыточным. Он полезен, когда есть дорогая подготовка.
 
 ## Cache invalidation
 
@@ -419,7 +419,7 @@ fun AnimatedProgressDraw(
 }
 ```
 
-В этом примере cache block не создает тяжелый объект на каждый progress update.
+В этом примере cache block не создает тяжелый объект на каждый прогресс update.
 
 ## Path caching
 
@@ -570,7 +570,7 @@ fun SpotlightContainer(
 
 Pointer coordinates и drawing coordinates находятся в пикселях относительно composable area.
 
-## Production-пример: progress background behind text
+## Боевой-пример: прогресс background behind text
 
 ```kotlin
 import androidx.compose.foundation.layout.Box
@@ -623,9 +623,9 @@ fun ProgressLabel(
 }
 ```
 
-Здесь progress рисуется behind text. Layout остается обычным: `Box`, `padding`, `Text`.
+Здесь прогресс рисуется behind text. Layout остается обычным: `Box`, `padding`, `Text`.
 
-## Production-пример: cached chart grid
+## Боевой-пример: cached chart grid
 
 ```kotlin
 import androidx.compose.foundation.layout.Box
@@ -680,18 +680,18 @@ fun ChartGridBackground(
 
 Grid path зависит от size и не должен пересоздаваться на каждый draw frame.
 
-## Performance checklist
+## Performance проверочный список
 
 Для drawing modifiers:
 
 - используйте `drawBehind` для простого background;
-- используйте `drawWithContent`, если нужен overlay или custom ordering;
+- используйте `drawWithContent`, если нужен наложение или пользовательский ordering;
 - используйте `drawWithCache`, если создаются `Brush`, `Path`, `Shader` или сложная geometry;
 - не читайте animated state в cache block, если это invalidates cache каждый кадр;
 - помните, что drawing не меняет layout size;
 - используйте `graphicsLayer` для layer transforms и некоторых blend scenarios;
 - проверяйте overdraw и jank, если рисуете большие overlays;
-- не создавайте allocation-heavy objects в draw lambda.
+- не создавайте allocation-heavy objects в draw лямбда.
 
 ## Типичные ошибки
 
@@ -703,7 +703,7 @@ Grid path зависит от size и не должен пересоздават
 
 Drawing modifier рисует в выделенной области. Размер задают layout modifiers.
 
-### Создавать `Path` в draw lambda каждый кадр
+### Создавать `Path` в draw лямбда каждый кадр
 
 Если path зависит только от size, создайте его в `drawWithCache`.
 
@@ -717,17 +717,17 @@ Drawing modifier рисует в выделенной области. Разме
 
 ### Рисовать важный UI без semantics
 
-Custom drawing не создает accessibility semantics. Если рисунок несет смысл, добавьте semantics отдельно.
+Пользовательский drawing не создает accessibility semantics. Если рисунок несет смысл, добавьте semantics отдельно.
 
 ## Итоги
 
-Drawing modifiers позволяют рисовать custom graphics вокруг любого composable:
+Drawing modifiers позволяют рисовать собственная графика вокруг любого composable:
 
 - `drawBehind` рисует позади content;
-- `drawWithContent` управляет порядком custom drawing и `drawContent`;
+- `drawWithContent` управляет порядком собственное рисование и `drawContent`;
 - `drawWithCache` кеширует дорогие drawing objects;
 - `DrawScope` работает в пикселях и предоставляет `size`, `center`, draw functions и transformations;
 - drawing не меняет layout constraints;
 - cache invalidation зависит от size и прочитанных state;
 - `Brush`, `Path` и сложную geometry лучше кешировать;
-- для overlay, blend и special effects важны order, layer и performance.
+- для наложение, blend и special effects важны order, layer и performance.

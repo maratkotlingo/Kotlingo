@@ -1,8 +1,8 @@
 ---
 title: "derivedStateOf"
-description: "Глубоко разбираем derivedStateOf в Jetpack Compose: производные значения, snapshot reads, remember, пороги скролла, expensive calculations, equality, лишняя сложность и production-паттерны."
+description: "Глубоко разбираем derivedStateOf в Jetpack Compose: производные значения, snapshot reads, remember, пороги скролла, expensive calculations, equality, лишняя сложность и паттерны для боевого кода."
 order: 32
-category: "Compose: State, snapshots и управление данными UI"
+category: "Compose: состояние, snapshots и управление данными UI"
 difficulty: "Средний"
 ---
 
@@ -49,7 +49,7 @@ fun DerivedStateIntro() {
 }
 ```
 
-`submitEnabled` зависит от двух snapshot state reads: `email` и `password`. Когда один из них меняется, derived state может быть пересчитан.
+`submitEnabled` зависит от двух snapshot чтения состояния: `email` и `password`. Когда один из них меняется, derived state может быть пересчитан.
 
 <CatTip>
 `derivedStateOf` полезен не потому, что любое вычисление надо кэшировать. Он полезен, когда входное состояние меняется часто, а UI должен реагировать только на более редкое производное изменение.
@@ -215,7 +215,7 @@ fun FullNameWithUnnecessaryDerivedState(
 - есть риск забыть ключ;
 - простой пересчет дешевле.
 
-## Главный production-сценарий: порог скролла
+## Главный боевой-сценарий: порог скролла
 
 Позиция скролла меняется очень часто. Но UI часто должен реагировать только на порог: например, показать кнопку "наверх", когда пользователь ушел дальше первого элемента.
 
@@ -412,9 +412,9 @@ fun RecreatedDerivedState() {
 
 Во втором варианте объект derived state создается при каждой recomposition. Значение может быть корректным, но смысл кэширования и отслеживания ухудшается.
 
-## derivedStateOf в state holder
+## derivedStateOf в держатель состояния
 
-`derivedStateOf` можно использовать не только прямо в UI, но и в plain state holder, если он работает с Compose state.
+`derivedStateOf` можно использовать не только прямо в UI, но и в plain держатель состояния, если он работает с Compose state.
 
 ```kotlin
 import androidx.compose.runtime.Stable
@@ -455,7 +455,7 @@ class LoginFormState {
 }
 ```
 
-Такой state holder удобно создать через `remember`:
+Такой держатель состояния удобно создать через `remember`:
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -471,7 +471,7 @@ fun rememberLoginFormState(): LoginFormState {
 
 ## derivedStateOf и snapshotFlow
 
-`derivedStateOf` нужен для UI state внутри Compose. Если нужно превратить snapshot reads в Kotlin Flow для аналитики, логирования или debounce, используется `snapshotFlow`.
+`derivedStateOf` нужен для UI-состояние внутри Compose. Если нужно превратить snapshot reads в Kotlin Flow для аналитики, логирования или debounce, используется `snapshotFlow`.
 
 ```kotlin
 import androidx.compose.foundation.lazy.LazyListState
@@ -502,7 +502,7 @@ fun TrackScrolledPastFirstItem(
 Правило:
 
 - UI должен читать boolean — используйте `derivedStateOf`;
-- external side effect должен реагировать на snapshot changes — используйте `snapshotFlow` внутри effect.
+- external побочный эффект должен реагировать на snapshot changes — используйте `snapshotFlow` внутри effect.
 
 ## Производная валидация формы
 
@@ -682,4 +682,4 @@ fun GreetingSimple(
 - не заменяет ViewModel и domain layer;
 - не нужен для простых выражений;
 - требует ключей `remember`, если зависит от обычных параметров;
-- для side effects по snapshot changes лучше использовать `snapshotFlow`.
+- для побочные эффекты по snapshot changes лучше использовать `snapshotFlow`.

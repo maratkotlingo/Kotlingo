@@ -1,5 +1,5 @@
 ---
-title: "Access operations"
+title: "Операции доступа"
 description: "Исчерпывающе разбираем get, getOrNull и getOrElse, first/last, single, elementAt, predicate-варианты, map access, nullable ambiguity, exceptions и сложность доступа."
 order: 49
 category: "Коллекции"
@@ -33,7 +33,7 @@ println(lessons[1])
 // lessons[10] завершится exception.
 ```
 
-Direct get O(1) для ArrayList, но interface List не обещает конкретную implementation complexity для каждого custom type.
+Direct get O(1) для ArrayList, но interface List не обещает конкретную implementation complexity для каждого пользовательский тип.
 
 ## Valid indices
 
@@ -76,7 +76,7 @@ val title = lessons.getOrElse(10) { index ->
 }
 ```
 
-Fallback lambda выполняется только для invalid index и получает requested index.
+Fallback лямбда выполняется только для invalid index и получает requested index.
 
 ```kotlin
 val title = lessons.getOrElse(-1) { "Первого урока ещё нет" }
@@ -183,7 +183,7 @@ val exactOrNull = lessons.singleOrNull { title -> title == "Arrays" }
 Возвращает null и для zero, и для multiple matches.
 
 <CatTip title="Котосовет: single выражает уникальность">
-Для lookup по supposedly unique business key используй `single`, чтобы duplicates не маскировались. В production лучше enforce uniqueness в Map/database constraint.
+Для lookup по supposedly unique business key используй `single`, чтобы duplicates не маскировались. В боевой лучше enforce uniqueness в Map/база данных constraint.
 </CatTip>
 
 ## `elementAt`
@@ -225,14 +225,14 @@ fun <T> repeatedAccess(values: Iterable<T>, indices: List<Int>): List<T?> {
 }
 ```
 
-На linked/custom Iterable каждый call начинает обход заново. Если random access нужен многократно, materialize once:
+На linked/пользовательский Iterable каждый call начинает обход заново. Если random access нужен многократно, materialize once:
 
 ```kotlin
 val list = values.toList()
 val result = indices.map(list::getOrNull)
 ```
 
-Memory-time trade-off измеряется по size/use case.
+Memory-time trade-off измеряется по size/сценарий использования.
 
 ## Map `get`
 
@@ -280,7 +280,7 @@ Map extension использует fallback, если result get null. Для ex
 val title = lessons.getOrDefault(999, "Урок не найден")
 ```
 
-Fallback eager value, не lambda. Semantics nullable map зависят от presence: Java/Kotlin platform implementation nuances лучше проверять; для точного distinction используй containsKey.
+Fallback eager value, не лямбда. Semantics nullable map зависят от presence: Java/Kotlin platform implementation nuances лучше проверять; для точного distinction используй containsKey.
 
 ## `firstNotNullOf`
 
@@ -325,11 +325,11 @@ val (first, second) = lessons
 
 Destructuring List вызывает `component1`/`component2`, которые strict: при insufficient size будет exception. Для uncertain size используй safe access.
 
-## One-shot/custom Iterable
+## One-shot/пользовательский Iterable
 
-Custom Iterable обычно должен создавать новый iterator, но unusual/lazy external sources могут иметь stateful behavior. Несколько `first`, `last`, `elementAt` могут повторно запускать computation или I/O.
+Пользовательский Iterable обычно должен создавать новый iterator, но unusual/lazy external sources могут иметь stateful behavior. Несколько `first`, `last`, `elementAt` могут повторно запускать computation или I/O.
 
-Для database/network stream не маскируй expensive access под generic Iterable без clear contract.
+Для база данных/network stream не маскируй expensive access под generic Iterable без clear contract.
 
 ## Null как data против отсутствие
 

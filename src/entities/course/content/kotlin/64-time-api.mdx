@@ -1,5 +1,5 @@
 ---
-title: "Time API"
+title: "API времени"
 description: "Kotlin Time API: Duration, Duration units, companion extensions, arithmetic, comparison, measureTime, measureTimedValue, TimeSource, TimeMark, deadlines и interop с java.time."
 order: 64
 category: "Стандартная библиотека"
@@ -283,7 +283,7 @@ class TimeoutBudget(
 Не измеряй elapsed time через wall-clock timestamps вроде `System.currentTimeMillis()`. Системные часы могут измениться, и измерение станет неверным. Для длительности используй monotonic time source.
 </MouseTrap>
 
-## Interop with Java time
+## Взаимодействие со временем Java
 
 На JVM часто нужно перейти между `kotlin.time.Duration` и `java.time.Duration`.
 
@@ -316,7 +316,7 @@ class AuditClock(
 
 `Duration` и `Instant` отвечают на разные вопросы.
 
-## Production-пример: измерение загрузки уроков
+## Боевой-пример: измерение загрузки уроков
 
 ```kotlin
 import kotlin.time.Duration

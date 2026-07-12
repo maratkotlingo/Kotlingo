@@ -1,8 +1,8 @@
 ---
-title: "XML migration strategy"
-description: "Разбираем стратегию миграции Android UI с XML Views на Jetpack Compose: incremental migration, screen-by-screen подход, design system first, mixed navigation, testing, risk control, team workflow и критерии завершения."
+title: "Стратегия миграции с XML"
+description: "Разбираем стратегию миграции Android UI с XML Views на Jetpack Compose: incremental migration, screen-by-screen подход, design system first, mixed navigation, testing, risk control, team рабочий процесс и критерии завершения."
 order: 89
-category: "Compose: Interoperability and migration"
+category: "Compose: интероперабельность и миграция"
 difficulty: "Продвинутый"
 ---
 
@@ -17,12 +17,12 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - Fragment lifecycle;
 - XML themes;
 - styles;
-- custom Views;
+- пользовательский Views;
 - RecyclerView adapters;
 - ViewBinding/DataBinding;
 - Espresso tests;
 - accessibility behavior;
-- analytics hooks;
+- аналитика hooks;
 - feature flags;
 - release process;
 - команда, которая привыкла к старой модели.
@@ -80,10 +80,10 @@ data class MigrationCandidate(
 - icons;
 - buttons;
 - text fields;
-- app bars;
+- панели приложения;
 - list items;
 - cards;
-- empty/error/loading states.
+- empty/error/загрузка states.
 
 Без этого каждый мигрированный экран создаст свою маленькую дизайн-систему.
 
@@ -150,7 +150,7 @@ object AppColors {
 - empty state;
 - confirmation screen;
 - onboarding step;
-- simple form без сложного custom input;
+- simple form без сложного пользовательский input;
 - feature flag screen;
 - экран, уже содержащий Compose block.
 
@@ -168,8 +168,8 @@ object AppColors {
 Screen-by-screen подход переводит весь экран на Compose, сохраняя внешние contracts:
 
 - тот же route/deep link;
-- тот же ViewModel или state holder;
-- те же analytics events;
+- тот же ViewModel или держатель состояния;
+- те же аналитика events;
 - те же permissions;
 - те же UI states;
 - те же accessibility labels;
@@ -337,7 +337,7 @@ Top-down подход начинает с Compose root/shell и оставляе
 
 - navigation уже переводится на Compose;
 - экранный layout проще переписать целиком;
-- legacy custom View занимает маленькую область;
+- legacy пользовательский View занимает маленькую область;
 - старые Views имеют ясный lifecycle.
 
 ```kotlin
@@ -368,7 +368,7 @@ fun ProductDetailsScreen(
 - Activity routes;
 - deep links;
 - modal flows;
-- legacy dialogs.
+- legacy диалогах.
 
 Не пытайтесь мигрировать navigation одновременно со всеми экранами, если это увеличивает риск. Лучше определить boundary.
 
@@ -389,7 +389,7 @@ fun ProfileRoute(
 }
 ```
 
-Fragment связывает callbacks:
+Fragment связывает обратные вызовы:
 
 ```kotlin
 composeView.setContent {
@@ -472,28 +472,28 @@ fun onEvent(event: CheckoutEvent) {
 
 Если список простой и уже имеет Compose items, лучше быстрее перейти к lazy layout. Если список использует сложные ItemTouchHelper, ConcatAdapter, paging, sticky behaviors и legacy decorations, миграция может быть постепенной.
 
-Checklist:
+Проверочный список:
 
 - есть stable keys;
 - scroll position сохраняется;
-- empty/loading/error states совпадают;
+- empty/загрузка/error states совпадают;
 - item animations не ломают UX;
 - accessibility collection semantics не ухудшилась;
 - performance проверена на release build;
 - paging не создает лишние recompositions;
-- все item click events сохранили analytics.
+- все item click events сохранили аналитика.
 
 ## Testing during migration
 
 Перед заменой экрана полезно зафиксировать behavior:
 
-- screenshot/golden для основных states;
+- screenshot/golden для основных состояний;
 - accessibility checks;
 - Espresso tests для старого экрана;
 - Compose tests для нового экрана;
 - contract tests для ViewModel;
 - navigation tests для deep links;
-- ручной exploratory checklist.
+- ручной exploratory проверочный список.
 
 ```kotlin
 class OrdersViewModelTest {
@@ -558,7 +558,7 @@ Feature flag должен быть временным. У него должны 
 Флаг без срока удаления становится постоянной развилкой. Через полгода команда будет чинить два экрана и бояться удалить любой из них.
 </MouseTrap>
 
-## Analytics и accessibility parity
+## Аналитика и accessibility parity
 
 Compose screen должен сохранять важные non-visual contracts:
 
@@ -567,27 +567,27 @@ Compose screen должен сохранять важные non-visual contracts
 - error events;
 - experiment exposure;
 - content descriptions;
-- test tags, если они часть test infrastructure;
+- тестовые теги, если они часть test infrastructure;
 - deep link behavior;
 - back behavior;
 - focus order;
 - keyboard actions.
 
-Сравнивайте не только пиксели. Иногда новый экран выглядит правильно, но analytics больше не видит checkout failure или TalkBack читает элементы в другом порядке.
+Сравнивайте не только пиксели. Иногда новый экран выглядит правильно, но аналитика больше не видит checkout failure или TalkBack читает элементы в другом порядке.
 
-## Командный workflow
+## Командный рабочий процесс
 
 Миграция проще, если договориться о правилах:
 
 - новые UI components пишутся на Compose;
 - legacy XML правится только для bugfixes;
-- каждый новый Compose screen имеет preview states;
+- каждый новый Compose screen имеет предпросмотр states;
 - ViewModel не зависит от Compose;
-- composables принимают immutable state;
+- composables принимают неизменяемое состояние;
 - interop wrappers лежат в отдельном package;
 - feature flags удаляются после rollout;
 - дизайн-система развивается в одном месте;
-- code review проверяет modifier order, accessibility и state ownership.
+- code review проверяет modifier order, accessibility и владение состоянием.
 
 ## Когда миграция завершена
 
@@ -599,7 +599,7 @@ Compose screen должен сохранять важные non-visual contracts
 - screen-level composable покрывает все states;
 - tests обновлены;
 - accessibility parity проверена;
-- analytics parity проверена;
+- аналитика parity проверена;
 - feature flag удален;
 - old resources/styles больше не используются;
 - команда знает новый owner path.
@@ -624,7 +624,7 @@ Compose screen должен сохранять важные non-visual contracts
 
 ### Не сравнивать accessibility
 
-Визуально экран может совпасть, а screen reader flow ухудшиться.
+Визуально экран может совпасть, а программа чтения с экрана flow ухудшиться.
 
 ### Держать два источника state
 
@@ -644,8 +644,8 @@ XML часть обновляется из binding, Compose часть из View
 - простые screens мигрируйте screen-by-screen;
 - сложные screens можно переводить bottom-up или top-down;
 - mixed navigation должна иметь ясную boundary;
-- ViewModel/state holder не должен зависеть от Compose;
+- ViewModel/держатель состояния не должен зависеть от Compose;
 - interop wrappers временные и изолированные;
-- testing, accessibility и analytics parity обязательны;
+- testing, accessibility и аналитика parity обязательны;
 - feature flags помогают rollout, но должны удаляться;
 - миграция завершена только после удаления старых XML/binding paths.

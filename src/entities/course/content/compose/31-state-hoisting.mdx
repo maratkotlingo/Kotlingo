@@ -1,17 +1,17 @@
 ---
-title: "State hoisting"
-description: "Разбираем state hoisting в Jetpack Compose: stateful и stateless composables, value/onValueChange, lowest common ancestor, unidirectional data flow, UI element state, screen UI state и production-паттерны API."
+title: "Подъем состояния"
+description: "Разбираем подъем состояния в Jetpack Compose: stateful и stateless composables, value/onValueChange, lowest common ancestor, unidirectional data flow, UI element state, screen UI-состояние и паттерны для боевого кода API."
 order: 31
-category: "Compose: State, snapshots и управление данными UI"
+category: "Compose: состояние, snapshots и управление данными UI"
 difficulty: "Средний"
 ---
 
 import CatTip from "../../ui/CatTip.vue";
 import MouseTrap from "../../ui/MouseTrap.vue";
 
-## Что такое state hoisting
+## Что такое подъем состояния
 
-State hoisting — это паттерн, при котором состояние переносится из composable-компонента к его вызывающему коду. Компонент перестает сам владеть состоянием и получает два типа параметров:
+Подъем состояния — это паттерн, при котором состояние переносится из composable-компонента к его вызывающему коду. Компонент перестает сам владеть состоянием и получает два типа параметров:
 
 - текущее значение;
 - события, которые просят это значение изменить.
@@ -91,7 +91,7 @@ fun SearchField(
 `SearchField` теперь не знает, где хранится текст. Это может быть `rememberSaveable`, `ViewModel`, `StateFlow`, navigation argument или тестовая переменная.
 
 <CatTip>
-State hoisting делает composable похожим на чистую функцию UI: он получает данные, показывает их и сообщает о событиях. Поэтому такой компонент легче тестировать, переиспользовать и открывать в Preview.
+Подъем состояния делает composable похожим на чистую функцию UI: он получает данные, показывает их и сообщает о событиях. Поэтому такой компонент легче тестировать, переиспользовать и открывать в Предпросмотр.
 </CatTip>
 
 ## Stateful и stateless composables
@@ -297,7 +297,7 @@ fun PermissionRow(
 
 ## Событие не обязано быть командой
 
-Callback в stateless composable обычно описывает то, что произошло или чего пользователь хочет. Он не обязан гарантировать, что state изменится.
+Обратный вызов в stateless composable обычно описывает то, что произошло или чего пользователь хочет. Он не обязан гарантировать, что state изменится.
 
 ```kotlin
 import androidx.compose.material3.OutlinedTextField
@@ -476,7 +476,7 @@ fun CheckoutScreen() {
 
 Если доставка и оплата меняются одним пользовательским действием, хранить их в одной UI-модели проще и безопаснее.
 
-## UI element state и screen UI state
+## UI element state и screen UI-состояние
 
 UI element state — состояние отдельного элемента интерфейса:
 
@@ -487,10 +487,10 @@ UI element state — состояние отдельного элемента и
 - состояние focus;
 - локальное состояние drag.
 
-Screen UI state — состояние всего экрана:
+Screen UI-состояние — состояние всего экрана:
 
 - список товаров;
-- loading/error/content;
+- загрузка/error/content;
 - текущий пользователь;
 - доступные фильтры;
 - результат бизнес-правил;
@@ -500,13 +500,13 @@ UI element state может жить:
 
 - внутри composable через `remember`;
 - через `rememberSaveable`;
-- в plain state holder;
+- в plain держатель состояния;
 - в ViewModel, если оно нужно бизнес-логике.
 
-Screen UI state обычно живет:
+Screen UI-состояние обычно живет:
 
 - в ViewModel;
-- в state holder экрана;
+- в держатель состояния экрана;
 - в observable holder вроде `StateFlow`;
 - как immutable data class.
 
@@ -568,7 +568,7 @@ fun ProfileScreen(
 
 `ProfileScreen` не знает, где выполняется сохранение. Он показывает state и отправляет события.
 
-## Production-пример: фильтры каталога
+## Боевой-пример: фильтры каталога
 
 ```kotlin
 import androidx.compose.foundation.layout.Column
@@ -676,7 +676,7 @@ fun CatalogFiltersRoute(
 }
 ```
 
-Почему это production-паттерн:
+Почему это паттерн для боевого кода:
 
 - `CatalogFilters` stateless;
 - состояние immutable;
@@ -693,7 +693,7 @@ fun CatalogFiltersRoute(
 - раскрытие декоративного тултипа;
 - hover-состояние desktop-компонента;
 - временное состояние pressed interaction;
-- локальный animation progress;
+- локальный animation прогресс;
 - промежуточное состояние жеста;
 - внутренний state компонента, который не интересен родителю.
 
@@ -743,15 +743,15 @@ fun HelpHint(
 
 ### Передавать MutableState вниз без необходимости
 
-`MutableState<T>` дает child право читать и писать. Чаще лучше передать `value` и callback.
+`MutableState<T>` дает child право читать и писать. Чаще лучше передать `value` и обратный вызов.
 
-### Делать слишком общий callback
+### Делать слишком общий обратный вызов
 
 `onEvent(String)` хуже, чем `onCategoryToggle(categoryId)`, если событие имеет конкретный смысл.
 
 ### Обновлять state вне event handler
 
-Запись state прямо в тело composable может создать бесконечные recomposition или трудноуловимые баги. State меняется в обработчиках событий, эффектах или state holders.
+Запись state прямо в тело composable может создать бесконечные recomposition или трудноуловимые баги. State меняется в обработчиках событий, эффектах или держатели состояния.
 
 ### Поднимать state выше, чем нужно
 
@@ -759,7 +759,7 @@ fun HelpHint(
 
 ## Итоги
 
-State hoisting делает UI предсказуемым:
+Подъем состояния делает UI предсказуемым:
 
 - stateful composable хранит состояние внутри;
 - stateless composable получает состояние и события снаружи;
@@ -767,6 +767,6 @@ State hoisting делает UI предсказуемым:
 - для доменных событий лучше давать конкретные имена;
 - состояние поднимают минимум до общего читателя и писателя;
 - состояния, меняющиеся одним событием, часто стоит хранить вместе;
-- UI element state и screen UI state имеют разный жизненный цикл;
+- UI element state и screen UI-состояние имеют разный жизненный цикл;
 - state идет вниз, events идут вверх;
 - переиспользуемый UI должен быть stateless, а удобная stateful-обертка может быть дополнительным API.

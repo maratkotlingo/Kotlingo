@@ -1,8 +1,8 @@
 ---
-title: "Platform types и Java interop"
+title: "Платформенные типы и Java-interop"
 description: "Разбираем Kotlin platform types, концепцию String!, Java nullability annotations, defensive Kotlin вокруг Java API, JSpecify, JetBrains annotations и Android annotations."
 order: 14
-category: "Null-safety"
+category: "Null-безопасность"
 difficulty: "Средний"
 ---
 
@@ -364,9 +364,9 @@ fun copiedTitles(api: JavaLessonListApi): List<String> {
 
 Копия защищает Kotlin-слой от неожиданных внешних мутаций.
 
-## SAM conversions и nullability callbacks
+## SAM conversions и nullability обратные вызовы
 
-Java functional interfaces часто принимаются из Kotlin как lambdas.
+Java functional interfaces часто принимаются из Kotlin как лямбды.
 
 ```java
 public interface LessonCallback {
@@ -380,7 +380,7 @@ public class LessonNotifier {
 }
 ```
 
-Если Java не аннотирована, Kotlin lambda может получить platform type:
+Если Java не аннотирована, Kotlin лямбда может получить platform type:
 
 ```kotlin
 fun subscribe(notifier: LessonNotifier) {
@@ -397,7 +397,7 @@ fun subscribe(notifier: LessonNotifier) {
 }
 ```
 
-На callback-границах особенно важно не доверять platform value.
+На обратный вызов-границах особенно важно не доверять platform value.
 
 ## `@Throws` для Java callers
 
@@ -421,9 +421,9 @@ class KotlinLessonParser {
 
 Для Java это улучшит сигнатуру throws. Для Kotlin callers это не создаст checked exception.
 
-## `@JvmOverloads` и nullable defaults
+## `@JvmOverloads` и nullable значения по умолчанию
 
-Если Kotlin API должен быть удобен из Java, default arguments сами по себе не превращаются в Java overloads. Можно использовать `@JvmOverloads`.
+Если Kotlin API должен быть удобен из Java, аргументы по умолчанию сами по себе не превращаются в Java перегрузки. Можно использовать `@JvmOverloads`.
 
 ```kotlin
 class LessonFactory {
@@ -557,7 +557,7 @@ Java interop мощный, но требует дисциплины:
 - JetBrains annotations, JSpecify и Android annotations помогают описать контракт;
 - defensive Kotlin wrappers защищают доменный слой от legacy Java;
 - generic collections из Java могут содержать `null`, даже если сигнатура выглядит уверенно;
-- callbacks из Java тоже требуют проверки;
+- обратные вызовы из Java тоже требуют проверки;
 - `@Throws`, `@JvmOverloads` и другие JVM-аннотации помогают Java callers, но не заменяют Kotlin-валидацию;
 - лучшая граница interop — маленький адаптер, который превращает сомнительный Java API в ясный Kotlin API.
 

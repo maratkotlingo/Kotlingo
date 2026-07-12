@@ -1,5 +1,5 @@
 ---
-title: "Nested, inner, local и anonymous classes"
+title: "Вложенные, inner-, local- и anonymous-классы"
 description: "Разбираем вложенные и inner-классы Kotlin, local classes, object expressions, qualified this, захват внешнего состояния, lifetime и границы anonymous type."
 order: 30
 category: "Классы и объекты"
@@ -77,7 +77,7 @@ class Course {
 
 Nested type полезен, если он:
 
-- является implementation detail внешнего класса;
+- является деталь реализации внешнего класса;
 - логически принадлежит namespace внешнего API;
 - не имеет смысла как отдельный top-level concept;
 - не требует outer state.
@@ -195,7 +195,7 @@ class LargeCourse(private val payload: ByteArray) {
 Если long-lived registry сохранит `Listener`, весь `LargeCourse` и `payload` останутся reachable.
 
 <MouseTrap title="Мышеловка: inner продлевает жизнь outer object">
-Не делай listener/callback inner-классом, если он уходит в глобальную подписку и не управляется lifecycle. Nested class с явными минимальными dependencies удерживает меньше состояния.
+Не делай listener/обратный вызов inner-классом, если он уходит в глобальную подписку и не управляется lifecycle. Nested class с явными минимальными dependencies удерживает меньше состояния.
 </MouseTrap>
 
 Безопасная альтернатива:
@@ -277,7 +277,7 @@ fun groupLessons(titles: List<String>): Map<Char, List<String>> {
 }
 ```
 
-`IndexedTitle` — implementation detail одного алгоритма. Его невозможно использовать извне.
+`IndexedTitle` — деталь реализации одного алгоритма. Его невозможно использовать извне.
 
 Local declarations не нуждаются и не принимают обычные public/private modifiers: block scope уже задаёт visibility.
 
@@ -315,7 +315,7 @@ fun createTextFormatter(prefix: String): TextFormatter {
 }
 ```
 
-Для одного SAM method lambda ещё проще:
+Для одного SAM method лямбда ещё проще:
 
 ```kotlin
 fun createFormatterLambda(prefix: String): TextFormatter {
@@ -341,7 +341,7 @@ fun counter(): () -> Int {
 }
 ```
 
-Captured mutable variable может быть boxed/heap-allocated backend, потому что должна жить после возврата функции. Она не thread-safe.
+Captured mutable variable может быть boxed/heap-allocated бэкенд, потому что должна жить после возврата функции. Она не thread-safe.
 
 ```kotlin
 val next = counter()
@@ -349,7 +349,7 @@ println(next())
 println(next())
 ```
 
-Для concurrent use нужен atomic/synchronization или immutable state transition.
+Для concurrent use нужен atomic/synchronization или неизменяемое состояние transition.
 
 ## Ограничения local class
 
@@ -423,7 +423,7 @@ class Diagnostics {
 Client получает `Any` и не видит `status`. Для API объяви data class/interface.
 
 <CatTip title="Котосовет: anonymous object — локальная реализация, не модель API">
-Если caller должен читать его properties, тип заслуживает имени. Object expression хорош для listener, strategy и узкой adapter implementation.
+Если вызывающий код должен читать его properties, тип заслуживает имени. Object expression хорош для listener, strategy и узкой adapter implementation.
 </CatTip>
 
 ## Наследование class и interfaces в object expression
@@ -450,7 +450,7 @@ fun createFormatter(): BaseFormatter {
 }
 ```
 
-Return type `BaseFormatter` скрывает `CloseableFormatter.close` от caller. Если нужны обе capabilities, объяви общий named interface.
+Return type `BaseFormatter` скрывает `CloseableFormatter.close` от вызывающий код. Если нужны обе capabilities, объяви общий named interface.
 
 Object expression может наследовать один class и реализовать несколько interfaces по обычным правилам.
 
@@ -475,9 +475,9 @@ fun loggingListener(prefix: String): LessonListener {
 
 Anonymous object захватывает `prefix` и mutable `completedCount`. Его lifetime продлевает lifetime captured values. Mutable count не thread-safe.
 
-## Object expression и SAM lambda
+## Object expression и SAM лямбда
 
-Для interface с одним abstract method lambda обычно короче:
+Для interface с одним abstract method лямбда обычно короче:
 
 ```kotlin
 fun interface LessonFilter {
@@ -493,7 +493,7 @@ Object expression нужен, если:
 - нужен собственный state/members;
 - нужно наследовать class;
 - требуется explicit `this` identity;
-- override нескольких defaults.
+- override нескольких значения по умолчанию.
 
 ## Anonymous object и equality
 
@@ -519,7 +519,7 @@ fun main() {
 
 Используй object expression для одноразовой implementation interface/class.
 
-Используй lambda для простого SAM/callback.
+Используй лямбда для простого SAM/обратный вызов.
 
 ## Практический пример: обработчик импорта курса
 
@@ -634,7 +634,7 @@ fun main() {
 - private nested `RowParser` не требует outer state;
 - его nested `ParsedRow` является локальной storage model parser;
 - inner `Session` сознательно использует конкретный `courseName`;
-- anonymous observer реализует два callback без отдельного named class;
+- anonymous observer реализует два обратный вызов без отдельного named class;
 - report возвращается как устойчивый named data type;
 - listener lifetime должен оставаться не длиннее session/importer.
 
@@ -646,10 +646,10 @@ fun main() {
 - `this@Outer` обращается к внешнему receiver;
 - inner object может продлить lifetime большого outer graph;
 - local class виден только внутри блока и может захватывать variables;
-- captured mutable state требует concurrency discipline;
+- captured изменяемое состояние требует concurrency discipline;
 - object expression создаёт новый anonymous instance при каждом выполнении;
 - anonymous type не должен выходить как public model;
 - object expression подходит multi-method listener/adapter;
-- SAM lambda проще для одного abstract method;
+- SAM лямбда проще для одного abstract method;
 - выбирай минимальную форму, не захватывающую лишнее состояние.
 

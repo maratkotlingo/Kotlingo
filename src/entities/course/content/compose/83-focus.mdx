@@ -1,8 +1,8 @@
 ---
-title: "Focus"
+title: "Фокус"
 description: "Разбираем focus в Jetpack Compose: focusable, FocusRequester, focusRequester, requestFocus, captureFocus, freeFocus, focusProperties, focus order, focusGroup, onFocusChanged, LocalFocusManager, TV, ChromeOS и keyboard-first UI."
 order: 83
-category: "Compose: Input, gestures, focus and accessibility"
+category: "Compose: ввод, жесты, фокус и доступность"
 difficulty: "Продвинутый"
 ---
 
@@ -159,7 +159,7 @@ fun RequestFocusForm() {
 }
 ```
 
-`requestFocus()` вызывайте из event handler, side effect или coroutine, но не напрямую в body composable.
+`requestFocus()` вызывайте из event handler, побочный эффект или coroutine, но не напрямую в body composable.
 
 <MouseTrap>
 Не вызывайте `requestFocus()` прямо во время composition. При recomposition запрос повторится, и пользователь может потерять контроль над фокусом.
@@ -330,7 +330,7 @@ fun CustomTabOrder(
 }
 ```
 
-Custom order должен соответствовать визуальной и смысловой структуре. Не используйте его, чтобы скрыть хаос layout.
+Пользовательский order должен соответствовать визуальной и смысловой структуре. Не используйте его, чтобы скрыть хаос layout.
 
 ## Two-dimensional focus
 
@@ -516,7 +516,7 @@ fun CapturingEmailField() {
 
 ## Реакция на focus event
 
-`onFocusEvent` дает более детальный state и может быть удобен для analytics или custom indication.
+`onFocusEvent` дает более детальный state и может быть удобен для аналитика или пользовательский indication.
 
 ```kotlin
 import androidx.compose.foundation.border
@@ -612,7 +612,7 @@ fun EscapeClosableScreen(
 - D-pad arrows не уводят focus в неожиданные области;
 - disabled элементы не получают focus;
 - scroll container прокручивает focused item в видимую область;
-- dialogs trap focus внутри себя;
+- диалогах trap focus внутри себя;
 - shortcuts имеют альтернативу в UI;
 - focus не прыгает при recomposition.
 
@@ -628,9 +628,9 @@ fun EscapeClosableScreen(
 
 ### Запрос focus в composition
 
-Запрашивайте focus из event handler или side effect.
+Запрашивайте focus из event handler или побочный эффект.
 
-### Custom traversal без необходимости
+### Пользовательский traversal без необходимости
 
 Если default order работает, не усложняйте `focusProperties`.
 

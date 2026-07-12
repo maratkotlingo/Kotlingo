@@ -1,8 +1,8 @@
 ---
-title: "API Design In Kotlin"
-description: "API design in Kotlin: nullability as contract, sealed results, immutability by default, extension API boundaries, binary compatibility, explicit API mode, naming и evolution-friendly design."
+title: "Дизайн API в Kotlin"
+description: "API design in Kotlin: nullability as contract, sealed results, immutability по умолчанию, extension API boundaries, binary compatibility, explicit API mode, naming и evolution-friendly design."
 order: 102
-category: "Architecture"
+category: "Архитектура"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## API — это обещание
 
-API is any boundary used by other code:
+API — это любая граница, используемая другим кодом:
 
 - public library classes;
 - module interfaces;
@@ -23,7 +23,7 @@ API is any boundary used by other code:
 - Java-facing Kotlin classes;
 - multiplatform common declarations.
 
-Good Kotlin API makes invalid states harder to express and expected states easy to handle.
+Хороший Kotlin API усложняет выражение недопустимых состояний и упрощает обработку ожидаемых состояний.
 
 ```kotlin
 class LessonService {
@@ -52,12 +52,12 @@ data class Lesson(
 ```
 
 <CatTip>
-Хороший Kotlin API похож на аккуратную кошачью дверцу: внутрь проходят только допустимые значения, а caller сразу понимает, что может случиться.
+Хороший Kotlin API похож на аккуратную кошачью дверцу: внутрь проходят только допустимые значения, а вызывающий код сразу понимает, что может случиться.
 </CatTip>
 
-## Nullability as contract
+## Обнуляемость как контракт
 
-In Kotlin, nullability is part of type system and API contract.
+В Котлине возможность обнуления является частью системы типов и контракта API.
 
 ```kotlin
 interface LessonRepository {
@@ -67,12 +67,12 @@ interface LessonRepository {
 }
 ```
 
-Here:
+Здесь:
 
-- `find` says absence is normal;
-- `get` says absence is exceptional.
+- `find` говорит, что отсутствие — это нормально;
+- `get` говорит, что отсутствие является исключительным.
 
-Implementation:
+Реализация:
 
 ```kotlin
 class InMemoryLessonRepository(
@@ -94,15 +94,15 @@ class LessonNotFoundException(
 ) : RuntimeException("Урок не найден: ${slug.value}")
 ```
 
-Avoid nullable return when absence is not part of business model. Avoid exception when absence is a common branch.
+Избегайте возврата с нулевым значением, когда отсутствие не является частью бизнес-модели. Избегайте исключений, когда отсутствие является общей ветвью.
 
 <MouseTrap>
-`String?` is not documentation. If null has meaning, name method and type so that caller knows whether null means «not found», «not loaded», «not allowed» or «unknown».
+`String?` — это не документация. Если `null` имеет смысл, назови метод и тип так, чтобы вызывающий код понимал: `null` означает «не найдено», «не загружено», «не разрешено» или «неизвестно».
 </MouseTrap>
 
-## Do not return nullable collections
+## Не возвращать коллекции, допускающие значение NULL
 
-Prefer empty collection over nullable collection.
+Предпочитайте пустую коллекцию коллекции, допускающей значение NULL.
 
 ```kotlin
 interface RecommendationService {
@@ -110,7 +110,7 @@ interface RecommendationService {
 }
 ```
 
-Bad:
+Плохо:
 
 ```kotlin
 interface BadRecommendationService {
@@ -118,7 +118,7 @@ interface BadRecommendationService {
 }
 ```
 
-If there is a difference between not loaded and loaded empty, model it explicitly.
+Если есть разница между «не загружено» и «загружено пусто», смоделируйте ее явно.
 
 ```kotlin
 sealed interface RecommendationState {
@@ -134,9 +134,9 @@ sealed interface RecommendationState {
 }
 ```
 
-## Sealed results
+## Результаты на sealed-типах
 
-Use sealed result types when caller must handle several domain outcomes.
+Используй sealed-типы результата, когда вызывающий код должен обработать несколько доменных исходов.
 
 ```kotlin
 sealed interface OpenLessonResult {
@@ -193,11 +193,11 @@ fun render(result: OpenLessonResult): String {
 }
 ```
 
-Sealed result makes branching exhaustive.
+Запечатанный результат делает ветвление исчерпывающим.
 
 ## `Result`
 
-Kotlin `Result` is useful for generic success/failure pipelines, but domain-specific sealed type is often clearer.
+Kotlin `Result` полезен для общих конвейеров успеха/неудачи, но запечатанный тип для конкретного домена часто более понятен.
 
 ```kotlin
 suspend fun loadTitle(slug: LessonSlug): Result<String> {
@@ -207,22 +207,22 @@ suspend fun loadTitle(slug: LessonSlug): Result<String> {
 }
 ```
 
-Use `Result` when:
+Используй `Result`, когда:
 
-- failure is technical and generic;
-- you are composing operations;
-- caller will map/recover/log generically.
+- отказ носит технический и родовой характер;
+- вы составляете операции;
+- вызывающий код will map/recover/log generically.
 
-Use sealed type when:
+Используйте герметичный тип, когда:
 
-- outcomes are business states;
-- UI needs distinct handling;
-- result is part of public domain API;
-- you want exhaustive `when` with named cases.
+- результаты – бизнес-состояния;
+- Пользовательский интерфейс требует отдельной обработки;
+- результат является частью общедоступного API;
+- вам нужен исчерпывающий `when` с именованными случаями.
 
-## Immutability by default
+## Immutability по умолчанию
 
-Prefer immutable data and read-only collections in public API.
+Предпочитай неизменяемые данные и read-only коллекции в публичном API.
 
 ```kotlin
 data class Course(
@@ -231,7 +231,7 @@ data class Course(
 )
 ```
 
-Avoid exposing mutable collections:
+Избегайте раскрытия изменяемых коллекций:
 
 ```kotlin
 class BadCourse {
@@ -259,11 +259,11 @@ class CourseBuilder {
 }
 ```
 
-Read-only `List` does not guarantee deep immutability, but it prevents caller from mutating through that API.
+Только для чтения `List` does not guarantee deep immutability, but it prevents вызывающий код from mutating through that API.
 
-## Value classes for concepts
+## Классы значений для концепций
 
-Use value classes to prevent primitive obsession.
+Используйте классы ценностей, чтобы предотвратить примитивную одержимость.
 
 ```kotlin
 @JvmInline
@@ -285,7 +285,7 @@ value class Percent(
 }
 ```
 
-Without value classes, API can mix two strings by accident.
+Без классов значений API может случайно смешать две строки.
 
 ```kotlin
 fun markCompleted(userId: UserId, slug: LessonSlug) {
@@ -295,7 +295,7 @@ fun markCompleted(userId: UserId, slug: LessonSlug) {
 
 ## Extension API boundaries
 
-Extension functions are static functions with receiver syntax. They do not really add members to a class.
+Функции расширения — это статические функции с синтаксисом получателя. На самом деле они не добавляют членов в класс.
 
 Good extension:
 
@@ -317,37 +317,37 @@ fun LessonRepository.deleteEverything() {
 }
 ```
 
-Use extensions for:
+Используйте расширения для:
 
 - formatting;
 - mapping;
 - small domain conversions;
 - convenience around stable types;
-- DSL-like APIs where discoverability is desired.
+- DSL-подобные API, для которых требуется возможность обнаружения.
 
-Avoid extensions for:
+Избегайте расширений для:
 
 - operations requiring hidden dependencies;
-- side effects that look harmless;
+- побочные эффекты that look harmless;
 - overriding-like behavior;
-- public API where Java callers are primary users.
+- общедоступный API, где вызывающие абоненты Java являются основными пользователями.
 
 ## Binary compatibility
 
-For published JVM libraries, source-compatible change can still be binary-breaking.
+Для опубликованных библиотек JVM изменения, совместимые с исходным кодом, все равно могут привести к нарушению двоичного кода.
 
 Risky changes:
 
 - removing public class/function/property;
-- changing function signature;
-- changing return type;
-- changing constructor parameters;
-- adding abstract member to interface;
-- changing data class primary constructor;
-- changing inline public function body that references internal details incorrectly;
+- изменение сигнатуры функции;
+- изменение типа возврата;
+- изменение параметров конструктора;
+- добавление абстрактного члена в интерфейс;
+- изменение первичного конструктора класса данных;
+- изменение тела встроенной публичной функции, которое неправильно ссылается на внутренние детали;
 - moving declarations between packages.
 
-Use explicit API mode:
+Используйте явный режим API:
 
 ```kotlin
 kotlin {
@@ -355,7 +355,7 @@ kotlin {
 }
 ```
 
-Then public declarations need explicit visibility and return types.
+Тогда публичные объявления нуждаются в явной видимости и возвращаемых типах.
 
 ```kotlin
 public class LessonApi {
@@ -366,12 +366,12 @@ public class LessonApi {
 ```
 
 <CatTip>
-For library APIs, explicit return types are like таблички на кошачьих дверцах: caller and compiler see exactly what contract is promised.
+For library APIs, explicit return types are like таблички на кошачьих дверцах: вызывающий код and compiler see exactly what contract is promised.
 </CatTip>
 
 ## Java-facing API
 
-If Java users consume Kotlin API, design for Java too.
+Если пользователи Java используют Kotlin API, проектируйте и для Java.
 
 ```kotlin
 class LessonFacade(
@@ -392,27 +392,26 @@ class LessonService {
 
 Consider:
 
-- `@JvmOverloads` for default parameters;
-- `@JvmStatic` for companion functions used from Java;
-- `@JvmName` for overload/name collisions;
-- `@Throws` for checked exception expectations;
-- avoiding Kotlin-only types in Java-heavy APIs.
+- `@JvmOverloads` для параметров по умолчанию;
+- `@JvmStatic` для сопутствующих функций, используемых из Java;
+- `@JvmName` для перегрузки и конфликтов имен;
+- `@Throws` для проверенных ожиданий исключений;
+- избегать типов, предназначенных только для Kotlin, в API-интерфейсах с большим количеством Java.
 
-## Production checklist
+## Проверочный список для боевого кода
 
-For Kotlin API design:
+Для проектирования API Kotlin:
 
-- nullability communicates real contract;
-- collections are empty, not nullable, unless state needs explicit modeling;
-- domain outcomes use sealed types;
-- public data is immutable by default;
-- value classes protect domain concepts;
-- extension functions do not hide dangerous side effects;
-- public APIs have explicit return types;
-- Java-facing APIs are tested from Java when Java consumers matter;
-- binary compatibility is checked before publishing.
+- допустимость `null` отражает реальный контракт;
+- коллекции пусты и не могут иметь значение NULL, если только состояние не требует явного моделирования;
+- результаты домена используют запечатанные типы;
+- публичные данные по умолчанию неизменяемы;
+- value-классы защищают доменные понятия;
+- функции-расширения не скрывают опасные побочные эффекты;
+- публичные API имеют явные типы возвращаемых значений;
+- API-интерфейсы, ориентированные на Java, тестируются на Java, когда потребители Java имеют значение;
+- перед публикацией проверяется бинарная совместимость.
 
 <MouseTrap>
-API design debt is expensive because callers build habits around it. A confusing nullable, mutable or over-public API becomes architecture by accident.
+Задолженность по разработке API обходится дорого, потому что вызывающие абоненты формируют вокруг нее привычки. Сбивающий с толку нулевой, изменяемый или общедоступный API случайно становится архитектурой.
 </MouseTrap>
-

@@ -202,7 +202,7 @@ fun main() {
 
 Статический тип variable — `Content`, runtime type — `Quiz`, поэтому вызывается `Quiz.kind`.
 
-Это отличается от extension functions и overload resolution, которые выбираются статически.
+Это отличается от extension functions и перегрузка resolution, которые выбираются статически.
 
 ## Override properties
 
@@ -289,7 +289,7 @@ class UnsafeLesson : UnsafeContent() {
 }
 ```
 
-Во время base `init` property `title` ещё не получила initializer. Результат зависит от platform/default state и может нарушить non-null assumptions.
+Во время base `init` property `title` ещё не получила initializer. Результат зависит от platform/состояние по умолчанию и может нарушить non-null assumptions.
 
 Правило: constructors, property initializers и `init` base class не должны обращаться к open members.
 
@@ -415,7 +415,7 @@ fun main() {
 }
 ```
 
-Сначала compile-time overload resolution выбирает signature. Затем runtime override dispatch применяется только к выбранной open signature.
+Сначала compile-time перегрузка resolution выбирает signature. Затем runtime override dispatch применяется только к выбранной open signature.
 
 ## Covariant return type
 
@@ -662,7 +662,7 @@ Design decisions:
 - open members нельзя безопасно вызывать из constructors/init;
 - abstract class объединяет state, concrete behavior и abstract requirements;
 - `final override` закрывает дальнейшее переопределение;
-- overload выбирается compile time, override — runtime;
+- перегрузка выбирается compile time, override — runtime;
 - subclass обязан соблюдать substitutability base contract;
 - inheritance выражает is-a, composition лучше простого code reuse;
 - sealed hierarchy подходит контролируемому набору вариантов.

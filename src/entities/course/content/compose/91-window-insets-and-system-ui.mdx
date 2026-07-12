@@ -1,8 +1,8 @@
 ---
-title: "Window, insets and system UI"
+title: "Окно, insets и системный UI"
 description: "Разбираем окно, edge-to-edge и system UI в Jetpack Compose: enableEdgeToEdge, WindowInsets, systemBars, statusBars, navigationBars, imePadding, display cutouts, Scaffold contentWindowInsets, caption bar, foldables posture и типичные migration pitfalls."
 order: 91
-category: "Compose: Interoperability and migration"
+category: "Compose: интероперабельность и миграция"
 difficulty: "Продвинутый"
 ---
 
@@ -11,14 +11,14 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Почему insets стали обязательной темой
 
-Современное Android-приложение не живет в аккуратном прямоугольнике ниже status bar и выше navigation bar. Экран может быть edge-to-edge, клавиатура может появляться поверх content, device может иметь cutout, gesture navigation оставляет system gesture zones, tablet может перейти в desktop windowing, а foldable может разделить окно hinge-областью.
+Современное Android-приложение не живет в аккуратном прямоугольнике ниже строка состояния и выше панель навигации. Экран может быть edge-to-edge, клавиатура может появляться поверх content, device может иметь cutout, gesture navigation оставляет system gesture zones, tablet может перейти в desktop windowing, а foldable может разделить окно hinge-областью.
 
 Insets отвечают на вопрос: какие части окна заняты или потенциально перекрываются системным UI.
 
 К системному UI относятся:
 
-- status bar;
-- navigation bar;
+- строка состояния;
+- панель навигации;
 - caption bar в desktop windowing;
 - IME, то есть экранная клавиатура;
 - display cutout;
@@ -27,7 +27,7 @@ Insets отвечают на вопрос: какие части окна зан
 - hinge/folding feature, если используется WindowManager;
 - safe drawing и safe content области.
 
-В Android 15 edge-to-edge становится особенно важным, потому что приложения, target SDK которых дошел до актуального уровня, должны корректно работать с контентом под system bars.
+В Android 15 edge-to-edge становится особенно важным, потому что приложения, target SDK которых дошел до актуального уровня, должны корректно работать с контентом под системные панели.
 
 ```kotlin
 import android.os.Bundle
@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
 }
 ```
 
-`enableEdgeToEdge()` настраивает окно так, чтобы приложение могло рисовать за system bars. После этого уже UI обязан не прятать важные controls под status/navigation bar.
+`enableEdgeToEdge()` настраивает окно так, чтобы приложение могло рисовать за системные панели. После этого уже UI обязан не прятать важные controls под status/панель навигации.
 
 <CatTip>
 Edge-to-edge не означает "все рисуем под системными панелями и надеемся". Это означает: фон может продолжаться до краев, а важный контент и touch targets учитывают insets.
@@ -94,11 +94,11 @@ fun SafeDrawingScreen() {
 }
 ```
 
-`safeDrawingPadding()` добавляет padding для области, где безопасно рисовать важный UI. Но это не всегда правильный ответ для всего экрана: hero image или фон часто должны идти под system bars.
+`safeDrawingPadding()` добавляет padding для области, где безопасно рисовать важный UI. Но это не всегда правильный ответ для всего экрана: hero image или фон часто должны идти под системные панели.
 
 ## Фон до краев, контент в безопасной области
 
-Обычный production pattern: background full-bleed, content protected.
+Обычный боевой pattern: background full-bleed, content protected.
 
 ```kotlin
 import androidx.compose.foundation.background
@@ -141,9 +141,9 @@ fun EdgeToEdgeProfileScreen(
 }
 ```
 
-Так экран использует всю площадь окна визуально, но не кладет кнопку под navigation bar.
+Так экран использует всю площадь окна визуально, но не кладет кнопку под панель навигации.
 
-## Status bar и navigation bar padding
+## Status bar и панель навигации padding
 
 Если нужно учитывать только конкретную панель, используйте специализированные modifiers:
 
@@ -171,7 +171,7 @@ fun SystemBarsPaddingExample() {
 }
 ```
 
-Эти modifiers удобны для отдельных surfaces: top app bar, bottom bar, floating action area.
+Эти modifiers удобны для отдельных surfaces: top app bar, bottom bar, плавающее действие area.
 
 ## `Scaffold` и insets
 
@@ -217,7 +217,7 @@ fun LessonsScaffold(
 }
 ```
 
-Если забыть `Modifier.padding(innerPadding)`, content может оказаться под app bar или system bars.
+Если забыть `Modifier.padding(innerPadding)`, content может оказаться под app bar или системные панели.
 
 <MouseTrap>
 `Scaffold` не телепортирует контент в безопасное место. Он передает `innerPadding`, а вы обязаны применить его к нужному контейнеру.
@@ -225,7 +225,7 @@ fun LessonsScaffold(
 
 ## Когда переопределять `contentWindowInsets`
 
-Иногда экран сам управляет insets. Например, full-screen media screen хочет рисовать за system bars, но controls защищать вручную.
+Иногда экран сам управляет insets. Например, full-screen media screen хочет рисовать за системные панели, но controls защищать вручную.
 
 ```kotlin
 import androidx.compose.foundation.layout.Box
@@ -390,7 +390,7 @@ fun BottomControlsSurface(
 }
 ```
 
-Так bottom controls защищаются от navigation bar и horizontal safe areas, но не получают лишний top padding.
+Так bottom controls защищаются от панель навигации и horizontal safe areas, но не получают лишний top padding.
 
 ## Display cutouts
 
@@ -452,7 +452,7 @@ class MainActivity : ComponentActivity() {
 }
 ```
 
-В большинстве приложений достаточно default behavior. Ручная настройка нужна, если фон под system bars нестандартный и контраст иконок становится плохим.
+В большинстве приложений достаточно поведение по умолчанию. Ручная настройка нужна, если фон под системные панели нестандартный и контраст иконок становится плохим.
 
 ## Caption bar в desktop windowing
 
@@ -580,13 +580,13 @@ class InsetsContentTest {
 }
 ```
 
-Этот тест не доказывает, что кнопка не под navigation bar. Для этого нужны screenshot checks или visual inspection на разных window configurations.
+Этот тест не доказывает, что кнопка не под панель навигации. Для этого нужны screenshot checks или visual inspection на разных window configurations.
 
 ## Типичные ошибки
 
 ### Включить edge-to-edge и не обработать insets
 
-Контент может оказаться под status/navigation bar, особенно на Android 15+.
+Контент может оказаться под status/панель навигации, особенно на Android 15+.
 
 ### Применять `safeDrawingPadding` ко всему экрану
 
@@ -596,7 +596,7 @@ class InsetsContentTest {
 
 Список уходит под app bar или bottom bar.
 
-### Дважды применить navigation bar padding
+### Дважды применить панель навигации padding
 
 Низ экрана получает огромную пустую область.
 
@@ -604,13 +604,13 @@ class InsetsContentTest {
 
 IME insets могут не доходить до Compose так, как ожидается.
 
-### Хардкодить status bar height
+### Хардкодить строка состояния height
 
 System UI отличается между устройствами, режимами и form factors.
 
 ### Игнорировать caption bar
 
-В desktop windowing top controls могут перекрыть custom toolbar.
+В desktop windowing top controls могут перекрыть пользовательский toolbar.
 
 ## Итоги
 

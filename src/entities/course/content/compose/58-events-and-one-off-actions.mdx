@@ -1,8 +1,8 @@
 ---
-title: "Events and one-off actions"
-description: "Разбираем события и одноразовые действия в Compose: user events, UI events, UDF, callbacks, snackbar, navigation events, LaunchedEffect, state-driven effects, SharedFlow, Channel и почему SingleLiveEvent не нужен."
+title: "События и одноразовые действия"
+description: "Разбираем события и одноразовые действия в Compose: user events, UI events, UDF, обратные вызовы, snackbar, navigation events, LaunchedEffect, state-driven effects, SharedFlow, Channel и почему SingleLiveEvent не нужен."
 order: 58
-category: "Compose: Navigation and architecture"
+category: "Compose: навигация и архитектура"
 difficulty: "Продвинутый"
 ---
 
@@ -19,7 +19,7 @@ State и event — разные вещи:
 - event происходит в конкретный момент и может изменить state;
 - UI читает state;
 - UI отправляет events владельцу state;
-- ViewModel или другой state holder обрабатывает event и производит новый state.
+- ViewModel или другой держатель состояния обрабатывает event и производит новый state.
 
 ```kotlin
 import androidx.compose.runtime.Immutable
@@ -52,10 +52,10 @@ sealed interface LoginEvent {
 
 В Compose UI обычно строится по UDF:
 
-- ViewModel отдает immutable state вниз;
+- ViewModel отдает неизменяемое состояние вниз;
 - composable отображает state;
 - пользователь взаимодействует с UI;
-- composable вызывает callback;
+- composable вызывает обратный вызов;
 - ViewModel обрабатывает event;
 - ViewModel публикует новый state.
 
@@ -242,12 +242,12 @@ class LoginUseCase {
 `LoginViewModel` не знает, какой screen покажет ошибку и куда приложение перейдет после входа. Он только сообщает state: есть ошибка или login завершен.
 
 <MouseTrap>
-Не запускайте login прямо из `Button(onClick = { scope.launch { repository.login() } })` внутри screen. Если операция является бизнес-действием, отдайте ее ViewModel или use case. UI должен быть тонким.
+Не запускайте login прямо из `Button(onClick = { scope.launch { repository.login() } })` внутри screen. Если операция является бизнес-действием, отдайте ее ViewModel или сценарий использования. UI должен быть тонким.
 </MouseTrap>
 
 ## Navigation events
 
-Навигация является UI behavior logic. Если пользователь нажал кнопку "Открыть помощь", route или caller может сразу выполнить navigation callback. Если сначала нужна бизнес-валидация, ViewModel обновляет state, а UI реагирует.
+Навигация является UI behavior logic. Если пользователь нажал кнопку "Открыть помощь", route или вызывающий код может сразу выполнить navigation обратный вызов. Если сначала нужна бизнес-валидация, ViewModel обновляет state, а UI реагирует.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -490,7 +490,7 @@ fun ExpandableHelpBlock() {
 
 ## SharedFlow для UI effects
 
-Иногда state-driven подход неудобен: например, нужно один раз запросить focus, прокрутить список к позиции или проиграть короткий haptic feedback. Для таких UI effects можно использовать `SharedFlow`, но важно понимать tradeoff: effect, отправленный пока UI не собирает flow, может быть потерян, если вы так настроили buffer.
+Иногда state-driven подход неудобен: например, нужно один раз запросить focus, прокрутить список к позиции или проиграть короткий тактильный отклик. Для таких UI effects можно использовать `SharedFlow`, но важно понимать tradeoff: effect, отправленный пока UI не собирает flow, может быть потерян, если вы так настроили buffer.
 
 ```kotlin
 import androidx.lifecycle.ViewModel
@@ -554,7 +554,7 @@ fun EditorEffects(
 }
 ```
 
-`SharedFlow` хорошо подходит для process-local UI effects, которые не являются обязательной частью screen state. Для user-facing сообщений, которые нельзя потерять, чаще выбирайте state.
+`SharedFlow` хорошо подходит для process-local UI effects, которые не являются обязательной частью состояние экрана. Для user-facing сообщений, которые нельзя потерять, чаще выбирайте state.
 
 ## Channel
 
@@ -589,7 +589,7 @@ class PaymentViewModel : ViewModel() {
 }
 ```
 
-Не используйте `Channel` как универсальную замену UI state. Если UI должен отображать факт "ошибка есть", этот факт должен быть в state.
+Не используйте `Channel` как универсальную замену UI-состояние. Если UI должен отображать факт "ошибка есть", этот факт должен быть в state.
 
 ## Почему не SingleLiveEvent
 
@@ -599,15 +599,15 @@ class PaymentViewModel : ViewModel() {
 - coroutine Flow дает `StateFlow`, `SharedFlow` и `Channel`;
 - lifecycle-aware collection решает проблему активности UI;
 - state-driven effects делают одноразовые сообщения восстановимыми;
-- callback-based events хорошо подходят для user actions.
+- обратный вызов-based events хорошо подходят для user actions.
 
 `SingleLiveEvent` часто скрывает проблему модели: событие на самом деле является state, но его пытаются доставить как одноразовый сигнал.
 
 <MouseTrap>
-Не добавляйте event wrapper с флагом `hasBeenHandled` в UI state. Такой wrapper смешивает данные и историю потребления, плохо масштабируется на несколько consumers и делает тесты хрупкими.
+Не добавляйте event wrapper с флагом `hasBeenHandled` в UI-состояние. Такой wrapper смешивает данные и историю потребления, плохо масштабируется на несколько consumers и делает тесты хрупкими.
 </MouseTrap>
 
-## Production-пример: удаление статьи
+## Боевой-пример: удаление статьи
 
 Соберем пример, где пользователь удаляет статью, видит snackbar с Undo, а ViewModel хранит состояние честно.
 
@@ -779,7 +779,7 @@ ViewModel не должен хранить `NavController`. Он может expo
 
 ### Обрабатывать бизнес-события в screen
 
-Screen должен сообщать о событии, а не решать, как обновлять database или network.
+Screen должен сообщать о событии, а не решать, как обновлять база данных или network.
 
 ### Прятать event handling в глубокой карточке
 
@@ -791,11 +791,11 @@ Events и one-off actions в Compose лучше строить явно:
 
 - state описывает текущий UI;
 - event описывает действие во времени;
-- пользовательские events поднимаются через callbacks;
+- пользовательские events поднимаются через обратные вызовы;
 - ViewModel обрабатывает events с бизнес-логикой;
 - локальная UI logic может оставаться в composable;
-- snackbar и user messages надежнее моделировать как state с consumption callback;
-- navigation выполняется route/caller-слоем, а не ViewModel;
+- snackbar и user messages надежнее моделировать как state с consumption обратный вызов;
+- navigation выполняется route/вызывающий код-слоем, а не ViewModel;
 - `LaunchedEffect` подходит для реакции UI на state-driven effects;
 - `SharedFlow` и `Channel` полезны для узких process-local UI effects;
 - `SingleLiveEvent` и event wrapper с `hasBeenHandled` обычно не нужны.

@@ -1,8 +1,8 @@
 ---
-title: "Coroutine Testing"
+title: "Тестирование корутин"
 description: "Тестирование coroutines: kotlinx-coroutines-test, runTest, TestScope, StandardTestDispatcher, UnconfinedTestDispatcher, virtual time, testing Flow, Main dispatcher и flaky tests."
 order: 89
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -95,12 +95,12 @@ class ConcurrentLoaderTest {
 
 Важные свойства:
 
-- test body is suspending;
-- `delay` controlled by test scheduler;
-- child failures are reported at test end;
-- test waits for structured children;
-- uncompleted coroutines can cause failure;
-- timeout protects test from hanging forever.
+- тестовый орган приостанавливается;
+- `delay` контролируется планировщиком тестов;
+- о дочерних сбоях сообщается в конце теста;
+- тестовые ожидания для структурированных детей;
+- незавершенные сопрограммы могут привести к сбою;
+- таймаут защищает тест от зависания навсегда.
 
 <MouseTrap>
 Не используй `runBlocking` для тестов coroutine timing. Он блокирует thread and waits real time. Для coroutine code почти всегда нужен `runTest`.
@@ -177,7 +177,7 @@ class AdvanceUntilIdleTest {
 
 ## `StandardTestDispatcher`
 
-`StandardTestDispatcher` queues work until scheduler runs it.
+Очереди `StandardTestDispatcher` работают до тех пор, пока их не запустит планировщик.
 
 Он хорош для deterministic tests, где ты явно управляешь execution.
 
@@ -223,7 +223,7 @@ class LessonPresenter(
 }
 ```
 
-В `runTest` default dispatcher is test-controlled. Для injected dispatchers важно использовать тот же scheduler.
+В `runTest` диспетчер по умолчанию is test-controlled. Для injected dispatchers важно использовать тот же scheduler.
 
 ```kotlin
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -254,7 +254,7 @@ class LessonTimingService(
 
 ## `UnconfinedTestDispatcher`
 
-`UnconfinedTestDispatcher` starts tasks eagerly on current call stack, while still using test scheduler for time.
+`UnconfinedTestDispatcher` активно запускает задачи в текущем стеке вызовов, продолжая при этом использовать планировщик тестов для определения времени.
 
 ```kotlin
 import kotlinx.coroutines.CoroutineScope
@@ -280,13 +280,13 @@ class UnconfinedDispatcherTest {
 }
 ```
 
-Use cases:
+Сценарии использования:
 
 - simple state tests;
 - ViewModel-like tests where immediate start удобен;
-- tests without precise scheduling assertions.
+- тесты без утверждений точного планирования.
 
-Do not use it when order/scheduling itself is the behavior under test.
+Не используйте его, если тестируется сам порядок/планирование.
 
 ## Inject dispatchers
 
@@ -514,8 +514,8 @@ Flaky coroutine tests появляются из-за:
 - unstructured background work;
 - hidden `GlobalScope`;
 - hardcoded `Dispatchers.IO`;
-- assertions before queued work ran;
-- infinite flows without `take`;
+- утверждения перед выполнением поставленной в очередь работы;
+- бесконечные потоки без `take`;
 - swallowed `CancellationException`;
 - leaked child coroutines.
 
@@ -572,7 +572,7 @@ class StableTest {
 }
 ```
 
-## Production pattern: testable use case
+## Боевой pattern: testable сценарий использования
 
 ```kotlin
 import kotlinx.coroutines.CoroutineDispatcher

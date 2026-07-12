@@ -1,8 +1,8 @@
 ---
-title: "DSL Markers"
+title: "DSL-маркеры"
 description: "DSL markers в Kotlin: @DslMarker, scope leakage, implicit receivers, nearest receiver rule, AnnotationTarget.CLASS, TYPE и TYPEALIAS, explicit this labels, HTML-style DSL и безопасные nested builders."
 order: 68
-category: "DSL, аннотации и metaprogramming"
+category: "DSL, аннотации и метапрограммирование"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Проблема: слишком много implicit receivers
 
-В nested DSL внутри lambda with receiver может быть доступно несколько receivers сразу.
+В nested DSL внутри лямбда with receiver может быть доступно несколько receivers сразу.
 
 ```kotlin
 course {
@@ -353,7 +353,7 @@ class WhereBuilder : QueryScope {
 
 Это удобно, если hierarchy не имеет общего abstract class.
 
-## Production-пример: безопасный DSL для курса
+## Боевой-пример: безопасный DSL для курса
 
 ```kotlin
 @DslMarker

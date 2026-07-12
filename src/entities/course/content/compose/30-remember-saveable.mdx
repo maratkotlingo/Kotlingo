@@ -1,8 +1,8 @@
 ---
-title: "rememberSaveable, Saver and Saved UI State"
+title: "rememberSaveable, Saver и сохраненное UI-состояние"
 description: "Изучаем rememberSaveable в Jetpack Compose: сохранение через Bundle, inputs, Saver, listSaver, mapSaver, TextFieldValue.Saver, LazyListState.Saver, SaveableStateHolder, ограничения размера и тестирование восстановления."
 order: 30
-category: "Compose: State, recomposition и архитектура"
+category: "Compose: состояние, recomposition и архитектура"
 difficulty: "Средний"
 ---
 
@@ -55,7 +55,7 @@ fun SearchInput() {
 - поле продолжит показывать введенный текст.
 
 <CatTip>
-`rememberSaveable` нужен для небольшого UI element state: текст ввода, выбранная вкладка, позиция списка, раскрытая секция, выбранный id. Для больших моделей используйте ViewModel, repository и persistent storage.
+`rememberSaveable` нужен для небольшого UI element state: текст ввода, выбранная вкладка, позиция списка, раскрытая секция, выбранный id. Для больших моделей используйте ViewModel, репозиторий и persistent storage.
 </CatTip>
 
 ## Чем rememberSaveable отличается от remember
@@ -130,12 +130,12 @@ fun LifespanComparison() {
 
 - большие списки моделей;
 - bitmap;
-- repository;
-- database entity с тяжелыми связями;
+- репозиторий;
+- база данных entity с тяжелыми связями;
 - `Context`;
 - coroutine scope;
 - open file handle;
-- network client;
+- сетевой клиент;
 - объекты, которые должны быть восстановлены из data layer.
 
 <MouseTrap>
@@ -248,7 +248,7 @@ fun PriceFilterEditor() {
 }
 ```
 
-`Saver` должен сохранять только те данные, которых достаточно для восстановления UI state.
+`Saver` должен сохранять только те данные, которых достаточно для восстановления UI-состояние.
 
 ## listSaver
 
@@ -365,7 +365,7 @@ val TagSelectionSaver = Saver<TagSelection, List<String>>(
 )
 ```
 
-В большинстве приложений достаточно сохранять примитивы и строки. `canBeSaved` полезен для reusable-компонентов и библиотек, которые не знают заранее, какой registry будет в окружении.
+В большинстве приложений достаточно сохранять примитивы и строки. `canBeSaved` полезен для переиспользуемый-компонентов и библиотек, которые не знают заранее, какой registry будет в окружении.
 
 ## TextFieldValue.Saver
 
@@ -440,7 +440,7 @@ fun SavedScrollList(
 
 ## SaveableStateHolder
 
-`SaveableStateHolder` сохраняет saveable state для контента, который временно удаляется из composition. Это полезно для вкладок, custom navigation и master-detail UI.
+`SaveableStateHolder` сохраняет saveable state для контента, который временно удаляется из composition. Это полезно для вкладок, пользовательский navigation и master-detail UI.
 
 ```kotlin
 import androidx.compose.foundation.layout.Column
@@ -577,13 +577,13 @@ fun ProductScreenCorrect(
 }
 ```
 
-По id можно заново загрузить product details из repository.
+По id можно заново загрузить product details из репозиторий.
 
 ## rememberSaveable и ViewModel
 
 `rememberSaveable` подходит для UI element state, который живет рядом с composable.
 
-`ViewModel` подходит для screen state и business logic.
+`ViewModel` подходит для состояние экрана и business logic.
 
 `SavedStateHandle` подходит для минимального состояния ViewModel, которое должно пережить process death.
 

@@ -1,8 +1,8 @@
 ---
 title: "Flow"
-description: "Kotlin Flow: cold streams, flow builder, emit, collect, terminal and intermediate operators, exception transparency, cancellation, backpressure conceptually и production-примеры."
+description: "Kotlin Flow: cold streams, flow builder, emit, collect, terminal and intermediate operators, exception transparency, cancellation, backpressure conceptually и примеры для боевого кода."
 order: 84
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -19,7 +19,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - events от UI;
 - изменения состояния;
 - stream строк из файла;
-- updates из database;
+- updates из база данных;
 - polling external service;
 - search suggestions;
 - notifications;
@@ -39,7 +39,7 @@ fun lessonProgress(): Flow<Int> = flow {
 }
 ```
 
-`Flow` is cold by default. Это значит: code внутри `flow { }` не запускается, пока кто-то не вызовет terminal operator вроде `collect`.
+`Flow` is cold по умолчанию. Это значит: code внутри `flow { }` не запускается, пока кто-то не вызовет terminal operator вроде `collect`.
 
 <CatTip>
 Cold flow похож на кошачий след в снегу, который появляется только когда кот реально пошел. Объявление flow само по себе еще ничего не выполняет.
@@ -177,7 +177,7 @@ Terminal operators:
 - `reduce` — свернуть values без начального accumulator;
 - `fold` — свернуть values с начальным accumulator;
 - `count` — посчитать values;
-- `launchIn` — collect in scope as job.
+- `launchIn` — собрать в объеме как задание.
 
 ```kotlin
 import kotlinx.coroutines.flow.count
@@ -206,7 +206,7 @@ fun terminalOperatorsExample() = runBlocking {
 Помни: для cold flow каждый terminal operator starts collection again.
 
 <MouseTrap>
-Если flow делает network request или expensive query, несколько terminal operators могут выполнить эту работу несколько раз. Сохраняй результат, используй один collection pipeline или превращай cold flow в shared/state flow там, где это действительно нужно.
+Если flow делает network request или expensive query, несколько terminal operators могут выполнить эту работу несколько раз. Сохраняй результат, используй один collection pipeline или превращай cold flow в общий/state flow там, где это действительно нужно.
 </MouseTrap>
 
 ## Intermediate operators
@@ -231,7 +231,7 @@ fun intermediateOperatorsExample() = runBlocking {
 
 До `toList` pipeline only describes work. После terminal operator он starts.
 
-## Sequential by default
+## Sequential по умолчанию
 
 По умолчанию flow operations sequential and execute in the same coroutine.
 
@@ -261,7 +261,7 @@ Concurrency появляется только через специальные 
 
 ## `flowOf` и `asFlow`
 
-`flowOf` creates flow from fixed values.
+`flowOf` создает поток из фиксированных значений.
 
 ```kotlin
 import kotlinx.coroutines.flow.flowOf
@@ -276,7 +276,7 @@ fun flowOfExample() = runBlocking {
 }
 ```
 
-`asFlow` converts Iterable, Sequence, array or range into flow.
+`asFlow` преобразует Iterable, Sequence, массив или диапазон в поток.
 
 ```kotlin
 import kotlinx.coroutines.flow.asFlow
@@ -325,7 +325,7 @@ fun flowCancellationExample() = runBlocking {
 }
 ```
 
-`flow { }` checks cancellation on emission. For CPU-heavy loops use `ensureActive`, `yield` or `cancellable`.
+`flow { }` проверяет отмену эмиссии. Для циклов с интенсивным использованием процессора используйте `ensureActive`, `yield` или `cancellable`.
 
 ```kotlin
 import kotlinx.coroutines.currentCoroutineContext
@@ -348,11 +348,11 @@ fun tokenizeAsFlow(text: String): Flow<String> = flow {
 
 Flow follows exception transparency:
 
-- upstream exceptions can be handled by `catch`;
-- downstream exceptions are not swallowed by upstream `catch`;
-- `emit` after downstream failure is not allowed;
-- `CancellationException` should not be converted into data accidentally;
-- `onCompletion` is declarative replacement for `finally`-like observation.
+- Исключения восходящего потока могут обрабатываться с помощью `catch`;
+- нисходящие исключения не поглощаются восходящим `catch`;
+- `emit` после сбоя в нисходящем направлении не допускается;
+- `CancellationException` не должен случайно конвертироваться в данные;
+- `onCompletion` — декларативная замена наблюдения, подобного `finally`.
 
 ```kotlin
 import kotlinx.coroutines.flow.catch
@@ -402,7 +402,7 @@ fun downstreamExceptionExample() = runBlocking {
 
 ## Backpressure conceptually
 
-Backpressure — ситуация, когда producer быстрее consumer-а. Flow by default suspends producer until consumer is ready.
+Backpressure — ситуация, когда producer быстрее consumer-а. Flow по умолчанию suspends producer until consumer is ready.
 
 ```kotlin
 import kotlinx.coroutines.delay
@@ -425,7 +425,7 @@ fun backpressureExample() = runBlocking {
 
 Без `buffer` следующий `emit` обычно не продолжит pipeline, пока collector не обработает current value.
 
-Operators for pressure:
+Операторы по давлению:
 
 - `buffer` — разрешает producer и consumer работать concurrent with buffer;
 - `conflate` — пропускает intermediate values, оставляя latest;
@@ -438,7 +438,7 @@ Operators for pressure:
 
 ## `flowOn`
 
-`flowOn` changes context for upstream part of pipeline.
+`flowOn` изменяет контекст для восходящей части конвейера.
 
 ```kotlin
 import kotlinx.coroutines.Dispatchers
@@ -513,7 +513,7 @@ suspend fun loadCard(slug: String): LessonCard {
 
 Для ordinary sequential stream предпочитай `flow { }`. `channelFlow` adds channel, concurrency and more moving parts.
 
-## Production pattern: progress stream
+## Боевой pattern: прогресс stream
 
 ```kotlin
 import kotlinx.coroutines.Dispatchers
@@ -579,9 +579,9 @@ data class ParsedLesson(
 
 Такой API хорош для UI and CLI:
 
-- caller starts collection when ready;
-- progress values arrive over time;
-- cancellation caller-а cancels import;
-- CPU work runs upstream on `Dispatchers.Default`;
+- вызывающий код starts collection when ready;
+- прогресс values arrive over time;
+- cancellation вызывающий код-а cancels import;
+- Работа ЦП выполняется в восходящем направлении на `Dispatchers.Default`;
 - no hidden global coroutine exists.
 

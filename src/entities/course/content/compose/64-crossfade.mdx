@@ -1,8 +1,8 @@
 ---
 title: "Crossfade"
-description: "Разбираем Crossfade в Jetpack Compose: targetState, animationSpec, contentKey, отличие от AnimatedContent, спокойная смена UI-состояний, ограничения, accessibility и production-паттерны."
+description: "Разбираем Crossfade в Jetpack Compose: targetState, animationSpec, contentKey, отличие от AnimatedContent, спокойная смена UI-состояний, ограничения, accessibility и паттерны для боевого кода."
 order: 64
-category: "Compose: Animation and motion"
+category: "Compose: анимация и движение"
 difficulty: "Средний"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что такое `Crossfade`
 
-`Crossfade` — composable для плавной смены content через fade-out старого состояния и fade-in нового состояния. Он похож на упрощенный `AnimatedContent`: вы передаете `targetState`, а content lambda рисует UI для конкретного target. Когда target меняется, старый content постепенно исчезает, а новый появляется.
+`Crossfade` — composable для плавной смены content через fade-out старого состояния и fade-in нового состояния. Он похож на упрощенный `AnimatedContent`: вы передаете `targetState`, а content лямбда рисует UI для конкретного target. Когда target меняется, старый content постепенно исчезает, а новый появляется.
 
 `Crossfade` хорош там, где смысл transition не требует направления, scale, slide или сложного изменения размера. Это спокойная, нейтральная анимация смены состояния.
 
@@ -39,7 +39,7 @@ fun ConnectionStatus(
 }
 ```
 
-Внутри lambda нужно использовать `isConnected`, который передает `Crossfade`, а не внешнюю переменную `connected`. Это то же правило, что у `AnimatedContent`.
+Внутри лямбда нужно использовать `isConnected`, который передает `Crossfade`, а не внешнюю переменную `connected`. Это то же правило, что у `AnimatedContent`.
 
 <CatTip>
 Выбирайте `Crossfade`, когда хотите сказать пользователю: "состояние изменилось", но не хотите рассказывать motion-историю о направлении, вложенности или перемещении.
@@ -50,10 +50,10 @@ fun ConnectionStatus(
 Подходящие случаи:
 
 - смена статуса online/offline;
-- loading/content/error, если нужен только fade;
+- загрузка/контент/ошибка, если нужен только fade;
 - переключение compact labels;
 - смена пустого состояния и списка;
-- переключение preview mode;
+- переключение предпросмотр mode;
 - смена иконки или короткого текста;
 - переход между двумя легкими composable branches.
 
@@ -74,7 +74,7 @@ fun ConnectionStatus(
 - `modifier`: modifier контейнера;
 - `animationSpec`: настройка fade-анимации;
 - `label`: имя для tooling;
-- `content`: composable lambda, которая получает target state.
+- `content`: composable лямбда, которая получает target state.
 
 ```kotlin
 import androidx.compose.animation.Crossfade
@@ -116,9 +116,9 @@ fun SyncStatusText(
 
 `Crossfade` не дает отдельные enter/exit transitions. Если нужен slide или scale, используйте `AnimatedContent`.
 
-## Правило target lambda
+## Правило target лямбда
 
-Как и в `AnimatedContent`, content lambda может выполняться для старого и нового state во время transition. Поэтому нельзя игнорировать параметр lambda.
+Как и в `AnimatedContent`, content лямбда может выполняться для старого и нового state во время transition. Поэтому нельзя игнорировать параметр лямбда.
 
 ```kotlin
 Crossfade(
@@ -141,7 +141,7 @@ Crossfade(
 ```
 
 <MouseTrap>
-Не пишите пустой lambda-параметр в `Crossfade`. Даже если IDE не ругается, это почти всегда означает, что transition потеряет смысл для outgoing content.
+Не пишите пустой лямбда-параметр в `Crossfade`. Даже если IDE не ругается, это почти всегда означает, что transition потеряет смысл для outgoing content.
 </MouseTrap>
 
 ## `contentKey`
@@ -190,7 +190,7 @@ fun HeaderTitle(
 }
 ```
 
-`contentKey` особенно полезен для screen state, где одно поле меняет content type, а остальные поля просто обновляют данные внутри этого content.
+`contentKey` особенно полезен для состояние экрана, где одно поле меняет content type, а остальные поля просто обновляют данные внутри этого content.
 
 ## `Crossfade` и размеры content
 
@@ -240,7 +240,7 @@ fun StableStatusBlock(
 
 `AnimatedContent`:
 
-- поддерживает custom enter/exit;
+- поддерживает пользовательский enter/exit;
 - знает `initialState` и `targetState`;
 - поддерживает direction-aware motion;
 - имеет `SizeTransform`;
@@ -283,7 +283,7 @@ fun SmallLoadStateCrossfade(
 }
 ```
 
-Если завтра дизайнер попросит loading slide вверх, error scale-in, а content expand, этот компонент станет кандидатом на `AnimatedContent`.
+Если завтра дизайнер попросит загрузка slide вверх, error scale-in, а content expand, этот компонент станет кандидатом на `AnimatedContent`.
 
 ## `Crossfade` против alpha-анимации
 
@@ -319,7 +319,7 @@ fun FadingSingleMessage(
 
 Здесь content один и тот же. Для такого случая `Crossfade` не нужен.
 
-## Production-пример: toolbar mode
+## Боевой-пример: toolbar mode
 
 Toolbar часто переключается между обычным режимом, поиском и режимом выбора.
 
@@ -389,7 +389,7 @@ fun ToolbarContent(
 
 `contentKey = targetMode::class` означает, что смена `query` внутри Search не запускает crossfade всего toolbar. Но переход Normal -> Search или Search -> Selection будет анимирован.
 
-## Production-пример: compact/expanded empty state
+## Боевой-пример: compact/expanded empty state
 
 Иногда content зависит от size class или режима плотности UI.
 
@@ -501,8 +501,8 @@ fun AccessibleSyncStatus(
 - используйте `Crossfade` для легких branches;
 - для тяжелых списков не crossfade-ьте весь список при каждом обновлении данных;
 - применяйте `contentKey`;
-- держите тяжелые calculations вне content lambda;
-- избегайте сетевых запросов и side effects внутри branches;
+- держите тяжелые calculations вне content лямбда;
+- избегайте сетевых запросов и побочные эффекты внутри branches;
 - проверяйте jank на реальном устройстве, если crossfade применяется к большим областям.
 
 ```kotlin
@@ -539,7 +539,7 @@ fun SearchResultsArea(
 }
 ```
 
-Здесь fade переключает loading и list. Но обновление `results` при `loading == false` не запускает crossfade, потому что `targetState` равен только boolean loading.
+Здесь fade переключает загрузка и list. Но обновление `results` при `loading == false` не запускает crossfade, потому что `targetState` равен только boolean загрузка.
 
 ## Тестирование
 
@@ -591,7 +591,7 @@ fun crossfadeShowsNewState() {
 }
 ```
 
-Для проверки текста лучше использовать разные test tags по branches или semantics, потому что во время fade старый и новый content могут пересекаться.
+Для проверки текста лучше использовать разные тестовые теги по branches или semantics, потому что во время fade старый и новый content могут пересекаться.
 
 ## Типичные ошибки
 
@@ -599,9 +599,9 @@ fun crossfadeShowsNewState() {
 
 Если пользователь должен понимать направление перехода, fade может быть слишком нейтральным.
 
-### Игнорировать lambda-параметр
+### Игнорировать лямбда-параметр
 
-Используйте target state из lambda. Не читайте внешнюю переменную внутри content.
+Используйте target state из лямбда. Не читайте внешнюю переменную внутри content.
 
 ### Crossfade всего экрана при каждом обновлении данных
 
@@ -620,7 +620,7 @@ fun crossfadeShowsNewState() {
 `Crossfade` — простой API для fade-смены content:
 
 - принимает `targetState`;
-- content lambda должна использовать target state parameter;
+- content лямбда должна использовать target state parameter;
 - делает fade-out старого content и fade-in нового;
 - подходит для спокойной смены статусов и небольших UI branches;
 - имеет `animationSpec`, `contentKey` и `label`;

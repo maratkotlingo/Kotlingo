@@ -1,8 +1,8 @@
 ---
 title: "Wear OS Compose"
-description: "Разбираем Compose для Wear OS: wear-specific dependencies, Wear Material 3, AppScaffold, ScreenScaffold, TransformingLazyColumn, ScalingLazyColumn, rotary input, swipe-to-dismiss, small round screens, Tiles overview и production-паттерны wrist-first UI."
+description: "Разбираем Compose для Wear OS: wear-specific dependencies, Wear Material 3, AppScaffold, ScreenScaffold, TransformingLazyColumn, ScalingLazyColumn, rotary input, swipe-to-dismiss, small round screens, Tiles overview и паттерны для боевого кода wrist-first UI."
 order: 97
-category: "Compose: Adaptive UI and form factors"
+category: "Compose: адаптивный UI и форм-факторы"
 difficulty: "Продвинутый"
 ---
 
@@ -43,7 +43,7 @@ data class WearAction(
 
 ## Dependencies
 
-Wear OS использует wear-specific Compose artifacts. Не заменяйте их обычным `androidx.compose.material3:material3`, если строите полноценный Wear UI.
+Wear OS использует wear-specific Compose артефакты. Не заменяйте их обычным `androidx.compose.material3:material3`, если строите полноценный Wear UI.
 
 ```kotlin
 dependencies {
@@ -60,7 +60,7 @@ dependencies {
 }
 ```
 
-Версии здесь показывают структуру. В production держите их в version catalog и сверяйте с актуальным Compose/Wear BOM guidance.
+Версии здесь показывают структуру. В боевой держите их в version catalog и сверяйте с актуальным Compose/Wear BOM guidance.
 
 ## Wear Material 3
 
@@ -78,7 +78,7 @@ Wear Material 3 дает компоненты, оптимизированные 
 - `SwipeToDismissBox`;
 - `SwipeToReveal`;
 - Wear-specific page indicators;
-- responsive paddings for round/square screens.
+- отзывчивые отступы для круглых/квадратных экранов.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -125,7 +125,7 @@ fun WearHomeScreen() {
 }
 ```
 
-`AppScaffold` задает верхний app shell. `ScreenScaffold` связывает screen content со scroll indicator, time text, edge button и content padding.
+`AppScaffold` задает верхний app shell. `ScreenScaffold` связывает screen content со scroll indicator, time text, edge button и внутренние отступы контента.
 
 ## `TransformingLazyColumn`
 
@@ -230,7 +230,7 @@ fun LegacyScalingList(
 
 ## Edge button
 
-`EdgeButton` — Wear-specific action в нижней части screen. Он хорошо подходит для primary action в конце списка.
+`EdgeButton` — Wear-specific action в нижней части screen. Он хорошо подходит для основное действие в конце списка.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -267,13 +267,13 @@ fun WorkoutSummaryScreen(
 }
 ```
 
-Edge button не должен становиться свалкой для вторичных действий. На часах primary action должен быть один и понятный.
+Edge button не должен становиться свалкой для вторичных действий. На часах основное действие должен быть один и понятный.
 
 ## Rotary input
 
 Rotary input приходит от rotating side button, physical bezel или touch bezel. Для списков Wear components обычно поддерживают rotary scroll, если state корректно связан со scaffold.
 
-Для custom controls rotary нужно обработать явно.
+Для пользовательские элементы управления rotary нужно обработать явно.
 
 ```kotlin
 import androidx.compose.foundation.focusable
@@ -312,7 +312,7 @@ fun RotaryVolumeControl(
 }
 ```
 
-Rotary input должен иметь visual feedback. Если пользователь вращает bezel, UI обязан показать изменение immediately.
+Rotary input должен иметь визуальная обратная связь. Если пользователь вращает bezel, UI обязан показать изменение immediately.
 
 ## Swipe-to-dismiss
 
@@ -335,7 +335,7 @@ fun WearDetailsScreen(
 }
 ```
 
-Не заменяйте swipe-to-dismiss custom horizontal drag без необходимости. На маленьком экране жесты конфликтуют быстро.
+Не заменяйте swipe-to-dismiss пользовательский horizontal drag без необходимости. На маленьком экране жесты конфликтуют быстро.
 
 ## Круглые и маленькие экраны
 
@@ -408,7 +408,7 @@ data class HydrationTileState(
 
 Tile не должен знать, как синхронизировать базу данных. Он получает snapshot state и отображает его.
 
-## Wear state ownership
+## Wear владение состоянием
 
 Для Wear screens полезно делать state минимальным:
 
@@ -477,7 +477,7 @@ fun SecondsTicker(
 }
 ```
 
-Секундомер должен получать уже подготовленную строку из state holder. Не форматируйте время с тяжелой логикой в каждом recomposition.
+Секундомер должен получать уже подготовленную строку из держатель состояния. Не форматируйте время с тяжелой логикой в каждом recomposition.
 
 ## Testing Wear UI
 
@@ -532,7 +532,7 @@ UI tests не заменяют hardware testing: rotary input, screen shape и b
 
 ### Использовать phone Material на часах
 
-Обычные Material components не дают Wear-specific sizes, shapes, scrolling и wrist-friendly behavior.
+Обычные компоненты Material не дают Wear-specific sizes, shapes, scrolling и wrist-friendly behavior.
 
 ### Писать длинные тексты
 

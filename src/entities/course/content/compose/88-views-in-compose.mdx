@@ -1,8 +1,8 @@
 ---
-title: "Views in Compose"
-description: "Разбираем View внутри Jetpack Compose: AndroidView, AndroidViewBinding, factory, update, onReset, onRelease, pooling and reuse, View-to-Compose callbacks, LocalContext, lifecycle, XML fragments миграции и performance."
+title: "Views внутри Compose"
+description: "Разбираем View внутри Jetpack Compose: AndroidView, AndroidViewBinding, factory, update, onReset, onRelease, pooling and reuse, View-to-Compose обратные вызовы, LocalContext, lifecycle, XML fragments миграции и performance."
 order: 88
-category: "Compose: Interoperability and migration"
+category: "Compose: интероперабельность и миграция"
 difficulty: "Продвинутый"
 ---
 
@@ -15,8 +15,8 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 - SDK не имеет Compose component;
 - рекламный баннер предоставлен как View;
-- карта, camera preview или video player уже существуют как View;
-- legacy custom view слишком дорогой для немедленной переписи;
+- карта, camera предпросмотр или video player уже существуют как View;
+- legacy пользовательский view слишком дорогой для немедленной переписи;
 - XML layout мигрируется частями;
 - сторонняя библиотека еще не поддерживает Compose.
 
@@ -100,9 +100,9 @@ AndroidView(
 
 Если `currentProgress` изменится, `factory` не обязан вызываться заново. View останется со старым значением.
 
-## Callbacks из View в Compose
+## Обратные вызовы из View в Compose
 
-View events должны подниматься наружу через callbacks, как обычные Compose events.
+View events должны подниматься наружу через обратные вызовы, как обычные Compose events.
 
 ```kotlin
 import android.widget.SeekBar
@@ -148,11 +148,11 @@ fun LegacySeekBar(
 }
 ```
 
-Важна проверка `fromUser` и `seekBar.progress != value`: без нее можно получить feedback loop, где Compose state обновляет View, View callback снова обновляет state, и UI дергается.
+Важна проверка `fromUser` и `seekBar.progress != value`: без нее можно получить обратная связь loop, где Compose state обновляет View, View обратный вызов снова обновляет state, и UI дергается.
 
-## Актуальные callbacks без пересоздания View
+## Актуальные обратные вызовы без пересоздания View
 
-Если callback может меняться, используйте `rememberUpdatedState`, чтобы listener видел актуальную lambda.
+Если обратный вызов может меняться, используйте `rememberUpdatedState`, чтобы listener видел актуальную лямбда.
 
 ```kotlin
 import android.view.View
@@ -186,7 +186,7 @@ fun LegacyClickableView(
 }
 ```
 
-Это похоже на `rememberUpdatedState` в effects: объект создается один раз, но callback внутри него должен оставаться свежим.
+Это похоже на `rememberUpdatedState` в effects: объект создается один раз, но обратный вызов внутри него должен оставаться свежим.
 
 ## `AndroidViewBinding`
 
@@ -277,7 +277,7 @@ fun LegacyRowsList(
 
 - player view должен отпускать player;
 - map view должен получать lifecycle events;
-- camera preview должен закрывать camera;
+- camera предпросмотр должен закрывать camera;
 - ad view должен уничтожаться согласно SDK;
 - listeners должны сниматься;
 - background jobs должны отменяться.
@@ -364,7 +364,7 @@ fun ShareButton(
 
 ## Lifecycle interop
 
-Иногда View требует lifecycle callbacks. Compose может получить lifecycle owner через `LocalLifecycleOwner`.
+Иногда View требует lifecycle обратные вызовы. Compose может получить lifecycle owner через `LocalLifecycleOwner`.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -539,8 +539,8 @@ Compose tests видят Compose semantics, но не всегда удобно 
 
 - Compose test для wrapper behavior;
 - Espresso для View-specific assertions;
-- fake View wrapper для unit tests;
-- screenshot/golden для visual regressions;
+- фиктивный View wrapper для unit tests;
+- screenshot/golden для визуальных регрессий;
 - manual lifecycle tests для SDK widgets.
 
 ```kotlin
@@ -590,7 +590,7 @@ class LegacySeekBarWrapperTest {
 
 ### Не очищать listeners
 
-View может удержать старую lambda, Fragment или Context.
+View может удержать старую лямбда, Fragment или Context.
 
 ### Игнорировать `onReset` в lazy lists
 
@@ -598,7 +598,7 @@ View может удержать старую lambda, Fragment или Context.
 
 ### Вызывать composable API внутри `update`
 
-`update` не является composable lambda. Effects должны жить рядом, а не внутри View callback.
+`update` не является composable лямбда. Effects должны жить рядом, а не внутри View обратный вызов.
 
 ### Встраивать целый XML screen
 
@@ -609,8 +609,8 @@ View может удержать старую lambda, Fragment или Context.
 Views in Compose — полезный, но острый interop-инструмент:
 
 - `AndroidView` создает View в `factory` и синхронизирует ее в `update`;
-- callbacks должны поднимать events в Compose state;
-- `rememberUpdatedState` помогает listener-ам видеть свежие lambda;
+- обратные вызовы должны поднимать events в Compose state;
+- `rememberUpdatedState` помогает listener-ам видеть свежие лямбда;
 - `AndroidViewBinding` подходит для маленьких legacy XML blocks;
 - в lazy lists используйте keys, contentType, `onReset` и `onRelease`;
 - heavy View resources освобождаются через lifecycle/effects;

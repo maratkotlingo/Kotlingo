@@ -1,8 +1,8 @@
 ---
-title: "Search"
-description: "Разбираем поиск в Material 3 Compose: SearchBar, DockedSearchBar, SearchBarDefaults.InputField, query, expanded state, suggestions, history, active state, debounce и production-паттерны."
+title: "Поиск"
+description: "Разбираем поиск в Material 3 Compose: SearchBar, DockedSearchBar, SearchBarDefaults.InputField, query, expanded state, suggestions, history, active state, debounce и паттерны для боевого кода."
 order: 50
-category: "Compose: Material 3 components and app structure"
+category: "Compose: компоненты Material 3 и структура приложения"
 difficulty: "Средний"
 ---
 
@@ -111,7 +111,7 @@ fun BasicSearchBar(
 `SearchBar` сам по себе не ищет данные. Он дает UI-поверхность, а состояние и поиск должны принадлежать владельцу state.
 
 <CatTip>
-Поиск — это не только поле ввода. Хороший search UX включает пустое состояние, suggestions, историю, clear action, loading, ошибки и понятное поведение клавиатуры.
+Поиск — это не только поле ввода. Хороший search UX включает пустое состояние, suggestions, историю, clear action, загрузка, ошибки и понятное поведение клавиатуры.
 </CatTip>
 
 ## Основные параметры SearchBar
@@ -247,7 +247,7 @@ fun DockedSearchExample(
 
 ## Stateful и stateless Search
 
-Для production лучше делать stateless search component.
+Для боевой лучше делать stateless search component.
 
 ```kotlin
 import androidx.compose.foundation.clickable
@@ -335,7 +335,7 @@ fun StatelessSearchBar(
 }
 ```
 
-Такой компонент легко подключить к ViewModel, preview или локальному `remember`.
+Такой компонент легко подключить к ViewModel, предпросмотр или локальному `remember`.
 
 <MouseTrap>
 Не прячьте реальный поиск внутри UI-компонента. SearchBar должен сообщать query и search action наружу, а загрузка данных, кеширование и ошибки должны жить выше.
@@ -417,7 +417,7 @@ data class SearchResultUi(
 Почему так лучше:
 
 - UI видит все состояние поиска;
-- loading/error/content представлены явно;
+- загрузка/error/content представлены явно;
 - suggestions отделены от results;
 - query и expanded можно сохранять отдельно;
 - route может связать state с ViewModel.
@@ -506,7 +506,7 @@ interface SearchRepository {
 
 В примере `expanded` хранится отдельно от `query`, потому что раскрытие является UI element state и не всегда равно `query.isNotBlank()`.
 
-## Production-пример: route и screen
+## Боевой-пример: route и screen
 
 ```kotlin
 import androidx.compose.foundation.clickable
@@ -627,7 +627,7 @@ fun SearchEmptyState(
 
 ### Искать прямо в composable
 
-Сетевые запросы, база данных и pagination должны жить во ViewModel/repository.
+Сетевые запросы, база данных и pagination должны жить во ViewModel/репозиторий.
 
 ### Терять expanded state
 
@@ -651,10 +651,10 @@ Search в Compose строится из UI и state:
 
 - `SearchBar` подходит, когда поиск является главным фокусом;
 - `DockedSearchBar` показывает docked suggestions;
-- `SearchBarDefaults.InputField` описывает query, placeholder, icons и IME search;
+- `SearchBarDefaults.InputField` описывает query, заглушка, icons и IME search;
 - `expanded` управляет раскрытием suggestions/results;
 - search UI лучше делать stateless;
 - реальный поиск обычно принадлежит ViewModel;
-- debounce лучше выполнять в Flow на уровне state holder;
-- suggestions, history, results, loading и error должны быть явными;
-- clear action и empty state являются частью production search UX.
+- debounce лучше выполнять в Flow на уровне держатель состояния;
+- suggestions, history, results, загрузка и error должны быть явными;
+- clear action и empty state являются частью боевой search UX.

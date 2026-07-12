@@ -2,7 +2,7 @@
 title: "Типографика и стили текста"
 description: "Разбираем TextStyle, MaterialTheme.typography, AnnotatedString, SpanStyle, ParagraphStyle, SelectionContainer, шрифты и правила построения типографической системы в Compose."
 order: 08
-category: "Compose: UI Fundamentals"
+category: "Compose: основы UI"
 difficulty: "Начальный"
 ---
 
@@ -50,7 +50,7 @@ val LessonTitleStyle = TextStyle(
 )
 ```
 
-В production-коде стили чаще складывают в `Typography`, а не держат как разбросанные top-level constants. Но отдельный `TextStyle` полезен для объяснения и локальных компонентов дизайн-системы.
+В боевой коде стили чаще складывают в `Typography`, а не держат как разбросанные top-level constants. Но отдельный `TextStyle` полезен для объяснения и локальных компонентов дизайн-системы.
 
 ## Главные свойства `TextStyle`
 
@@ -166,7 +166,7 @@ Material 3 дает 15 базовых текстовых ролей:
 
 - `display` — редкие крупные выразительные тексты;
 - `headline` — заголовки экранов и крупных секций;
-- `title` — заголовки карточек, dialogs, list sections;
+- `title` — заголовки карточек, диалогах, list sections;
 - `body` — основной читаемый текст;
 - `label` — кнопки, бейджи, служебные подписи, metadata.
 

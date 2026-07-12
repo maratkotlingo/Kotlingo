@@ -1,8 +1,8 @@
 ---
-title: "Snapshot collections"
+title: "Snapshot-коллекции"
 description: "Подробно изучаем mutableStateListOf, mutableStateMapOf, SnapshotStateList, SnapshotStateMap, observable mutations, immutable collections, стабильность моделей и безопасные паттерны списков в Compose."
 order: 33
-category: "Compose: State, snapshots и управление данными UI"
+category: "Compose: состояние, snapshots и управление данными UI"
 difficulty: "Средний"
 ---
 
@@ -49,7 +49,7 @@ fun selectCorrect(id: String) {
 Теперь изменение списка является observable mutation.
 
 <CatTip>
-Snapshot collections полезны для локального UI-состояния с частыми точечными изменениями: выбор элементов, раскрытие строк, временная корзина, локальные черновики. Для screen state из repository часто лучше immutable `List` внутри `StateFlow`.
+Snapshot collections полезны для локального UI-состояния с частыми точечными изменениями: выбор элементов, раскрытие строк, временная корзина, локальные черновики. Для состояние экрана из репозиторий часто лучше immutable `List` внутри `StateFlow`.
 </CatTip>
 
 ## mutableStateListOf
@@ -291,7 +291,7 @@ fun CartQuantitiesDemo() {
 
 ## Snapshot collections и LazyColumn
 
-Snapshot collections можно читать прямо в lazy layout. Но для production-списков все равно нужны ключи.
+Snapshot collections можно читать прямо в lazy layout. Но для боевой-списков все равно нужны ключи.
 
 ```kotlin
 import androidx.compose.foundation.lazy.LazyColumn
@@ -397,7 +397,7 @@ fun toggle(id: String) {
 - проще случайно отдать mutable collection слишком глубоко;
 - хуже подходит для чистого UDF между слоями.
 
-### Immutable value in State
+### Неизменяемое значение в состоянии
 
 ```kotlin
 import androidx.compose.runtime.mutableStateOf
@@ -426,7 +426,7 @@ fun toggleImmutable(id: String) {
 - код может быть чуть многословнее.
 
 <CatTip>
-Для screen-level state чаще выбирайте immutable UI state. Для маленького локального интерактивного состояния snapshot collections вполне уместны.
+Для screen-level state чаще выбирайте immutable UI-состояние. Для маленького локального интерактивного состояния snapshot collections вполне уместны.
 </CatTip>
 
 ## Не отдавайте SnapshotStateList как публичный контракт без причины
@@ -473,11 +473,11 @@ fun NamesRoute() {
 }
 ```
 
-`SnapshotStateList` реализует `List`, поэтому такой контракт остается read-only для компонента.
+`SnapshotStateList` реализует `List`, поэтому такой контракт остается только для чтения для компонента.
 
 ## Стабильность и коллекции
 
-Обычные `List`, `Set` и `Map` в Kotlin являются интерфейсами read-only, но не гарантируют физическую неизменяемость. Под ними может быть mutable implementation.
+Обычные `List`, `Set` и `Map` в Kotlin являются интерфейсами только для чтения, но не гарантируют физическую неизменяемость. Под ними может быть mutable implementation.
 
 Для Compose это важно:
 
@@ -643,10 +643,10 @@ fun replaceQueue(items: List<String>) {
 }
 ```
 
-Обычному UI-коду это нужно редко. Чаще достаточно обычных операций коллекции из main thread или обновлений через state holder.
+Обычному UI-коду это нужно редко. Чаще достаточно обычных операций коллекции из main thread или обновлений через держатель состояния.
 
 <MouseTrap>
-Не используйте snapshot internals как способ обойти архитектуру. Если несколько изменений должны быть атомарным пользовательским событием, часто лучше выразить их как один reducer или одну запись immutable state.
+Не используйте snapshot internals как способ обойти архитектуру. Если несколько изменений должны быть атомарным пользовательским событием, часто лучше выразить их как один reducer или одну запись неизменяемое состояние.
 </MouseTrap>
 
 ## Типичные ошибки
@@ -665,7 +665,7 @@ Compose не обязан увидеть внутреннее изменение
 
 ### Считать List полностью immutable
 
-Kotlin `List` read-only на уровне интерфейса, но не всегда immutable по факту.
+Kotlin `List` только для чтения на уровне интерфейса, но не всегда immutable по факту.
 
 ### Сохранять SnapshotStateList через rememberSaveable без Saver
 
@@ -680,7 +680,7 @@ Snapshot collections дают observable mutable collections:
 - операции `add`, `remove`, `set`, `clear` уведомляют snapshot-систему;
 - чтения `size`, `get`, `contains`, `keys`, `values` создают зависимости UI;
 - для публичных composable API чаще принимайте `List` и `Map`, а не snapshot-типы;
-- для screen state часто лучше immutable data class;
+- для состояние экрана часто лучше immutable data class;
 - mutable item внутри snapshot collection остается опасным;
 - для строгой стабильности можно использовать persistent immutable collections;
 - snapshot collections хороши для локального UI-состояния с точечными изменениями.

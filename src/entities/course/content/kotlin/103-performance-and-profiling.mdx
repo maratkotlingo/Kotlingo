@@ -1,15 +1,15 @@
 ---
-title: "Performance And Profiling"
-description: "Performance and profiling in Kotlin: measuring before optimizing, allocation hotspots, JMH, JFR, sequences versus collections, inline tradeoffs, coroutine overhead, boxing, logging costs и production-процесс."
+title: "Производительность и профилирование"
+description: "Performance and profiling in Kotlin: измерение перед оптимизацией, allocation hotspots, JMH, JFR, sequences versus collections, inline tradeoffs, coroutine overhead, boxing, logging costs и боевой-процесс."
 order: 103
-category: "Architecture"
+category: "Архитектура"
 difficulty: "Продвинутый"
 ---
 
 import CatTip from "../../ui/CatTip.vue";
 import MouseTrap from "../../ui/MouseTrap.vue";
 
-## Performance starts with measurement
+## Производительность начинается с измерения
 
 Оптимизация без измерений часто ускоряет не то место.
 
@@ -20,7 +20,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - identify hotspot;
 - change one thing;
 - measure again;
-- keep benchmark or regression test where appropriate;
+- keep benchmark or регрессия test where appropriate;
 - document tradeoff.
 
 ```kotlin
@@ -42,13 +42,13 @@ data class Lesson(
 )
 ```
 
-Maybe this is fine. Maybe `lowercase()` inside loop is the hotspot. You only know after profiling with realistic data.
+Возможно, это нормально. Возможно, внутренний цикл `lowercase()` является горячей точкой. Вы узнаете это только после профилирования с реалистичными данными.
 
 <CatTip>
 Performance work без профиля — это кот, который охотится под диваном на шум из холодильника. Сначала найди настоящую мышку.
 </CatTip>
 
-## Macro and micro measurement
+## Макро- и микроизмерения
 
 Macro measurement answers product-level questions:
 
@@ -58,23 +58,23 @@ Macro measurement answers product-level questions:
 - memory footprint;
 - UI frame time;
 - import duration;
-- CPU usage under real workload.
+- Использование процессора при реальной нагрузке.
 
 Micro measurement answers narrow questions:
 
-- is this parser faster;
-- does this allocation matter;
-- is sequence pipeline cheaper;
-- does inline remove lambda allocation;
-- does boxing appear in hot loop.
+- быстрее ли этот парсер;
+- имеет ли значение это распределение;
+- дешевле ли конвейер последовательности;
+- does inline remove лямбда allocation;
+- появляется ли бокс в хот лупе.
 
-Use macro profiling first. Use microbenchmarks for isolated, repeatable decisions.
+Сначала используйте макропрофилирование. Используйте микротесты для изолированных, повторяемых решений.
 
 ## JMH
 
-On JVM, JMH is the standard microbenchmark harness.
+В JVM JMH — это стандартная программа для микробенчмарка.
 
-Gradle plugin setup varies by project, but benchmark code usually looks like this:
+Gradle plugin настройка varies by project, but benchmark code usually looks like this:
 
 ```kotlin
 import org.openjdk.jmh.annotations.Benchmark
@@ -104,15 +104,15 @@ open class SlugBenchmark {
 }
 ```
 
-JMH handles warmup, forks and JVM optimization issues that make naive timing unreliable.
+JMH решает проблемы прогрева, разветвлений и оптимизации JVM, которые делают наивное время ненадежным.
 
 <MouseTrap>
-`val started = System.nanoTime()` around one function call is usually not a trustworthy benchmark. JVM warmup, dead-code elimination and GC can dominate the result.
+`val started = System.nanoTime()` вокруг одного вызова функции обычно не является надежным эталоном. Прогрев JVM, устранение мертвого кода и сбор мусора могут доминировать в результате.
 </MouseTrap>
 
-## Profiling with JFR
+## Профилирование с помощью JFR
 
-Java Flight Recorder helps identify real JVM hotspots:
+Java Flight Recorder помогает идентифицировать настоящие горячие точки JVM:
 
 - CPU samples;
 - allocation pressure;
@@ -123,37 +123,37 @@ Java Flight Recorder helps identify real JVM hotspots:
 - file/socket I/O;
 - method profiling.
 
-Typical workflow:
+Typical рабочий процесс:
 
 ```bash
 java -XX:StartFlightRecording=filename=kotlingo.jfr,duration=60s -jar app.jar
 ```
 
-Then inspect recording in JDK Mission Control or another JFR viewer.
+Затем проверьте запись в JDK Mission Control или другом средстве просмотра JFR.
 
-Use profiling questions:
+Используйте профилирующие вопросы:
 
-- where is CPU spent;
+- куда тратится процессор;
 - which methods allocate most;
 - which allocations survive GC;
-- where threads block;
-- are exceptions thrown in hot paths;
-- are logs or serialization expensive.
+- где потоки блокируются;
+- являются ли исключения в горячих путях;
+- дорогие ли журналы или сериализация.
 
 ## Allocation hotspots
 
-Kotlin features are expressive, but can allocate:
+Возможности Kotlin выразительны, но могут выделять:
 
-- lambdas captured in non-inline calls;
+- лямбды captured in non-inline calls;
 - intermediate collections;
 - boxing primitives;
-- string concatenation in loops;
+- конкатенация строк в циклах;
 - data class copies;
-- sequences with many small wrappers;
+- последовательности с множеством мелких оберток;
 - coroutine state machines;
 - regex creation inside hot paths.
 
-Bad:
+Плохо:
 
 ```kotlin
 fun countTagsBad(lessons: List<LessonWithTags>): Int {
@@ -171,7 +171,7 @@ data class LessonWithTags(
 )
 ```
 
-This is readable, but may allocate intermediate lists.
+Это читаемо, но может выделять промежуточные списки.
 
 Manual hot-path version:
 
@@ -191,11 +191,11 @@ fun countTagsHotPath(lessons: List<LessonWithTags>): Int {
 }
 ```
 
-Do not rewrite everything manually. Use this style only where profiling proves it matters.
+Не переписывайте все вручную. Используйте этот стиль только там, где профилирование доказывает его важность.
 
 ## Sequences versus collections
 
-Collections are eager. Each operator can create intermediate collection.
+Коллекции жаждут. Каждый оператор может создать промежуточную коллекцию.
 
 ```kotlin
 fun eagerPipeline(values: List<String>): List<String> {
@@ -206,7 +206,7 @@ fun eagerPipeline(values: List<String>): List<String> {
 }
 ```
 
-Sequence is lazy.
+Последовательность ленивая.
 
 ```kotlin
 fun lazyPipeline(values: List<String>): List<String> {
@@ -218,25 +218,25 @@ fun lazyPipeline(values: List<String>): List<String> {
 }
 ```
 
-Sequence can help when:
+Последовательность может помочь, когда:
 
 - pipeline has many operators;
-- input is large;
+- вход большой;
 - `take`/`first` stops early;
 - avoiding intermediate collections matters.
 
-Sequence can hurt when:
+Последовательность может навредить, когда:
 
-- input is small;
-- pipeline is short;
-- virtual calls/wrappers cost more than saved allocations;
-- code becomes harder to read.
+- ввод небольшой;
+- трубопровод короткий;
+- виртуальные вызовы/обертки стоят дороже, чем сэкономленные аллокации;
+- код становится труднее читать.
 
-Measure with real data.
+Измеряйте реальные данные.
 
 ## Inline tradeoffs
 
-`inline` can remove lambda allocation and call overhead for higher-order functions.
+`inline` can remove лямбда allocation and call overhead for higher-order functions.
 
 ```kotlin
 inline fun <T> measureBlock(name: String, block: () -> T): T {
@@ -254,23 +254,23 @@ inline fun <T> measureBlock(name: String, block: () -> T): T {
 Tradeoffs:
 
 - larger bytecode;
-- public inline functions expose implementation details;
+- публичные inline-функции раскрывают детали реализации;
 - binary compatibility risks;
-- stack traces can be less direct;
-- not every function benefits.
+- трассировки стека могут быть менее прямыми;
+- не каждая функция приносит пользу.
 
-Use `inline` for:
+Используй `inline` для:
 
 - small higher-order helpers;
 - reified type parameters;
-- performance-critical library functions after measurement;
-- DSL functions where lambdas are central.
+- критичные к производительности библиотечные функции после измерения;
+- DSL functions where лямбды are central.
 
-Avoid `inline` for large functions.
+Избегайте `inline` для больших функций.
 
 ## Boxing
 
-Generic code boxes primitives on JVM.
+Общие примитивы блоков кода на JVM.
 
 ```kotlin
 fun sumGeneric(values: List<Int>): Int {
@@ -284,7 +284,7 @@ fun sumGeneric(values: List<Int>): Int {
 }
 ```
 
-`List<Int>` stores boxed `Integer` on JVM. Primitive arrays avoid boxing.
+`List<Int>` хранит упакованный `Integer` на JVM. Примитивные массивы избегают упаковки.
 
 ```kotlin
 fun sumArray(values: IntArray): Int {
@@ -298,11 +298,11 @@ fun sumArray(values: IntArray): Int {
 }
 ```
 
-Use primitive arrays in hot numeric code. Do not use them everywhere by default.
+Используй примитивные массивы в горячем числовом коде. Не используй их везде по умолчанию.
 
 ## Coroutine overhead
 
-Coroutines are lightweight, not free.
+Сопрограммы легкие, но не бесплатные.
 
 Costs:
 
@@ -312,9 +312,9 @@ Costs:
 - cancellation checks;
 - `async`/`Deferred` objects;
 - Flow operator overhead;
-- channel buffers and synchronization.
+- канальные буферы и синхронизация.
 
-Bad tiny task fan-out:
+Плохое разветвление мелких задач:
 
 ```kotlin
 import kotlinx.coroutines.async
@@ -340,18 +340,18 @@ fun normalize(values: List<String>): List<String> {
 }
 ```
 
-Use coroutines for concurrency, async I/O and structured cancellation, not for every small CPU operation.
+Используйте сопрограммы для параллелизма, асинхронного ввода-вывода и структурированной отмены, а не для каждой небольшой операции ЦП.
 
 ## Logging cost
 
-Logging can become a performance problem:
+Ведение журнала может стать проблемой производительности:
 
 - eager string interpolation;
 - huge payload rendering;
 - high-cardinality structured fields;
 - sync appenders;
-- logs in tight loops;
-- exception stack traces in expected branches.
+- бревна в тугих петлях;
+- трассировка стека исключений в ожидаемых ветвях.
 
 Better:
 
@@ -367,22 +367,21 @@ if (logger.isDebugEnabled) {
 }
 ```
 
-## Production checklist
+## Проверочный список для боевого кода
 
-For performance work:
+Для исполнительской работы:
 
-- reproduce issue with realistic workload;
-- profile before optimizing;
-- separate macro and micro measurements;
-- use JMH for JVM microbenchmarks;
-- inspect allocation hotspots, not only CPU;
-- compare sequence and collection pipelines with real data;
-- use inline deliberately;
-- avoid coroutine fan-out for tiny CPU tasks;
+- воспроизвести проблему с реалистичной рабочей нагрузкой;
+- профиль перед оптимизацией;
+- отдельные макро- и микроизмерения;
+- использовать JMH для микротестов JVM;
+- проверять хотспоты распределения, а не только ЦП;
+- сравнивать конвейеры последовательности и сбора с реальными данными;
+- намеренно используйте встроенные функции;
+- избегать разветвления сопрограмм для небольших задач ЦП;
 - preserve readability unless performance evidence justifies complexity;
-- keep benchmark or performance regression check for critical path.
+- keep benchmark or performance регрессия check for critical path.
 
 <CatTip>
 Хорошая optimization leaves code no more clever than necessary. Если измерение не доказало пользу, не заставляй будущего разработчика распутывать клубок ради воображаемой скорости.
 </CatTip>
-

@@ -34,7 +34,7 @@ println(lesson.completed)
 
 ## `val` и `var`
 
-`val` объявляет read-only property: после инициализации через этот контракт нельзя присвоить другое значение.
+`val` объявляет только для чтения property: после инициализации через этот контракт нельзя присвоить другое значение.
 
 ```kotlin
 class Course(val lessons: MutableList<String>)
@@ -47,7 +47,7 @@ fun main() {
 
 `val` не делает объект глубоко immutable. Ссылка на список неизменяема, но сам `MutableList` можно менять.
 
-Для неизменяемого внешнего контракта возвращай read-only view/snapshot и не отдавай mutable storage:
+Для неизменяемого внешнего контракта возвращай только для чтения view/snapshot и не отдавай mutable storage:
 
 ```kotlin
 class SafeCourse(initialLessons: List<String>) {
@@ -69,7 +69,7 @@ class SafeCourse(initialLessons: List<String>) {
 class Progress(var completed: Int)
 ```
 
-Public `var` уместен для простых data holders, UI state и явно mutable моделей. В domain objects setter часто должен защищать диапазон или быть private.
+Public `var` уместен для простых data holders, UI-состояние и явно mutable моделей. В domain objects setter часто должен защищать диапазон или быть private.
 
 <CatTip title="Котосовет: начинай с val">
 Выбирай `val`, пока изменение не является частью требований. Чем меньше mutable surface, тем проще reasoning, concurrency и сохранение инвариантов.
@@ -212,7 +212,7 @@ class Progress {
 }
 ```
 
-Снаружи `completed` read-only, внутри класса изменяется. Setter visibility нельзя сделать шире, чем property.
+Снаружи `completed` только для чтения, внутри класса изменяется. Setter visibility нельзя сделать шире, чем property.
 
 ```kotlin
 class PublishedLesson {
@@ -223,7 +223,7 @@ class PublishedLesson {
 
 ## Проверка initial value
 
-Custom setter не вызывается автоматически для initializer property.
+Пользовательский setter не вызывается автоматически для initializer property.
 
 ```kotlin
 class Score(initial: Int) {
@@ -270,7 +270,7 @@ class NormalizedTitle(rawTitle: String) {
 
 ## Backing field `field`
 
-Backing field создаётся, если property использует default accessor или custom accessor обращается к `field`.
+Backing field создаётся, если property использует аксессор по умолчанию или пользовательский accessor обращается к `field`.
 
 ```kotlin
 class Lesson {
@@ -361,7 +361,7 @@ val supportedDifficulties: Set<String> = setOf(
 )
 ```
 
-Top-level `val` инициализируется в соответствии с backend/runtime моделью файла. Не помещай туда mutable process-wide state без явной необходимости и concurrency policy.
+Top-level `val` инициализируется в соответствии с бэкенд/runtime моделью файла. Не помещай туда mutable process-wide state без явной необходимости и concurrency policy.
 
 ```kotlin
 private val slugSeparator = Regex("""[^a-zа-яё0-9]+""")
@@ -371,7 +371,7 @@ fun toSlug(value: String): String {
 }
 ```
 
-Private top-level property может хранить reusable immutable helper.
+Private top-level property может хранить переиспользуемый immutable helper.
 
 ## Compile-time constants: `const val`
 
@@ -390,7 +390,7 @@ const val DEFAULT_CATEGORY: String = "Основы"
 
 Он не может быть обычной instance property класса.
 
-Тип должен быть primitive type или `String`, initializer — compile-time constant expression без custom getter.
+Тип должен быть primitive type или `String`, initializer — compile-time constant expression без пользовательский getter.
 
 ```kotlin
 class LessonRules {
@@ -425,7 +425,7 @@ const val MILLIS_PER_SECOND: Long = 1_000L
 
 Это compile-time constant.
 
-Обычный `val` может иметь любой тип, вызывать функции и использовать custom getter. `const val` имеет строгие ограничения ради compile-time использования.
+Обычный `val` может иметь любой тип, вызывать функции и использовать пользовательский getter. `const val` имеет строгие ограничения ради compile-time использования.
 
 ## `lateinit`
 
@@ -454,7 +454,7 @@ Property должна:
 - быть `var`;
 - иметь non-null тип;
 - не иметь primitive type вроде `Int`, `Boolean`, `Double`;
-- не иметь custom getter/setter, несовместимых с механизмом;
+- не иметь пользовательские getter/setter, несовместимых с механизмом;
 - быть instance или top-level property в допустимом контексте;
 - не быть nullable, потому что `null` используется внутренне как маркер отсутствия инициализации на JVM-подобной модели.
 
@@ -489,7 +489,7 @@ fun loadIfReady(controller: LessonController, id: Int): String? {
 ### Когда `lateinit` уместен
 
 - dependency injection framework устанавливает dependency после создания;
-- test fixture инициализируется в setup;
+- test fixture инициализируется в настройка;
 - Android/UI lifecycle гарантирует позднее появление view binding;
 - двухфазный lifecycle задан внешним framework и не может быть выражен constructor.
 
@@ -654,9 +654,9 @@ fun main() {
 - property — accessor contract, а не обязательно поле;
 - `val` запрещает переназначение через property, но не гарантирует deep immutability;
 - `var` предоставляет getter и setter;
-- custom getter вычисляется при каждом чтении;
-- custom setter должен присваивать `field`, а не property самой себе;
-- initializer не проходит через custom setter;
+- пользовательский getter вычисляется при каждом чтении;
+- пользовательский setter должен присваивать `field`, а не property самой себе;
+- initializer не проходит через пользовательский setter;
 - backing field `field` доступен только внутри accessors;
 - backing property — отдельное private storage для controlled public view;
 - setter можно сделать private/internal;

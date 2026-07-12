@@ -1,8 +1,8 @@
 ---
-title: "Custom Layout, MeasurePolicy and SubcomposeLayout"
+title: "Пользовательская разметка, MeasurePolicy и SubcomposeLayout"
 description: "Подробно разбираем собственные layout-компоненты в Jetpack Compose: фазы измерения и размещения, Layout, MeasurePolicy, Measurable, Placeable, alignment lines, intrinsics, BoxWithConstraints и SubcomposeLayout."
 order: 26
-category: "Compose: Layouts, constraints и Modifier"
+category: "Compose: разметки, constraints и Modifier"
 difficulty: "Продвинутый"
 ---
 
@@ -111,7 +111,7 @@ fun BadgeLayoutDemo() {
 
 ## Фазы layout в Compose
 
-Чтобы написать надежный custom layout, важно понимать, что Compose не просто вызывает функции сверху вниз и сразу рисует пиксели.
+Чтобы написать надежный пользовательская разметка, важно понимать, что Compose не просто вызывает функции сверху вниз и сразу рисует пиксели.
 
 У UI есть несколько связанных фаз:
 
@@ -121,7 +121,7 @@ fun BadgeLayoutDemo() {
 - drawing: элементы рисуют фон, контент, обводки, тени и графику;
 - semantics: Compose собирает информацию для accessibility и тестов.
 
-Custom layout работает главным образом во фазах measurement и placement.
+Пользовательский layout работает главным образом во фазах measurement и placement.
 
 ## Constraints
 
@@ -194,7 +194,7 @@ fun FixedGapColumn(
 - размещение идет через накопление `y`.
 
 <MouseTrap>
-Самая частая ошибка в custom layout — вернуть размер, который игнорирует `Constraints`. Родитель имеет право дать жесткие или узкие ограничения. Если layout отвечает размером вне этого диапазона, поведение становится неожиданным: обрезка, смещения, неверные клики и сложные баги на маленьких экранах.
+Самая частая ошибка в пользовательская разметка — вернуть размер, который игнорирует `Constraints`. Родитель имеет право дать жесткие или узкие ограничения. Если layout отвечает размером вне этого диапазона, поведение становится неожиданным: обрезка, смещения, неверные клики и сложные баги на маленьких экранах.
 </MouseTrap>
 
 ## Measurable и Placeable
@@ -476,7 +476,7 @@ fun RememberedGapColumn(
 
 ## BoxWithConstraints
 
-`BoxWithConstraints` дает доступ к constraints в composition-фазе. Это не custom layout в строгом смысле, но часто решает задачи адаптивного UI без ручного `Layout`.
+`BoxWithConstraints` дает доступ к constraints в composition-фазе. Это не пользовательская разметка в строгом смысле, но часто решает задачи адаптивного UI без ручного `Layout`.
 
 ```kotlin
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -534,7 +534,7 @@ fun ResponsiveUserSummary(
 
 Типичные случаи:
 
-- overlay зависит от размера основного контента;
+- наложение зависит от размера основного контента;
 - sticky header должен влиять на измерение body;
 - lazy-компоненты используют подкомпозицию для видимых элементов;
 - сложный layout должен сначала измерить один слот, а потом на основании результата создать другой слот.
@@ -622,7 +622,7 @@ fun HeaderMeasuredPanelDemo() {
 `SubcomposeLayout` мощный, но дорогой инструмент. Если задачу можно решить обычным `Layout`, `BoxWithConstraints` или комбинацией стандартных контейнеров, лучше начать с них. Подкомпозиция усложняет mental model и может стоить дороже на горячих экранах.
 </MouseTrap>
 
-## Production-пример: компактный timeline
+## Боевой-пример: компактный timeline
 
 Этот пример показывает layout, который размещает точки событий на вертикальной оси и кладет карточки справа от оси. Такой компонент часто встречается в истории заказов, трекинге доставки и аудит-логах.
 
@@ -723,9 +723,9 @@ fun TimelineEventCard(
 }
 ```
 
-Это базовая версия. В production-компоненте ось можно рисовать отдельным `Canvas` за карточками или через `drawBehind` в модификаторе. Сам layout при этом продолжит отвечать только за геометрию.
+Это базовая версия. В боевой-компоненте ось можно рисовать отдельным `Canvas` за карточками или через `drawBehind` в модификаторе. Сам layout при этом продолжит отвечать только за геометрию.
 
-## Когда custom layout не нужен
+## Когда пользовательская разметка не нужен
 
 Не стоит писать `Layout`, если задачу можно просто выразить через:
 
@@ -738,7 +738,7 @@ fun TimelineEventCard(
 - `Modifier.layout`;
 - `BoxWithConstraints`.
 
-Custom layout увеличивает ответственность автора компонента. Нужно думать о constraints, RTL, accessibility, intrinsic measurement, тестах на разных размерах, performance и edge cases.
+Пользовательский layout увеличивает ответственность автора компонента. Нужно думать о constraints, RTL, accessibility, intrinsic measurement, тестах на разных размерах, performance и edge cases.
 
 ## Типичные ошибки
 
@@ -756,7 +756,7 @@ Custom layout увеличивает ответственность автора
 
 ### Создавать сложный layout ради пары отступов
 
-Если задача решается `Modifier.padding`, `Spacer` или `Arrangement.spacedBy`, custom layout будет лишним усложнением.
+Если задача решается `Modifier.padding`, `Spacer` или `Arrangement.spacedBy`, пользовательская разметка будет лишним усложнением.
 
 ### Смешивать layout и domain-логику
 
@@ -764,7 +764,7 @@ Layout должен знать про размеры и координаты. О
 
 ## Итоги
 
-Custom layout — это способ взять под контроль измерение и размещение:
+Пользовательский layout — это способ взять под контроль измерение и размещение:
 
 - `Layout` подходит для собственного алгоритма measurement и placement;
 - `Constraints` задают разрешенный диапазон размеров;

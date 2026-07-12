@@ -1,8 +1,8 @@
 ---
-title: "KSP Basics"
+title: "Основы KSP"
 description: "Основы Kotlin Symbol Processing: symbol processing, Resolver, KSFile, KSClassDeclaration, annotations, code generation, Dependencies, incremental processing, aggregating и isolating outputs, KSP против kapt."
 order: 72
-category: "DSL, аннотации и metaprogramming"
+category: "DSL, аннотации и метапрограммирование"
 difficulty: "Эксперт"
 ---
 
@@ -55,7 +55,7 @@ dependencies {
 В типичном KSP-решении есть несколько modules:
 
 - annotations module — легкие annotations, которые использует app/library code;
-- processor module — KSP processor implementation;
+- модуль процессора — реализация KSP-процессора;
 - consumer module — проект, где есть annotated source code.
 
 Annotation:
@@ -106,10 +106,10 @@ Processor видит:
 - annotations: `KSAnnotation`;
 - types: `KSTypeReference`, `KSType`.
 
-Он не анализирует bodies expressions как полноценный compiler plugin. KSP не предназначен для поиска `if`, `for` или конкретных statements внутри function body.
+Он не анализирует bodies expressions как полноценный плагин компилятора. KSP не предназначен для поиска `if`, `for` или конкретных statements внутри function body.
 
 <MouseTrap>
-KSP не может «починить» существующую функцию и заменить ее тело. Если тебе нужно изменять semantics existing code, это уже территория compiler plugin, а не KSP.
+KSP не может «починить» существующую функцию и заменить ее тело. Если тебе нужно изменять semantics existing code, это уже территория плагин компилятора, а не KSP.
 </MouseTrap>
 
 ## `SymbolProcessor`
@@ -208,7 +208,7 @@ fun validateAnnotatedClass(symbol: KSAnnotated): KSClassDeclaration? {
 }
 ```
 
-Для production processor надо выдавать diagnostics.
+Для боевой processor надо выдавать diagnostics.
 
 ```kotlin
 environment.logger.error(
@@ -344,7 +344,7 @@ KSP не может:
 
 - менять existing source code;
 - менять language semantics;
-- анализировать arbitrary expressions/statements как compiler plugin;
+- анализировать arbitrary expressions/statements как плагин компилятора;
 - гарантировать runtime behavior без generated code;
 - заменить reflection во всех случаях.
 
@@ -356,7 +356,7 @@ KSP может:
 - выдавать diagnostics;
 - улучшать compile-time safety для repetitive patterns.
 
-## Production-пример: route registry generator
+## Боевой-пример: route registry generator
 
 Annotation:
 
@@ -410,5 +410,4 @@ object GeneratedRoutes {
 <CatTip>
 KSP хорош там, где повторяемый код можно вывести из структуры declarations. Если структура ясная, processor будет мурлыкать и экономить ручной труд.
 </CatTip>
-
 

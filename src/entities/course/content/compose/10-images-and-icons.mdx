@@ -1,8 +1,8 @@
 ---
 title: "Изображения и иконки"
-description: "Разбираем Image и Icon в Compose: painterResource, ImageBitmap, ImageVector, ContentScale, alignment, alpha, colorFilter, contentDescription, clipping, shape, ресурсы и production-подход к визуальным ассетам."
+description: "Разбираем Image и Icon в Compose: painterResource, ImageBitmap, ImageVector, ContentScale, alignment, alpha, colorFilter, contentDescription, clipping, shape, ресурсы и подход для боевого кода к визуальным ассетам."
 order: 10
-category: "Compose: UI Fundamentals"
+category: "Compose: основы UI"
 difficulty: "Начальный"
 ---
 
@@ -13,9 +13,9 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 В Compose визуальные ассеты делятся по смыслу:
 
-- `Image` показывает изображение: иллюстрацию, аватар, обложку, фотографию, preview, диаграмму;
+- `Image` показывает изображение: иллюстрацию, аватар, обложку, фотографию, предпросмотр, диаграмму;
 - `Icon` показывает небольшую одноцветную или tintable иконку действия, статуса или навигации;
-- `Canvas` рисует custom-графику;
+- `Canvas` рисует пользовательский-графику;
 - `Painter` инкапсулирует стратегию рисования;
 - `ImageBitmap` представляет raster-изображение;
 - `ImageVector` представляет vector-графику.
@@ -46,7 +46,7 @@ Image(
 
 ### `painter`
 
-Источник отрисовки. Чаще всего создается через `painterResource`, но может быть custom `Painter`.
+Источник отрисовки. Чаще всего создается через `painterResource`, но может быть пользовательский `Painter`.
 
 ### `contentDescription`
 
@@ -278,7 +278,7 @@ fun MentorAvatarWithBorder() {
 - tint-ится через `LocalContentColor`;
 - имеет типичный размер 24 dp;
 - подходит для action/status/navigation glyph;
-- принимает `painter`, `imageVector` или `bitmap` в разных overload;
+- принимает `painter`, `imageVector` или `bitmap` в разных перегрузка;
 - не заменяет `Image` для фотографий, обложек и сложных иллюстраций.
 
 `res/drawable/ic_play_lesson_24.xml`:
@@ -325,7 +325,7 @@ Button(onClick = onStartClick) {
 }
 ```
 
-Screen reader прочитает кнопку по тексту `"Начать"`. Если у иконки тоже будет описание, пользователь может услышать дублирование.
+Программа чтения с экрана прочитает кнопку по тексту `"Начать"`. Если у иконки тоже будет описание, пользователь может услышать дублирование.
 
 ## Tint и `ColorFilter`
 
@@ -505,7 +505,7 @@ fun VisualLessonCard(
 - неподходящий размер ресурса тратит память и bandwidth;
 - анимированные изображения требуют отдельного контроля lifecycle.
 
-Для remote image loading в Android-приложениях обычно используют специализированную библиотеку с Compose-интеграцией. В этом уроке мы не подключаем сторонние зависимости, потому что сначала важно понять базовые primitives: `Image`, `Icon`, `Painter`, `ContentScale`, `contentDescription`.
+Для remote image загрузка в Android-приложениях обычно используют специализированную библиотеку с Compose-интеграцией. В этом уроке мы не подключаем сторонние зависимости, потому что сначала важно понять базовые primitives: `Image`, `Icon`, `Painter`, `ContentScale`, `contentDescription`.
 
 ## Типичные ошибки
 
@@ -515,7 +515,7 @@ fun VisualLessonCard(
 
 ### Описывать декоративную картинку
 
-Если фоновой узор не несет смысла, `contentDescription` должен быть `null`, иначе screen reader будет озвучивать визуальный шум.
+Если фоновой узор не несет смысла, `contentDescription` должен быть `null`, иначе программа чтения с экрана будет озвучивать визуальный шум.
 
 ### Делать `contentDescription = "картинка"`
 
@@ -533,7 +533,7 @@ fun VisualLessonCard(
 
 Для изображений и иконок держи карту:
 
-- `Image` — фото, обложки, иллюстрации, preview;
+- `Image` — фото, обложки, иллюстрации, предпросмотр;
 - `Icon` — маленькие Material-style glyph;
 - `painterResource` — загрузка drawable resource как painter;
 - `ImageVector.vectorResource` — vector drawable как `ImageVector`;

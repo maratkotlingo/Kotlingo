@@ -1,8 +1,8 @@
 ---
-title: "Stability"
-description: "Разбираем stability в Jetpack Compose: stable, immutable и unstable types, compiler inference, strong skipping, @Stable, @Immutable, data classes, mutable collections, immutable collections, lambdas, state holders и чтение compiler reports."
+title: "Стабильность"
+description: "Разбираем stability в Jetpack Compose: stable, immutable и unstable types, compiler inference, strong skipping, @Stable, @Immutable, классы данных, mutable collections, immutable collections, лямбды, держатели состояния и чтение отчеты компилятора."
 order: 102
-category: "Compose: Performance, stability and tooling"
+category: "Compose: производительность, стабильность и инструменты"
 difficulty: "Продвинутый"
 ---
 
@@ -21,7 +21,7 @@ Compose интересует:
 - можно ли доверять `equals`;
 - являются ли public properties стабильными;
 - есть ли mutable collections;
-- есть ли hidden mutable state.
+- есть ли hidden изменяемое состояние.
 
 ```kotlin
 data class LessonUi(
@@ -54,7 +54,7 @@ data class UserName(
 )
 ```
 
-Пример stable state holder:
+Пример stable держатель состояния:
 
 ```kotlin
 import androidx.compose.runtime.getValue
@@ -128,7 +128,7 @@ fun addMessage(
 
 ## Immutable collections
 
-Обычный `List<T>` в Kotlin является read-only интерфейсом, но не гарантирует immutable implementation. Compose compiler может считать такие types unstable, потому что под интерфейсом может быть mutable list.
+Обычный `List<T>` в Kotlin является только для чтения интерфейсом, но не гарантирует immutable implementation. Compose compiler может считать такие types unstable, потому что под интерфейсом может быть mutable list.
 
 Для stronger contract используйте Kotlinx immutable collections:
 
@@ -177,7 +177,7 @@ data class ProductUi(
 )
 ```
 
-Не ставьте `@Immutable` как "ускоритель" на любой класс. Это обещание. Если внутри mutable state, вы обманываете compiler.
+Не ставьте `@Immutable` как "ускоритель" на любой класс. Это обещание. Если внутри изменяемое состояние, вы обманываете compiler.
 
 Плохо:
 
@@ -229,8 +229,8 @@ Compose compiler сам выводит stability для многих типов:
 
 - primitives;
 - String;
-- enums;
-- stable/immutable data classes;
+- enum-классы;
+- stable/immutable классы данных;
 - stable function types в определенных условиях;
 - Compose state types;
 - types с корректными annotations.
@@ -239,7 +239,7 @@ Compose compiler сам выводит stability для многих типов:
 
 - generic types;
 - external library types;
-- read-only collection interfaces;
+- только для чтения collection interfaces;
 - mutable public properties;
 - interfaces с unknown implementations;
 - Java types.
@@ -268,7 +268,7 @@ Strong skipping — режим Compose compiler, который расширяе
 Практический смысл:
 
 - меньше recomposition в типичных cases;
-- lambdas чаще remembered compiler-ом;
+- лямбды чаще remembered compiler-ом;
 - unstable parameter не всегда автоматически означает "все плохо";
 - но stability contract все равно важен.
 
@@ -285,7 +285,7 @@ data class MutableProfile(
 
 ## Lambdas и stability
 
-Callbacks часто передаются вниз:
+Обратные вызовы часто передаются вниз:
 
 ```kotlin
 @Composable
@@ -303,9 +303,9 @@ fun ProductRow(
 }
 ```
 
-Это нормальный Compose code. Не надо преждевременно превращать каждую lambda в remembered object.
+Это нормальный Compose code. Не надо преждевременно превращать каждую лямбда в remembered object.
 
-Если lambda создается в hot list и захватывает unstable object, смотрите compiler metrics и фактические recompositions.
+Если лямбда создается в hot list и захватывает unstable object, смотрите метрики компилятора и фактические recompositions.
 
 Хороший pattern:
 
@@ -325,11 +325,11 @@ items(
 }
 ```
 
-Если появились проблемы, измеряйте. Не переписывайте все callbacks на event objects без сигнала.
+Если появились проблемы, измеряйте. Не переписывайте все обратные вызовы на event objects без сигнала.
 
-## Stable state holders
+## Stable держатели состояния
 
-State holder может быть stable:
+Держатель состояния может быть stable:
 
 ```kotlin
 @Stable
@@ -423,7 +423,7 @@ UI models должны быть маленькими, immutable и oriented на
 
 ## Stability reports
 
-Compose compiler reports помогают увидеть:
+Compose отчеты компилятора помогают увидеть:
 
 - какие composables restartable/skippable;
 - какие parameters stable/unstable;
@@ -489,7 +489,7 @@ Performance engineering — это trade-off, а не охота на слово
 
 ## Testing stability assumptions
 
-Stability bugs часто проявляются как stale UI. Тестируйте state updates:
+Stability bugs часто проявляются как stale UI. Тестируйте обновления состояния:
 
 ```kotlin
 import androidx.compose.runtime.mutableStateOf
@@ -566,12 +566,12 @@ UI model должна быть rendering-friendly и stable.
 Stability помогает Compose безопасно пропускать работу:
 
 - immutable values легче всего для compiler и runtime;
-- stable state holders могут меняться, если изменения observable;
+- stable держатели состояния могут меняться, если изменения observable;
 - mutable collections и Java/platform types часто делают параметры unstable;
 - `@Immutable` и `@Stable` являются контрактами, а не ускорителями;
 - immutable persistent collections помогают с большими списками;
 - compiler inference хорош, но не всесилен;
 - strong skipping улучшает skipping, но не заменяет честную state model;
 - UI DTO обычно лучше domain/service objects в composables;
-- compiler reports нужно читать вместе с measurements;
+- отчеты компилятора нужно читать вместе с measurements;
 - оптимизируйте stability там, где есть user-visible performance signal.

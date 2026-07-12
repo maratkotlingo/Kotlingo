@@ -569,7 +569,7 @@ fun main() {
 - `init` выполняет проверки и первичную логику;
 - initializers и `init` blocks выполняются в текстовом порядке;
 - secondary constructor обязан делегировать primary через `this(...)`;
-- defaults или named factories часто яснее множества secondary constructors;
+- значения по умолчанию или named factories часто яснее множества secondary constructors;
 - `this` обозначает текущий экземпляр и разрешает затенение;
 - нельзя безопасно публиковать `this` до завершения инициализации;
 - private constructor и methods помогают сохранять инварианты;

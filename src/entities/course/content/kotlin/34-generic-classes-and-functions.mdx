@@ -1,8 +1,8 @@
 ---
-title: "Generic classes и generic functions"
+title: "Обобщенные классы и функции"
 description: "Изучаем type parameters, вывод типов, generic-классы и функции, upper bounds, несколько ограничений через where, generic factories и ограничения constructors."
 order: 34
-category: "Generics и типовая система"
+category: "Дженерики и типовая система"
 difficulty: "Средний"
 ---
 
@@ -521,7 +521,7 @@ class Store<T> {
 
 Generic не заменяет encapsulation.
 
-## Практический пример: типизированный repository
+## Практический пример: типизированный репозиторий
 
 ```kotlin
 interface Entity<Id : Any> {
@@ -584,10 +584,10 @@ fun main() {
 
 - ID non-null через `Id : Any`;
 - Item связан с тем же ID через `Item : Entity<Id>`;
-- нельзя использовать StudentId для Lesson repository;
+- нельзя использовать StudentId для Lesson репозиторий;
 - factory inference выводит arguments `InMemoryRepository` из expected type;
 - storage скрыт и возвращает snapshots;
-- generic helper работает с любым совместимым repository.
+- generic helper работает с любым совместимым репозиторий.
 
 ## Итоги
 

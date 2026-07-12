@@ -1,8 +1,8 @@
 ---
-title: "Lazy performance"
-description: "Разбираем performance LazyColumn, LazyRow, grids и paging в Jetpack Compose: stable keys, contentType, item state, derived scroll state, item animations, image loading, nested lazy layouts, Paging integration и диагностику jank."
+title: "Производительность Lazy"
+description: "Разбираем performance LazyColumn, LazyRow, grids и paging в Jetpack Compose: stable keys, contentType, item state, derived scroll state, item animations, image загрузка, nested lazy layouts, Paging integration и диагностику jank."
 order: 105
-category: "Compose: Performance, stability and tooling"
+category: "Compose: производительность, стабильность и инструменты"
 difficulty: "Продвинутый"
 ---
 
@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Почему lazy performance отдельная тема
 
-Lazy layouts — один из самых частых performance hotspot в Compose. Список может содержать сотни элементов, но на экране одновременно видны десятки. Ошибка в item composition, keys, image loading или state ownership быстро превращается в scroll jank.
+Lazy layouts — один из самых частых performance hotspot в Compose. Список может содержать сотни элементов, но на экране одновременно видны десятки. Ошибка в item composition, keys, image загрузка или владение состоянием быстро превращается в scroll jank.
 
 Проблемы lazy performance обычно выглядят так:
 
@@ -21,7 +21,7 @@ Lazy layouts — один из самых частых performance hotspot в Co
 - список пересоздает слишком много composition;
 - images декодируются слишком большими;
 - анимации item placement тормозят;
-- paging показывает нестабильные placeholders;
+- paging показывает нестабильные заглушки;
 - nested lazy layouts конфликтуют по constraints.
 
 ```kotlin
@@ -168,7 +168,7 @@ contentType = { item ->
 }
 ```
 
-## Item state ownership
+## Item владение состоянием
 
 State внутри item должен иметь правильную identity.
 
@@ -191,7 +191,7 @@ fun ExpandableFeedItem(
 }
 ```
 
-Если expanded state должен переживать screen recreation или быть shared, храните его выше:
+Если expanded state должен переживать пересоздание экрана или быть общий, храните его выше:
 
 ```kotlin
 data class FeedUiState(
@@ -200,13 +200,13 @@ data class FeedUiState(
 )
 ```
 
-Item-local `remember` подходит для purely visual transient state. Business state должен жить в state holder.
+Item-local `remember` подходит для purely visual transient state. Business state должен жить в держатель состояния.
 
 <MouseTrap>
 `remember { mutableStateOf(...) }` внутри item без key — классический способ перепутать state при reorder.
 </MouseTrap>
 
-## Avoid heavy work in item
+## Избегайте тяжелой работы в элементе
 
 Плохо:
 
@@ -274,9 +274,9 @@ fun ScrollAwareFab(
 
 Не передавайте raw `firstVisibleItemScrollOffset` в весь screen, если он нужен только для одной кнопки/header.
 
-## `snapshotFlow` для scroll side effects
+## `snapshotFlow` для scroll побочные эффекты
 
-Если scroll должен запускать analytics или prefetch event, используйте `snapshotFlow` внутри effect.
+Если scroll должен запускать аналитика или prefetch event, используйте `snapshotFlow` внутри effect.
 
 ```kotlin
 import androidx.compose.foundation.lazy.LazyListState
@@ -306,7 +306,7 @@ fun FeedScrollAnalytics(
 }
 ```
 
-Не пишите analytics прямо в composition. Side effects должны жить в effect API.
+Не пишите аналитика прямо в composition. Побочные эффекты должны жить в API эффектов.
 
 ## Item animations
 
@@ -342,9 +342,9 @@ LazyColumn {
 - если item layout очень тяжелый;
 - без измерения.
 
-## Placeholder size
+## Заглушка size
 
-Loading placeholders должны иметь близкий размер к real content. Иначе при data load список прыгает и пересчитывает layout.
+Загрузка заглушки должны иметь близкий размер к real content. Иначе при data load список прыгает и пересчитывает layout.
 
 ```kotlin
 @Composable
@@ -363,9 +363,9 @@ fun ArticlePlaceholder() {
 }
 ```
 
-Если placeholder height 40.dp, а real item 160.dp, scroll position и layout будут нестабильными.
+Если заглушка height 40.dp, а real item 160.dp, scroll position и layout будут нестабильными.
 
-## Images in lazy items
+## Изображения в ленивых элементах
 
 Изображения часто ломают scroll performance.
 
@@ -374,7 +374,7 @@ fun ArticlePlaceholder() {
 - используйте image loader с size awareness;
 - не декодируйте original size для маленькой card;
 - задавайте stable aspect ratio;
-- используйте placeholder с тем же размером;
+- используйте заглушка с тем же размером;
 - избегайте тяжелых transformations на каждый item;
 - не создавайте painter/request без remember, если строите вручную;
 - prefetch должен быть умеренным.
@@ -487,7 +487,7 @@ fun PagedArticlesList(
 }
 ```
 
-Use `itemKey` и `itemContentType`, чтобы Paging placeholders и loaded items имели понятную identity.
+Используй `itemKey` и `itemContentType`, чтобы заглушки Paging и загруженные элементы имели понятную identity.
 
 ## Load states
 
@@ -527,7 +527,7 @@ fun LazyListScope.pagingLoadStateItems(
 
 Load state rows тоже нуждаются в keys/contentType, особенно если они появляются/исчезают внизу списка.
 
-## Prefetch and precompose caution
+## Предварительная выборка и предварительное составление с осторожностью
 
 Compose lazy layouts имеют internal prefetch behavior, а image loaders могут иметь свой prefetch. Не добавляйте агрессивный manual prefetch без measurement.
 
@@ -543,10 +543,10 @@ LaunchedEffect(listState.firstVisibleItemIndex) {
 
 - использовать Paging;
 - prefetch near viewport с debounce;
-- делать repository-level caching;
+- делать репозиторий-level caching;
 - измерять network/disk/main thread.
 
-## Diagnostics checklist
+## Проверочный список диагностики
 
 Для scroll jank проверьте:
 
@@ -556,10 +556,10 @@ LaunchedEffect(listState.firstVisibleItemIndex) {
 - Layout Inspector counters у item;
 - trace на long frames;
 - image decode/resize;
-- placeholder size;
+- заглушка size;
 - nested lazy layouts;
 - item animations;
-- allocations in item;
+- распределения по статье;
 - heavy text measurement;
 - Paging load states.
 
@@ -586,7 +586,7 @@ Lazy layout хуже reuse-ит composition.
 
 Item composition должен быть легким.
 
-### Placeholder другого размера
+### Заглушка другого размера
 
 Scroll position прыгает после загрузки.
 
@@ -611,9 +611,9 @@ Lazy performance строится вокруг identity и легких items:
 - item-local state должен быть keyed или hoisted;
 - не делайте heavy work в item composition;
 - scroll-derived UI используйте через `derivedStateOf`;
-- side effects по scroll делайте через `snapshotFlow`;
+- побочные эффекты по scroll делайте через `snapshotFlow`;
 - item animations требуют stable keys и measurement;
-- placeholder должен быть близок к real item size;
+- заглушка должен быть близок к real item size;
 - images должны загружаться с правильным размером;
 - nested same-direction lazy layouts лучше flatten-ить;
 - Paging integration требует `itemKey`, `itemContentType` и load state rows.

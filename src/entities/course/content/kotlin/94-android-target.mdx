@@ -1,6 +1,6 @@
 ---
-title: "Android Target"
-description: "Android target в Kotlin Multiplatform: Android Gradle Plugin, androidMain, Main dispatcher, lifecycle scope, Parcelize, Compose overview, platform dependencies и границы shared-кода."
+title: "Android-таргет"
+description: "Android target в Kotlin Multiplatform: Android Gradle Plugin, androidMain, Main dispatcher, lifecycle scope, Parcelize, Compose overview, platform dependencies и границы общий-кода."
 order: 94
 category: "Kotlin Multiplatform"
 difficulty: "Продвинутый"
@@ -11,14 +11,14 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Android target в KMP
 
-Android target компилирует shared module так, чтобы его можно было использовать в Android application или Android library.
+Android target компилирует общий модуль так, чтобы его можно было использовать в Android application или Android library.
 
 Типичная роль:
 
-- shared business logic in `commonMain`;
-- Android-specific storage/network/platform adapters in `androidMain`;
-- Android UI in app module or shared Compose module;
-- integration with Android lifecycle, resources and permissions;
+- общий business logic in `commonMain`;
+- Адаптеры хранилища/сети/платформы для Android в `androidMain`;
+- Android UI in app module or общий Compose module;
+- интеграция с жизненным циклом, ресурсами и разрешениями Android;
 - `Dispatchers.Main` through Android coroutine module.
 
 ```kotlin
@@ -42,7 +42,7 @@ android {
 ```
 
 <CatTip>
-Android target — это кошачий мостик между shared логикой и Android-миром: common code идет по центру, а `androidMain` держит Context, Parcelable, lifecycle и Jetpack.
+Android target — это кошачий мостик между общий логикой и Android-миром: common code идет по центру, а `androidMain` держит Context, Parcelable, lifecycle и Jetpack.
 </CatTip>
 
 ## `androidMain`
@@ -105,7 +105,7 @@ class AndroidPreferencesProgressStore(
 `commonMain` знает только `ProgressStore`, а Android details stay in `androidMain`.
 
 <MouseTrap>
-Не протаскивай `Context` в common code. Если common code просит Android Context, shared boundary уже течет. Передай interface, value object или конкретный adapter из Android layer.
+Не протаскивай `Context` в common code. Если common code просит Android Context, общий boundary уже течет. Передай interface, value object или конкретный adapter из Android layer.
 </MouseTrap>
 
 ## Android Gradle Plugin
@@ -141,10 +141,10 @@ Remember:
 
 - one Android target per Gradle subproject;
 - Android app module usually applies `com.android.application`;
-- shared Android library module usually applies `com.android.library`;
-- Android-specific dependencies belong in `androidMain`;
-- Android unit tests belong in `androidUnitTest`;
-- instrumented tests belong in Android test source sets depending on project setup.
+- общий Android library module usually applies `com.android.library`;
+- Зависимости, специфичные для Android, относятся к `androidMain`;
+- Модульные тесты Android относятся к `androidUnitTest`;
+- instrumented tests belong in Android test source sets depending on project настройка.
 
 ## Android dependencies
 
@@ -164,9 +164,9 @@ kotlin {
 }
 ```
 
-Put AndroidX dependencies in `androidMain`, unless the library explicitly provides a common multiplatform artifact.
+Put AndroidX dependencies in `androidMain`, unless the library explicitly provides a common multiplatform артефакт.
 
-Example with Android logger:
+Пример с регистратором Android:
 
 ```kotlin
 // commonMain/kotlin/logging/Logger.kt
@@ -200,7 +200,7 @@ class AndroidLogger(
 
 ## Main dispatcher
 
-On Android, `Dispatchers.Main` is backed by the Android main thread when `kotlinx-coroutines-android` is available.
+В Android `Dispatchers.Main` поддерживается основным потоком Android, когда доступен `kotlinx-coroutines-android`.
 
 ```kotlin
 import kotlinx.coroutines.CoroutineScope
@@ -245,7 +245,7 @@ class AndroidLessonRepository {
 }
 ```
 
-Use lifecycle-aware scopes in app code:
+Используйте области с учетом жизненного цикла в коде приложения:
 
 ```kotlin
 // Android app module example
@@ -265,11 +265,11 @@ class LessonViewModel(
 }
 ```
 
-Shared KMP module can expose suspending use cases; Android app decides lifecycle scope.
+Общий KMP module can expose suspending сценарии использования; Android app decides lifecycle scope.
 
 ## Parcelize
 
-`Parcelable` is Android-specific. Use `kotlin-parcelize` only in Android source sets or Android app module.
+`Parcelable` зависит от Android. Используйте `kotlin-parcelize` только в наборах исходного кода Android или модуле приложения Android.
 
 ```kotlin
 plugins {
@@ -293,7 +293,7 @@ data class LessonArgs(
 ) : Parcelable
 ```
 
-Common model should not implement `Parcelable`.
+Общая модель не должна реализовывать `Parcelable`.
 
 ```kotlin
 // commonMain/kotlin/lesson/LessonId.kt
@@ -309,7 +309,7 @@ value class LessonId(
 }
 ```
 
-Mapping at Android boundary:
+Сопоставление на границе Android:
 
 ```kotlin
 // androidMain/kotlin/navigation/LessonArgsMapper.kt
@@ -328,12 +328,12 @@ fun LessonArgs.toLessonId(): LessonId {
 
 ## Compose overview
 
-There are two common architectures:
+Существует две распространенные архитектуры:
 
-- native Android UI consumes shared Kotlin use cases;
-- Compose Multiplatform shares UI across Android, iOS, desktop and web.
+- native Android UI consumes общий Kotlin сценарии использования;
+- Compose Multiplatform использует общий пользовательский интерфейс на Android, iOS, настольных компьютерах и в Интернете.
 
-Native Android UI with shared domain:
+Native Android UI with общий domain:
 
 ```kotlin
 // commonMain/kotlin/lesson/OpenLessonUseCase.kt
@@ -371,7 +371,7 @@ sealed interface LessonScreenState {
 }
 ```
 
-Android Compose consumes it:
+Android Compose использует его:
 
 ```kotlin
 // Android app module
@@ -391,11 +391,11 @@ fun LessonScreen(state: LessonScreenState) {
 }
 ```
 
-Compose Multiplatform shared UI can live in `commonMain`, but platform APIs still require platform source sets or expect/actual boundaries.
+Compose Multiplatform общий UI can live in `commonMain`, but platform APIs still require platform source sets or expect/actual boundaries.
 
-## Resources and platform APIs
+## Ресурсы и API платформы
 
-Android resources are Android-specific. Common code should not depend directly on `R.string`.
+Ресурсы Android специфичны для Android. Общий код не должен напрямую зависеть от `R.string`.
 
 Bad boundary:
 
@@ -450,19 +450,19 @@ class AndroidTextResolver(
 }
 ```
 
-## Production checklist
+## Проверочный список для боевого кода
 
-For Android target:
+Для цели Android:
 
-- Android plugin and Kotlin plugin versions are compatible;
+- Версии плагинов Android и Kotlin совместимы;
 - `namespace`, `compileSdk`, `minSdk` are explicit;
-- Android-only dependencies are in `androidMain`;
-- `Dispatchers.Main` is backed by `kotlinx-coroutines-android`;
-- common code does not depend on `Context`, `Parcelable`, `R`, `Activity` or `ViewModel`;
-- lifecycle ownership stays in Android layer;
-- shared code exposes suspending APIs or observable state;
-- Parcelize stays in Android layer;
-- Compose sharing boundary is deliberate.
+- Зависимости только для Android находятся в `androidMain`;
+- `Dispatchers.Main` поддерживается `kotlinx-coroutines-android`;
+- общий код не зависит от `Context`, `Parcelable`, `R`, `Activity` или `ViewModel`;
+- владение жизненным циклом остается на уровне Android;
+- общий код exposes suspending APIs or observable state;
+- Parcelize остается на уровне Android;
+- Граница разделения композиций является преднамеренной.
 
 <CatTip>
 Хороший Android target делает Android-слой тонким, но не искусственно пустым: lifecycle, resources, permissions and UI остаются там, где platform действительно важна.

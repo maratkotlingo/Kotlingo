@@ -11,7 +11,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Жизненный цикл проще, но обманчивее
 
-У `Activity` есть знакомые callbacks: `onCreate`, `onStart`, `onResume`, `onPause`, `onStop`, `onDestroy`. У composable-функции нет такого набора методов. Ее lifecycle в Compose формулируется проще:
+У `Activity` есть знакомые обратные вызовы: `onCreate`, `onStart`, `onResume`, `onPause`, `onStop`, `onDestroy`. У composable-функции нет такого набора методов. Ее lifecycle в Compose формулируется проще:
 
 - composable входит в Composition;
 - composable может быть recomposed 0 или больше раз;
@@ -255,13 +255,13 @@ interface ScreenLogger {
 
 <MouseTrap title="Мышеловка: listener без onDispose остается жить дольше UI">
   Если зарегистрировать listener в composable и не удалить его, он может держать
-  ссылки на старый экран, вызывать устаревшие callbacks и создавать утечки.
+  ссылки на старый экран, вызывать устаревшие обратные вызовы и создавать утечки.
   Любая регистрация внешнего ресурса должна иметь симметричный cleanup.
 </MouseTrap>
 
 ### `rememberUpdatedState`
 
-Иногда long-lived effect должен продолжать жить, но использовать свежий callback. Для этого нужен `rememberUpdatedState`.
+Иногда long-lived effect должен продолжать жить, но использовать свежий обратный вызов. Для этого нужен `rememberUpdatedState`.
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -286,7 +286,7 @@ fun SplashTimer(
 }
 ```
 
-Без `rememberUpdatedState` можно случайно захватить старую lambda или перезапускать таймер чаще, чем нужно.
+Без `rememberUpdatedState` можно случайно захватить старую лямбда или перезапускать таймер чаще, чем нужно.
 
 ## Activity lifecycle и Composition lifecycle
 
@@ -428,7 +428,7 @@ fun LessonChecklistRow(
 
 ### `DisposableEffect`
 
-Позволяет выполнить setup и cleanup внешнего ресурса.
+Позволяет выполнить настройка и cleanup внешнего ресурса.
 
 ### `SideEffect`
 
@@ -440,7 +440,7 @@ fun LessonChecklistRow(
 
 ### `produceState`
 
-Создает `State<T>` из suspend/callback источника и управляет lifecycle producer coroutine.
+Создает `State<T>` из suspend/обратный вызов источника и управляет lifecycle producer coroutine.
 
 ### `CompositionLocalProvider`
 
@@ -452,7 +452,7 @@ fun LessonChecklistRow(
 
 ## Практический пример: экран с таймером и cleanup
 
-Ниже пример показывает lifecycle сразу в нескольких местах: таймер отменяется при выходе, logger получает свежий callback, а состояние времени принадлежит route.
+Ниже пример показывает lifecycle сразу в нескольких местах: таймер отменяется при выходе, logger получает свежий обратный вызов, а состояние времени принадлежит route.
 
 ```kotlin
 import androidx.compose.foundation.layout.Arrangement
@@ -518,7 +518,7 @@ fun TimedLessonScreen(
 
 - `remember(lessonId)` сбрасывает счетчик, когда открыт другой урок;
 - `LaunchedEffect(lessonId)` отменяет старый таймер и запускает новый при смене урока;
-- `rememberUpdatedState(onLessonExpired)` защищает от устаревшего callback;
+- `rememberUpdatedState(onLessonExpired)` защищает от устаревшего обратный вызов;
 - если `TimedLessonRoute` выйдет из Composition, coroutine будет отменена;
 - `TimedLessonScreen` stateless и не знает про lifecycle coroutine.
 
@@ -527,7 +527,7 @@ fun TimedLessonScreen(
 Lifecycle composable-функций строится вокруг Composition:
 
 - вход в Composition происходит, когда вызов появляется в дереве;
-- recomposition может выполняться много раз и не является lifecycle callback;
+- recomposition может выполняться много раз и не является lifecycle обратный вызов;
 - выход из Composition удаляет remembered state и отменяет effects;
 - identity вызова определяется позицией и keys;
 - `remember` живет столько, сколько живет место вызова;

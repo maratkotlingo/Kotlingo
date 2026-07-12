@@ -1,8 +1,8 @@
 ---
-title: "State in Compose"
+title: "Состояние в Compose"
 description: "Подробно изучаем состояние в Jetpack Compose: State<T>, MutableState<T>, mutableStateOf, snapshot-система, mutation policies, SnapshotStateList, SnapshotStateMap и правила безопасного обновления UI."
 order: 28
-category: "Compose: State, recomposition и архитектура"
+category: "Compose: состояние, recomposition и архитектура"
 difficulty: "Средний"
 ---
 
@@ -61,7 +61,7 @@ fun CounterButton() {
 
 ## State<T>
 
-`State<T>` — read-only интерфейс состояния. Он предоставляет значение через свойство `value`.
+`State<T>` — только для чтения интерфейс состояния. Он предоставляет значение через свойство `value`.
 
 ```kotlin
 import androidx.compose.runtime.State
@@ -339,7 +339,7 @@ fun setQuantity(productId: String, quantity: Int) {
 
 Когда не использовать:
 
-- как основное хранилище бизнес-данных вместо repository;
+- как основное хранилище бизнес-данных вместо репозиторий;
 - для огромных коллекций без архитектурного слоя;
 - если проще хранить immutable `Map` в `StateFlow`.
 
@@ -430,7 +430,7 @@ data class ProfileHeaderUi(
 
 `@Immutable` — это обещание разработчика. Если внутри такого класса спрятать изменяемый список и мутировать его без state, Compose может получить неверные предположения.
 
-## Production-пример: экран фильтров
+## Боевой-пример: экран фильтров
 
 ```kotlin
 import androidx.compose.foundation.layout.Column
@@ -515,7 +515,7 @@ fun ProductFilters(
 
 Почему это хороший паттерн:
 
-- UI state immutable;
+- UI-состояние immutable;
 - изменения выполняются через `copy`;
 - `Set<String>` выражает выбор категорий без дубликатов;
 - composable читает один state-объект;
@@ -578,7 +578,7 @@ Compose не видит запись нового `draftState.value`. Лучше
 
 ### Передавать MutableState глубоко вниз
 
-Если дочерний компонент получает `MutableState`, он получает слишком много власти. Обычно лучше передать `value` и callback.
+Если дочерний компонент получает `MutableState`, он получает слишком много власти. Обычно лучше передать `value` и обратный вызов.
 
 ```kotlin
 import androidx.compose.material3.Switch
@@ -605,7 +605,7 @@ Recomposition — нормальная часть работы Compose. Проб
 State — центральная идея Compose:
 
 - UI является функцией от состояния;
-- `State<T>` дает read-only доступ;
+- `State<T>` дает только для чтения доступ;
 - `MutableState<T>` позволяет менять `value`;
 - `mutableStateOf` создает observable state;
 - mutation policies определяют, когда запись считается изменением;

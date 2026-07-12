@@ -1,8 +1,8 @@
 ---
-title: "Definitely non-nullable types"
+title: "Гарантированно ненулевые типы"
 description: "Разбираем T & Any, отличие от T : Any, generic nullability, platform contracts и точное переопределение Java @NotNull generic-методов."
 order: 37
-category: "Generics и типовая система"
+category: "Дженерики и типовая система"
 difficulty: "Продвинутый"
 ---
 
@@ -19,7 +19,7 @@ fun <T> identity(value: T): T = value
 val text: String? = identity<String?>(null)
 ```
 
-Внутри функции `T` нельзя считать non-null, потому что caller вправе выбрать `String?`.
+Внутри функции `T` нельзя считать non-null, потому что вызывающий код вправе выбрать `String?`.
 
 Иногда contract должен сохранить общий type argument `T`, но в конкретной позиции гарантировать отсутствие null. Для этого существует definitely non-nullable type `T & Any`.
 
@@ -161,7 +161,7 @@ Compiler enhances Java signatures на основе поддерживаемых
 - JetBrains `@NotNull`/`@Nullable`;
 - JSpecify annotations;
 - Android/JSR ecosystems в зависимости от toolchain;
-- package defaults и compiler strictness settings.
+- package значения по умолчанию и compiler strictness settings.
 
 Качество contract зависит от корректности Java annotations. Ложный `@NotNull`, возвращающий null, всё равно способен вызвать runtime failure.
 
@@ -227,7 +227,7 @@ fun <T> compact(values: Iterable<T?>): List<T & Any> {
 
 Result elements guaranteed non-null, при этом T сохраняет generic relation.
 
-На практике standard `filterNotNull`/`mapNotNull` signatures и inference часто дают удобный `List<T>` с suitable bound без явного `& Any` на call site.
+На практике standard `filterNotNull`/`mapNotNull` signatures и inference часто дают удобный `List<T>` с suitable bound без явного `& Any` на место вызова.
 
 ## Override Kotlin interface
 
@@ -239,7 +239,7 @@ interface Provider<T : Any> {
 }
 ```
 
-Если caller должен использовать `Provider<String?>`, model противоречива: provider обещает non-null, а argument nullable. Java interop — особый случай, где один interface method может nullable-enhance positions differently.
+Если вызывающий код должен использовать `Provider<String?>`, model противоречива: provider обещает non-null, а argument nullable. Java interop — особый случай, где один interface method может nullable-enhance positions differently.
 
 ## Definitely non-null и variance
 
@@ -376,7 +376,7 @@ fun main() {
 - T должен иметь nullable upper bound для meaningful intersection;
 - `<T : Any>` запрещает nullable type argument целиком;
 - `T & Any` сохраняет potentially nullable T, сужая отдельную позицию;
-- главный use case — override Java generic methods с `@NotNull`;
+- главный сценарий использования — override Java generic methods с `@NotNull`;
 - flow analysis создаёт definitely non-null type после null-check;
 - `requireNotNull` помогает установить boundary guarantee;
 - type erasure не исчезает;

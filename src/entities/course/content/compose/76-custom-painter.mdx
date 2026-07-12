@@ -1,8 +1,8 @@
 ---
-title: "Custom Painter"
-description: "Разбираем Painter в Jetpack Compose: onDraw, intrinsicSize, Image, Modifier.paint, BitmapPainter, ColorPainter, BrushPainter, custom painter, alpha, ColorFilter, LayoutDirection и переиспользуемую draw-логику."
+title: "Пользовательский Painter"
+description: "Разбираем Painter в Jetpack Compose: onDraw, intrinsicSize, Image, Modifier.paint, BitmapPainter, ColorPainter, BrushPainter, пользовательский painter, alpha, ColorFilter, LayoutDirection и переиспользуемую draw-логику."
 order: 76
-category: "Compose: Graphics, Canvas and drawing"
+category: "Compose: графика, Canvas и рисование"
 difficulty: "Продвинутый"
 ---
 
@@ -23,7 +23,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - `BitmapPainter`;
 - `ColorPainter`;
 - `BrushPainter`;
-- custom painter-классах.
+- пользовательский painter-классах.
 
 ```kotlin
 import androidx.compose.foundation.Image
@@ -42,7 +42,7 @@ fun ResourcePainterImage() {
 `painterResource` возвращает подходящий painter для ресурса: bitmap asset станет bitmap painter, vector drawable станет vector painter.
 
 <CatTip>
-`Painter` — это reusable drawing object. Если вы хотите переиспользовать одно и то же рисование в `Image`, `Icon` и `Modifier.paint`, painter часто выразительнее, чем отдельный composable.
+`Painter` — это переиспользуемый drawing object. Если вы хотите переиспользовать одно и то же рисование в `Image`, `Icon` и `Modifier.paint`, painter часто выразительнее, чем отдельный composable.
 </CatTip>
 
 ## `Painter` против `Canvas` и draw modifiers
@@ -55,19 +55,19 @@ Drawing modifiers рисуют вокруг уже существующего co
 
 Разница важна:
 
-- `Canvas` подходит для отдельного custom-drawn UI element;
+- `Canvas` подходит для отдельного пользовательский-drawn UI element;
 - `drawBehind` и `drawWithContent` подходят для decoration существующего composable;
-- `Painter` подходит для reusable graphics asset или программно рисуемого изображения;
-- custom `Painter` может влиять на измерение через `intrinsicSize`;
+- `Painter` подходит для переиспользуемый graphics asset или программно рисуемого изображения;
+- пользовательский `Painter` может влиять на измерение через `intrinsicSize`;
 - draw modifier строго рисует в уже выделенных bounds.
 
 <MouseTrap>
-Не превращайте каждый custom drawing block в `Painter`. Если рисование тесно связано с конкретным composable и не переиспользуется, `drawBehind` или `Canvas` обычно проще.
+Не превращайте каждый собственное рисование block в `Painter`. Если рисование тесно связано с конкретным composable и не переиспользуется, `drawBehind` или `Canvas` обычно проще.
 </MouseTrap>
 
 ## Anatomy of `Painter`
 
-Custom painter обычно переопределяет:
+Пользовательский painter обычно переопределяет:
 
 - `onDraw()`: основная draw-логика внутри `DrawScope`;
 - `intrinsicSize`: желаемый размер, если painter может его сообщить.
@@ -105,7 +105,7 @@ class StatusDotPainter(
 }
 ```
 
-`onDraw` получает фактический `size`, в который painter рисуется сейчас. Он может отличаться от `intrinsicSize`, если caller задал другой размер или `ContentScale`.
+`onDraw` получает фактический `size`, в который painter рисуется сейчас. Он может отличаться от `intrinsicSize`, если вызывающий код задал другой размер или `ContentScale`.
 
 ## `intrinsicSize`
 
@@ -150,7 +150,7 @@ fun IntrinsicDotImage() {
 
 Если `Image` не получает explicit size, он может использовать intrinsic size painter-а. Для UI, где размер должен быть стабильным, чаще задают `Modifier.size`.
 
-## Custom painter для initials avatar
+## Пользовательский painter для initials avatar
 
 Painter может рисовать shape, фон и текстоподобные элементы. Но полноценный текст в `DrawScope` лучше делать через text APIs, а для обычного текста использовать composables.
 
@@ -414,7 +414,7 @@ fun DisabledPainterIcon(
 }
 ```
 
-Для disabled state одного alpha мало. Интерактивный компонент должен также отключить действие через `enabled = false` или не принимать клик.
+Для отключенное состояние одного alpha мало. Интерактивный компонент должен также отключить действие через `enabled = false` или не принимать клик.
 
 ## Layout direction в painter
 
@@ -552,11 +552,11 @@ fun CourseCover(
 
 ### Рисовать текст вручную без причины
 
-Text composables уже решают font scale, baseline, accessibility и style. Custom painter для букв нужен редко.
+Text composables уже решают font scale, baseline, accessibility и style. Пользовательский painter для букв нужен редко.
 
 ### Забывать content description
 
-Painter рисует картинку, но accessibility задает caller через `Image`, `Icon`, semantics или surrounding component.
+Painter рисует картинку, но accessibility задает вызывающий код через `Image`, `Icon`, semantics или surrounding component.
 
 ## Итоги
 
@@ -566,7 +566,7 @@ Painter рисует картинку, но accessibility задает caller ч
 - `intrinsicSize` может влиять на measurement;
 - `Image` и `Modifier.paint` являются основными точками применения;
 - `BitmapPainter`, `ColorPainter` и `BrushPainter` покрывают частые случаи;
-- custom painter хорош для reusable graphics;
+- пользовательский painter хорош для переиспользуемый graphics;
 - `Canvas` и draw modifiers часто проще для локального drawing;
 - painter нужно помнить через `remember`, если создание не бесплатное;
 - в public API часто лучше передавать resource id или URL, а не painter;

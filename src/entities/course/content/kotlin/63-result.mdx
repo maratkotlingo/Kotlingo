@@ -30,7 +30,7 @@ println(parsePercent("42%"))  // Success(42)
 println(parsePercent("кот"))  // Failure(java.lang.NumberFormatException...)
 ```
 
-`Result` не заменяет исключения во всем коде. Он полезен, когда ошибка является ожидаемым вариантом результата и caller должен явно решить, что с ней делать.
+`Result` не заменяет исключения во всем коде. Он полезен, когда ошибка является ожидаемым вариантом результата и вызывающий код должен явно решить, что с ней делать.
 
 <CatTip>
 `Result` — это переноска с двумя отделениями: в одном лежит удачный результат, в другом свернулся пойманный exception. Caller открывает переноску и сам выбирает дальнейший путь.
@@ -160,7 +160,7 @@ fun parseOptionalPercent(raw: String?): Int? {
 ```
 
 <MouseTrap>
-`getOrNull` стирает причину ошибки. Не используй его там, где user, log или caller должны понять, что именно пошло не так.
+`getOrNull` стирает причину ошибки. Не используй его там, где user, log или вызывающий код должны понять, что именно пошло не так.
 </MouseTrap>
 
 ## `exceptionOrNull`
@@ -290,7 +290,7 @@ val recovered = parsePercent("кот").recoverCatching {
 
 ## `onSuccess` и `onFailure`
 
-`onSuccess` и `onFailure` выполняют side effect и возвращают исходный `Result` без изменения.
+`onSuccess` и `onFailure` выполняют побочный эффект и возвращают исходный `Result` без изменения.
 
 ```kotlin
 val result = parsePercent("80")
@@ -310,7 +310,7 @@ val label = result.map { percent ->
 }
 ```
 
-## Production-пример: слой чтения настроек
+## Боевой-пример: слой чтения настроек
 
 ```kotlin
 data class CourseSettings(
@@ -356,7 +356,7 @@ fun renderSettingsStatus(reader: SettingsReader): String {
 
 ## Public API considerations
 
-`Result` хорош для Kotlin-only API, где caller ожидает functional-style handling.
+`Result` хорош для Kotlin-only API, где вызывающий код ожидает functional-style handling.
 
 ```kotlin
 interface LessonParser {
@@ -383,7 +383,7 @@ sealed interface LessonParseOutcome {
 `Result` отвечает на вопрос «успех или exception». Sealed outcome отвечает на вопрос «какие именно доменные исходы возможны».
 
 <CatTip>
-Хорошая эвристика: если caller должен показать пользователю разные сообщения для разных ошибок, подумай о typed error model. Если нужно просто безопасно обернуть risky operation, `Result` будет purr-fect.
+Хорошая эвристика: если вызывающий код должен показать пользователю разные сообщения для разных ошибок, подумай о typed error model. Если нужно просто безопасно обернуть risky operation, `Result` будет purr-fect.
 </CatTip>
 
 

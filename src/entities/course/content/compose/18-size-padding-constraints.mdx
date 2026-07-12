@@ -2,7 +2,7 @@
 title: "Размеры, отступы и constraints"
 description: "Разбираем размер и ограничения в Compose: constraints, size, requiredSize, width, height, fillMaxSize, wrapContentSize, padding, absolutePadding, systemBarsPadding, imePadding и устойчивые layout-правила."
 order: 18
-category: "Compose: Layouts, constraints и Modifier"
+category: "Compose: разметки, constraints и Modifier"
 difficulty: "Средний"
 ---
 
@@ -46,7 +46,7 @@ fun FixedSquare() {
 }
 ```
 
-Есть overload с разными шириной и высотой:
+Есть перегрузка с разными шириной и высотой:
 
 ```kotlin
 @Composable
@@ -244,11 +244,11 @@ fun AbsolutePaddingExample() {
 }
 ```
 
-Используй `absolutePadding` только когда физическая левая и правая сторона действительно важны, например для canvas overlay или специфичного media layout.
+Используй `absolutePadding` только когда физическая левая и правая сторона действительно важны, например для canvas наложение или специфичного media layout.
 
 ## Insets padding
 
-Edge-to-edge UI требует учитывать системные области: status bar, navigation bar, IME, display cutout.
+Edge-to-edge UI требует учитывать системные области: строка состояния, панель навигации, IME, display cutout.
 
 Частые modifiers:
 

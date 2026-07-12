@@ -1,6 +1,6 @@
 ---
-title: "Read-only и mutable collections"
-description: "Разбираем иерархию Iterable, Collection, List, Set и Map, mutable-интерфейсы, covariance, equality, read-only view против настоящей immutability, ownership и defensive copies."
+title: "Только для чтения и изменяемые коллекции"
+description: "Разбираем иерархию Iterable, Collection, List, Set и Map, mutable-интерфейсы, covariance, equality, только для чтения view против настоящей immutability, ownership и defensive copies."
 order: 46
 category: "Коллекции"
 difficulty: "Средний"
@@ -11,10 +11,10 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Две поверхности API
 
-Kotlin разделяет interfaces коллекций на read-only и mutable:
+Kotlin разделяет interfaces коллекций на только для чтения и mutable:
 
-- read-only разрешает наблюдать/обходить contents;
-- mutable расширяет read-only write operations.
+- только для чтения разрешает наблюдать/обходить contents;
+- mutable расширяет только для чтения write operations.
 
 ```kotlin
 val readOnly: List<String> = listOf("Contracts", "Collections")
@@ -25,7 +25,7 @@ println(readOnly)
 println(mutable)
 ```
 
-Read-only type не имеет `add`, `remove`, indexed setter. Но это **не гарантия глубокой или физической неизменности**.
+Только для чтения type не имеет `add`, `remove`, indexed setter. Но это **не гарантия глубокой или физической неизменности**.
 
 ## `Iterable<T>`
 
@@ -50,7 +50,7 @@ operator fun iterator(): Iterator<T>
 - известный `size` без обхода;
 - indexed access;
 - uniqueness;
-- repeatable iteration для всех custom implementations;
+- повторяемая итерация для всех пользовательских реализаций;
 - ordering semantics, если type их не определяет.
 
 Принимай `Iterable<T>`, если algorithm нужен только последовательный обход.
@@ -107,7 +107,7 @@ fun addDefaults(target: MutableCollection<String>) {
 }
 ```
 
-Signature явно сообщает side effect. Не принимай mutable collection, если function только читает.
+Signature явно сообщает побочный эффект. Не принимай mutable collection, если function только читает.
 
 ## `List<T>`
 
@@ -235,9 +235,9 @@ lessons.putAll(mapOf(47 to "Создание коллекций"))
 
 `put` возвращает previous value или null. Если map допускает nullable values, null не различает «key отсутствовал» и «previous value null»; используй `containsKey` при необходимости.
 
-## Read-only covariance
+## Только для чтения covariance
 
-Read-only `List`/`Collection`/`Iterable` covariant (`out T`).
+Только для чтения `List`/`Collection`/`Iterable` covariant (`out T`).
 
 ```kotlin
 open class Content(val title: String)
@@ -260,7 +260,7 @@ val mutableLessons: MutableList<Lesson> = mutableListOf()
 
 ## Map variance
 
-Read-only Map covariant по value `V`, но key `K` используется в input operations lookup и не объявлен covariant.
+Только для чтения Map covariant по value `V`, но key `K` используется в input operations lookup и не объявлен covariant.
 
 ```kotlin
 val lessonMap: Map<Int, Lesson> = mapOf(46 to Lesson("Collections"))
@@ -284,7 +284,7 @@ lessons += "Collections"
 
 Но object остаётся mutable.
 
-## Read-only view mutable storage
+## Только для чтения view mutable storage
 
 ```kotlin
 val storage = mutableListOf("Contracts")
@@ -297,7 +297,7 @@ println(view)
 View показывает изменение, потому что обе references указывают на один object.
 
 <MouseTrap title="Мышеловка: List не гарантирует immutable object">
-Read-only interface запрещает mutation через эту reference. Владелец другой MutableList reference, Java code или cast может изменить тот же object.
+Только для чтения interface запрещает mutation через эту reference. Владелец другой MutableList reference, Java code или cast может изменить тот же object.
 </MouseTrap>
 
 ## Defensive copy
@@ -311,7 +311,7 @@ class Course(initialLessons: List<String>) {
 }
 ```
 
-Copy constructor input предотвращает изменение через caller mutable list.
+Copy constructor input предотвращает изменение через вызывающий код mutable list.
 
 Если elements mutable, copy shallow:
 
@@ -334,7 +334,7 @@ val snapshot: List<String>
     get() = mutableLessons.toList()
 ```
 
-Live read-only view:
+Live только для чтения view:
 
 ```kotlin
 val view: List<String>
@@ -345,7 +345,7 @@ Snapshot allocates и фиксирует structure moment. View дешёвый, 
 
 ## Immutable persistent collections
 
-Standard read-only interfaces не гарантируют persistent immutability. Для true immutable/persistent structures можно использовать specialized library, например kotlinx immutable collections, с собственными types/operations.
+Standard только для чтения interfaces не гарантируют persistent immutability. Для true immutable/persistent structures можно использовать specialized library, например kotlinx immutable collections, с собственными types/operations.
 
 Не добавляй dependency без необходимости; часто ownership + defensive copies + immutable element models достаточно.
 
@@ -364,7 +364,7 @@ Standard read-only interfaces не гарантируют persistent immutabilit
 Ownership важнее названия interface.
 
 <CatTip title="Котосовет: parameter шире, return уже и безопаснее">
-Принимай `Iterable`/`Collection`, если достаточно; возвращай `List` snapshot, если order важен. Mutable type выставляй только когда caller действительно должен менять переданный object.
+Принимай `Iterable`/`Collection`, если достаточно; возвращай `List` snapshot, если order важен. Mutable type выставляй только когда вызывающий код действительно должен менять переданный object.
 </CatTip>
 
 ## Concurrent modification
@@ -377,11 +377,11 @@ val snapshot = synchronized(lock) {
 }
 ```
 
-Один snapshot безопасен после выхода, если elements immutable. Не держи lock во время callback client code.
+Один snapshot безопасен после выхода, если elements immutable. Не держи lock во время обратный вызов client code.
 
 ## Java interop
 
-На JVM read-only и mutable Kotlin interfaces часто отображаются на те же Java collection types. Java caller способен вызвать mutation method на object, который Kotlin API показывал как List.
+На JVM только для чтения и mutable Kotlin interfaces часто отображаются на те же Java collection types. Java вызывающий код способен вызвать mutation method на object, который Kotlin API показывал как List.
 
 Для boundary:
 
@@ -449,12 +449,11 @@ Catalog владеет mutable map, принимает широкий Iterable, 
 - `Set` unique по equality/hash/comparator;
 - `Map` хранит unique keys и не наследует Collection;
 - mutable interfaces добавляют write operations;
-- read-only collections covariant, mutable invariant;
+- только для чтения collections covariant, mutable invariant;
 - `val MutableList` всё ещё mutable;
-- read-only type может быть live view mutable object;
+- только для чтения type может быть live view mutable object;
 - `toList`/`toSet` делают shallow structural snapshot;
 - deep immutability требует immutable elements и ownership;
 - HashSet/HashMap order не является contract;
 - ordinary mutable collections не thread-safe;
 - public API должен явно определять view, snapshot и mutation ownership.
-

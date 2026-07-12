@@ -1,8 +1,8 @@
 ---
-title: "Scrollable containers"
+title: "Прокручиваемые контейнеры"
 description: "Разбираем прокрутку в Compose: verticalScroll, horizontalScroll, rememberScrollState, scrollable, nested scroll, состояние скролла, программная прокрутка и выбор между Column+scroll и LazyColumn."
 order: 21
-category: "Compose: Layouts, constraints и Modifier"
+category: "Compose: разметки, constraints и Modifier"
 difficulty: "Средний"
 ---
 
@@ -229,7 +229,7 @@ fun ReaderWithTopShadow(
 
 Этот пример показывает идею, но важно не навесить `verticalScroll` дважды. Если `ArticleScreen` уже добавляет scroll modifier внутри, передавай туда `scrollState` параметром или делай scroll на одном уровне.
 
-## Исправленный reusable вариант
+## Исправленный переиспользуемый вариант
 
 ```kotlin
 @Composable
@@ -327,7 +327,7 @@ fun ManualScrollableBox() {
 }
 ```
 
-Это ручной сценарий. Он полезен для custom gesture components, но не для обычной статьи или списка.
+Это ручной сценарий. Он полезен для пользовательский gesture components, но не для обычной статьи или списка.
 
 ## Nested scroll
 

@@ -1,8 +1,8 @@
 ---
 title: "Диалоги, меню и временные поверхности"
-description: "Разбираем временные поверхности Material 3 в Compose: AlertDialog, BasicAlertDialog, Dialog, DropdownMenu, ExposedDropdownMenuBox, ModalBottomSheet и TooltipBox с правилами выбора и production-примерами."
+description: "Разбираем временные поверхности Material 3 в Compose: AlertDialog, BasicAlertDialog, Dialog, DropdownMenu, ExposedDropdownMenuBox, ModalBottomSheet и TooltipBox с правилами выбора и боевыми примерами."
 order: 16
-category: "Compose: UI Fundamentals"
+category: "Compose: основы UI"
 difficulty: "Средний"
 ---
 
@@ -19,7 +19,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 - modal bottom sheet;
 - tooltip.
 
-Главный риск временных поверхностей — злоупотребление. Если каждое действие открывает dialog, приложение становится дерганым. Если menu содержит десятки пунктов, пользователь теряет контекст. Если tooltip объясняет базовый workflow, значит сам интерфейс недостаточно ясен.
+Главный риск временных поверхностей — злоупотребление. Если каждое действие открывает dialog, приложение становится дерганым. Если menu содержит десятки пунктов, пользователь теряет контекст. Если tooltip объясняет базовый рабочий процесс, значит сам интерфейс недостаточно ясен.
 
 ## Как выбирать поверхность
 
@@ -139,10 +139,10 @@ fun DeleteLessonAction(
 }
 ```
 
-Для настоящего экрана `showDialog` часто поднимают в state holder, особенно если dialog связан с navigation, сохранением или восстановлением после process death.
+Для настоящего экрана `showDialog` часто поднимают в держатель состояния, особенно если dialog связан с navigation, сохранением или восстановлением после process death.
 
 <MouseTrap title="Мышеловка: dialog не должен быть единственным местом бизнес-валидации">
-  Подтверждение удаления в UI полезно, но repository или use case все равно должны проверять права, состояние сети,
+  Подтверждение удаления в UI полезно, но репозиторий или сценарий использования все равно должны проверять права, состояние сети,
   существование объекта и инварианты. Dialog защищает пользователя от случайного действия, а не доменную модель от ошибок.
 </MouseTrap>
 
@@ -214,7 +214,7 @@ fun RenameLessonDialog(
 
 ## `BasicAlertDialog`
 
-`BasicAlertDialog` дает базовое dialog-поведение Material 3, но оставляет содержимое тебе. API может быть experimental в зависимости от версии Material 3, поэтому для production зафиксируй BOM и проверь opt-in.
+`BasicAlertDialog` дает базовое dialog-поведение Material 3, но оставляет содержимое тебе. API может быть experimental в зависимости от версии Material 3, поэтому для боевой зафиксируй BOM и проверь opt-in.
 
 ```kotlin
 import androidx.compose.foundation.layout.padding
@@ -517,7 +517,7 @@ fun HelpTooltipButton(
 
 - `AlertDialog` — стандартное подтверждение или важный prompt;
 - `Dialog` — кастомный dialog с ручным контейнером;
-- `BasicAlertDialog` — базовый Material dialog-контейнер для custom content;
+- `BasicAlertDialog` — базовый Material dialog-контейнер для пользовательский контент;
 - `DropdownMenu` — короткий список действий от anchor-элемента;
 - `ExposedDropdownMenuBox` — выбор значения из поля;
 - `ModalBottomSheet` — вторичный контент снизу;

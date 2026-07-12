@@ -1,30 +1,30 @@
 ---
-title: "Serialization"
-description: "kotlinx.serialization: @Serializable, JSON, ProtoBuf, CBOR, properties, defaults, unknown keys, custom serializers, polymorphism, contextual serialization, versioning и backward compatibility."
+title: "Сериализация"
+description: "kotlinx.serialization: @Serializable, JSON, ProtoBuf, CBOR, properties, значения по умолчанию, unknown keys, пользовательские сериализаторы, polymorphism, contextual serialization, versioning и backward compatibility."
 order: 100
-category: "Architecture"
+category: "Архитектура"
 difficulty: "Продвинутый"
 ---
 
 import CatTip from "../../ui/CatTip.vue";
 import MouseTrap from "../../ui/MouseTrap.vue";
 
-## Что такое serialization
+## Что такое сериализация
 
-Serialization — преобразование Kotlin object graph в переносимый формат: JSON, ProtoBuf, CBOR, properties или другой representation.
+Сериализация — преобразование графа Kotlin-объектов в переносимый формат: JSON, ProtoBuf, CBOR, properties или другое представление.
 
-Deserialization — обратный процесс.
+Десериализация — обратный процесс.
 
 Типичные места:
 
-- HTTP request/response DTO;
-- configuration files;
-- local cache;
-- event payloads;
-- messages in queues;
-- persistence snapshots;
-- interop with JavaScript/Swift/backend services;
-- test fixtures.
+- DTO для HTTP-запросов и ответов;
+- файлы конфигурации;
+- локальный кэш;
+- payload событий;
+- сообщения в очередях;
+- снимки постоянного состояния;
+- интеграция с JavaScript, Swift и серверными сервисами;
+- тестовые фикстуры.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -51,9 +51,9 @@ fun encodeLesson(): String {
 Serializer — это кошачий переносчик: внутри может быть богатая Kotlin-модель, но наружу она выходит в форме, понятной другой системе.
 </CatTip>
 
-## Gradle setup
+## Настройка Gradle
 
-`kotlinx.serialization` требует compiler plugin.
+`kotlinx.serialization` требует плагин компилятора.
 
 ```kotlin
 plugins {
@@ -83,11 +83,11 @@ kotlin {
 }
 ```
 
-The plugin generates serializers at compile time. Reflection is not required for normal generated serializers.
+Плагин генерирует сериализаторы во время компиляции. Для обычных сгенерированных сериализаторов reflection не нужна.
 
 ## `@Serializable`
 
-Annotate class with `@Serializable`.
+Пометь класс аннотацией `@Serializable`.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -100,16 +100,16 @@ data class ProgressDto(
 )
 ```
 
-Supported declaration shapes include:
+Поддерживаемые формы объявлений:
 
-- data classes;
-- regular classes with serializable primary constructor properties;
-- objects;
-- enums;
-- sealed classes and sealed interfaces;
-- value classes with supported underlying value;
-- collections of serializable values;
-- maps with supported key/value types.
+- data class;
+- обычные классы с сериализуемыми свойствами в основном конструкторе;
+- object-объявления;
+- enum-классы;
+- sealed-классы и sealed-интерфейсы;
+- value-классы с поддерживаемым базовым значением;
+- коллекции сериализуемых значений;
+- словари с поддерживаемыми типами ключей и значений.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -128,7 +128,7 @@ enum class LessonDifficultyDto {
 }
 ```
 
-Properties in primary constructor are serialized by default.
+Свойства в основном конструкторе сериализуются по умолчанию.
 
 ```kotlin
 @Serializable
@@ -139,11 +139,11 @@ data class LessonCardDto(
 )
 ```
 
-Non-constructor property with backing field can be serialized too, but domain DTOs are usually clearer with constructor properties.
+Свойство вне конструктора с backing field тоже может сериализоваться, но доменные DTO обычно понятнее, когда свойства объявлены в конструкторе.
 
 ## `@SerialName`
 
-`@SerialName` changes external field name.
+`@SerialName` меняет внешнее имя поля.
 
 ```kotlin
 import kotlinx.serialization.SerialName
@@ -159,12 +159,12 @@ data class LessonApiDto(
 )
 ```
 
-Use it when:
+Используй ее, когда:
 
-- API uses snake_case;
-- legacy field names cannot change;
-- Kotlin name should stay idiomatic;
-- enum external names differ from Kotlin enum entries.
+- API использует snake_case;
+- старые имена полей нельзя изменить;
+- Kotlin-имя должно оставаться идиоматичным;
+- внешние имена enum отличаются от Kotlin-элементов enum.
 
 ```kotlin
 @Serializable
@@ -178,12 +178,12 @@ enum class PublishStateDto {
 ```
 
 <MouseTrap>
-Не переименовывай Kotlin property только ради JSON. Kotlin code должен оставаться idiomatic; wire format настраивается через `@SerialName`.
+Не переименовывай Kotlin-свойство только ради JSON. Kotlin-код должен оставаться идиоматичным; формат обмена настраивается через `@SerialName`.
 </MouseTrap>
 
-## Defaults and missing fields
+## Значения по умолчанию и отсутствующие поля
 
-Default values help backward compatibility.
+Значения по умолчанию помогают сохранять обратную совместимость.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -202,9 +202,9 @@ fun decodeOldSettings(json: String): LessonSettingsDto {
 }
 ```
 
-If input JSON misses `fontSize`, default `16` is used.
+Если во входном JSON нет `fontSize`, используется значение по умолчанию `16`.
 
-Required fields without default must be present.
+Обязательные поля без значения по умолчанию должны присутствовать.
 
 ```kotlin
 @Serializable
@@ -214,11 +214,11 @@ data class RequiredLessonDto(
 )
 ```
 
-Missing `slug` fails deserialization. This is good for contract-critical data.
+Отсутствие `slug` ломает десериализацию. Для данных, критичных к контракту, это правильное поведение.
 
-## Unknown keys
+## Неизвестные ключи
 
-By default, unknown JSON keys fail deserialization. For forward-compatible clients, configure `ignoreUnknownKeys`.
+По умолчанию неизвестные ключи JSON ломают десериализацию. Для клиентов с прямой совместимостью настрой `ignoreUnknownKeys`.
 
 ```kotlin
 import kotlinx.serialization.json.Json
@@ -228,7 +228,7 @@ val apiJson = Json {
 }
 ```
 
-Usage:
+Использование:
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -245,11 +245,11 @@ fun decodeSummary(payload: String): LessonSummaryDto {
 }
 ```
 
-Use `ignoreUnknownKeys = true` for external APIs where server may add fields. Keep strict mode for internal config if unknown keys should be treated as mistakes.
+Используй `ignoreUnknownKeys = true` для внешних API, где сервер может добавлять поля. Для внутренней конфигурации оставляй строгий режим, если неизвестные ключи должны считаться ошибками.
 
-## Encoding defaults and explicit nulls
+## Кодирование значений по умолчанию и явных null
 
-`encodeDefaults` controls whether default-valued properties are emitted.
+`encodeDefaults` управляет тем, попадут ли свойства со значениями по умолчанию во внешний формат.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -271,7 +271,7 @@ fun encodeWithDefaults(): String {
 }
 ```
 
-`explicitNulls` controls null emission/handling in JSON.
+`explicitNulls` управляет записью и обработкой `null` в JSON.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -298,11 +298,11 @@ fun encodeWithoutExplicitNulls(): String {
 }
 ```
 
-Be careful: omitting null and sending null are different contract decisions in many APIs.
+Будь осторожен: пропустить `null` и отправить `null` — разные контрактные решения во многих API.
 
-## DTOs vs domain models
+## DTO против доменных моделей
 
-Do not automatically annotate every domain model. Serialization is an external contract; domain is business contract.
+Не размечай каждую доменную модель автоматически. Сериализация — внешний контракт, домен — бизнес-контракт.
 
 DTO:
 
@@ -317,7 +317,7 @@ data class ProgressResponseDto(
 )
 ```
 
-Domain:
+Домен:
 
 ```kotlin
 data class ProgressSnapshot(
@@ -335,7 +335,7 @@ value class UserId(
 )
 ```
 
-Mapper:
+Маппер:
 
 ```kotlin
 fun ProgressSnapshot.toDto(): ProgressResponseDto {
@@ -347,11 +347,11 @@ fun ProgressSnapshot.toDto(): ProgressResponseDto {
 }
 ```
 
-This separates wire compatibility from domain design.
+Так совместимость формата обмена отделяется от доменного дизайна.
 
-## Formats
+## Форматы
 
-`kotlinx.serialization` supports multiple formats.
+`kotlinx.serialization` поддерживает несколько форматов.
 
 JSON:
 
@@ -401,11 +401,11 @@ fun toProperties(dto: LessonDto): Map<String, Any> {
 }
 ```
 
-Format choice is part of API design. JSON is inspectable, ProtoBuf is compact, CBOR is binary, properties are useful for flat configuration-like structures.
+Выбор формата — часть дизайна API. JSON удобно читать, ProtoBuf компактен, CBOR бинарный, а properties полезны для плоских конфигурационных структур.
 
-## Custom serializers
+## Пользовательские сериализаторы
 
-Use custom serializer when external representation differs from Kotlin representation.
+Используй пользовательский сериализатор, когда внешнее представление отличается от Kotlin-представления.
 
 ```kotlin
 import kotlinx.serialization.KSerializer
@@ -443,11 +443,11 @@ object LessonSlugSerializer : KSerializer<LessonSlug> {
 }
 ```
 
-Prefer generated serializers for simple DTOs. Custom serializer is for real representation mismatch or validation boundary.
+Для простых DTO предпочитай сгенерированные сериализаторы. Пользовательский сериализатор нужен при реальном расхождении представлений или на границе валидации.
 
-## Polymorphism
+## Полиморфизм
 
-Sealed hierarchies serialize with known subclasses.
+Sealed-иерархии сериализуются с известными подклассами.
 
 ```kotlin
 import kotlinx.serialization.SerialName
@@ -480,7 +480,7 @@ fun encodeEvent(event: LessonEventDto): String {
 }
 ```
 
-Open polymorphism requires a `SerializersModule`.
+Открытый полиморфизм требует `SerializersModule`.
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -513,12 +513,12 @@ val notificationJson = Json {
 ```
 
 <MouseTrap>
-Polymorphic serialization is part of wire contract. Changing discriminator names or subclass names can break old clients even if Kotlin code still compiles.
+Полиморфная сериализация — часть контракта формата обмена. Изменение имен дискриминаторов или подклассов может сломать старых клиентов, даже если Kotlin-код все еще компилируется.
 </MouseTrap>
 
-## Contextual serialization
+## Контекстная сериализация
 
-Contextual serialization lets you provide serializer through `SerializersModule`.
+Контекстная сериализация позволяет передать сериализатор через `SerializersModule`.
 
 ```kotlin
 import kotlinx.serialization.Contextual
@@ -533,31 +533,31 @@ data class JvmAuditDto(
 )
 ```
 
-Use this for types you do not own, like `Instant`, when a project-wide serializer is appropriate.
+Используй это для типов, которыми ты не владеешь, например `Instant`, когда проектный сериализатор уместен.
 
-## Versioning and compatibility
+## Версионирование и совместимость
 
-Wire format changes need compatibility rules.
+Изменения формата обмена требуют правил совместимости.
 
-Backward-compatible changes:
+Обратно совместимые изменения:
 
-- add optional field with default;
-- add nullable field if old producers omit it;
-- ignore unknown keys on readers that receive server responses;
-- keep old `@SerialName`;
-- introduce new enum value only if readers have fallback strategy;
-- add new sealed subtype only if receivers can handle unknown type.
+- добавить необязательное поле со значением по умолчанию;
+- добавить nullable-поле, если старые producer-ы его пропускают;
+- игнорировать неизвестные ключи на reader-ах, которые получают ответы сервера;
+- сохранять старый `@SerialName`;
+- вводить новое значение enum только если у reader-ов есть fallback-стратегия;
+- добавлять новый sealed-подтип только если получатели умеют обрабатывать неизвестный тип.
 
-Breaking changes:
+Ломающие изменения:
 
-- rename field without alias strategy;
-- remove required field;
-- change field type;
-- change discriminator;
-- turn optional field into required;
-- change semantic meaning while keeping same name.
+- переименовать поле без стратегии алиасов;
+- удалить обязательное поле;
+- изменить тип поля;
+- изменить дискриминатор;
+- превратить необязательное поле в обязательное;
+- изменить семантический смысл, сохранив прежнее имя.
 
-Versioned DTO:
+Версионированный DTO:
 
 ```kotlin
 import kotlinx.serialization.Serializable
@@ -572,7 +572,7 @@ data class LessonPayloadV2(
 )
 ```
 
-Migration helper:
+Помощник миграции:
 
 ```kotlin
 import kotlinx.serialization.json.Json
@@ -610,21 +610,21 @@ data class LessonPayloadV1(
 )
 ```
 
-## Production checklist
+## Проверочный список для боевого кода
 
-Before shipping serialization contract:
+Перед выпуском контракта сериализации:
 
-- separate DTOs from domain where external compatibility matters;
-- define JSON options explicitly;
-- use defaults for additive compatibility;
-- decide strict vs unknown-key tolerant decoding;
-- keep `@SerialName` stable;
-- test old payloads against new readers;
-- test new payloads against old readers if needed;
-- avoid leaking internal sealed hierarchies as public wire contracts;
-- document schema version strategy for persisted or cross-service data.
+- отделить DTO от домена там, где важна внешняя совместимость;
+- явно задать JSON-настройки;
+- использовать значения по умолчанию для добавочной совместимости;
+- выбрать строгую декодировку или режим, терпимый к неизвестным ключам;
+- сохранять `@SerialName` стабильным;
+- проверять старые payload-ы на новых reader-ах;
+- при необходимости проверять новые payload-ы на старых reader-ах;
+- не выпускать внутренние sealed-иерархии как публичные wire-контракты;
+- документировать стратегию версий схемы для сохраняемых или межсервисных данных.
 
 <CatTip>
-Serialization в production — это не просто `encodeToString`. Это договор: какие поля живут, какие могут появиться, какие нельзя переименовывать и как старые payloads проходят через новые лапы кода.
+Сериализация в боевой среде — это не просто `encodeToString`. Это договор: какие поля живут, какие могут появиться, какие нельзя переименовывать и как старые payload-ы проходят через новые лапы кода.
 </CatTip>
 

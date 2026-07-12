@@ -2,7 +2,7 @@
 title: "snapshotFlow"
 description: "Разбираем snapshotFlow в Jetpack Compose: преобразование snapshot reads в cold Flow, distinctUntilChanged-поведение, аналитика скролла, debounce, cancellation, backpressure и отличие от derivedStateOf."
 order: 44
-category: "Compose: Side Effects, coroutines и CompositionLocal"
+category: "Compose: побочные эффекты, корутины и CompositionLocal"
 difficulty: "Продвинутый"
 ---
 
@@ -17,7 +17,7 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 - есть Compose state;
 - нужно применить Flow operators;
-- результат нужен для side effect, а не только для UI;
+- результат нужен для побочный эффект, а не только для UI;
 - нужно собрать stream изменений внутри coroutine;
 - нужно отправить аналитику, debounce, filter или combine с другими flows.
 
@@ -60,7 +60,7 @@ fun TrackFeedScroll(
 `snapshotFlow` читает `listState.firstVisibleItemIndex`. Когда это значение меняется, Flow может emit новое значение.
 
 <CatTip>
-Если UI должен просто показать boolean, часто нужен `derivedStateOf`. Если side effect должен обработать stream изменений через Flow operators, нужен `snapshotFlow`.
+Если UI должен просто показать boolean, часто нужен `derivedStateOf`. Если побочный эффект должен обработать stream изменений через Flow operators, нужен `snapshotFlow`.
 </CatTip>
 
 ## Cold Flow
@@ -112,7 +112,7 @@ fun CollectCounterFlow(
 - `PagerState` snapshot-backed properties;
 - `SnapshotStateList`;
 - `SnapshotStateMap`;
-- другие state holders на Compose snapshot state.
+- другие держатели состояния на Compose snapshot state.
 
 ```kotlin
 import androidx.compose.runtime.getValue
@@ -164,7 +164,7 @@ fun TrackScrollBucket(
 
 `scrollState.value` может меняться на каждый пиксель, но bucket меняется только каждые 500 пикселей. Одинаковый результат не создает новый meaningful emission.
 
-## Scroll analytics
+## Scroll аналитика
 
 ```kotlin
 import androidx.compose.foundation.lazy.LazyListState
@@ -279,7 +279,7 @@ fun DebouncedSearchField(
 Для screen-level поиска чаще лучше хранить query во ViewModel и использовать Flow там. Этот пример полезен для локального UI-only поиска.
 
 <MouseTrap>
-Не переносите бизнес-поиск в composable только потому, что `snapshotFlow` умеет debounce. Если поиск влияет на экран, cache, pagination или repository, логика обычно принадлежит ViewModel.
+Не переносите бизнес-поиск в composable только потому, что `snapshotFlow` умеет debounce. Если поиск влияет на экран, cache, pagination или репозиторий, логика обычно принадлежит ViewModel.
 </MouseTrap>
 
 ## snapshotFlow и SnapshotStateList
@@ -332,8 +332,8 @@ fun SelectionCountAnalytics(
 - возвращает `Flow<T>`;
 - собирается в coroutine;
 - применяет Flow operators;
-- подходит для side effects;
-- удобен для analytics, debounce, throttle, filter, combine.
+- подходит для побочные эффекты;
+- удобен для аналитика, debounce, throttle, filter, combine.
 
 ```kotlin
 import androidx.compose.foundation.lazy.LazyListState
@@ -452,7 +452,7 @@ fun wrongFlow() = snapshotFlow {
 - блок должен быть read-oriented;
 - запись во время snapshot read может привести к конфликтам и ошибкам;
 - логика становится непредсказуемой;
-- side effects должны быть в collector, а не внутри snapshot block.
+- побочные эффекты должны быть в collector, а не внутри snapshot block.
 
 Правильно:
 
@@ -470,7 +470,7 @@ fun counterFlow(): Flow<Int> {
 }
 ```
 
-## Production-пример: аналитика чтения статьи
+## Боевой-пример: аналитика чтения статьи
 
 ```kotlin
 import androidx.compose.foundation.ScrollState
@@ -559,9 +559,9 @@ fun ReadingProgressAnalytics(
 
 Разбор:
 
-- progress вычисляется из `scrollState.value` и `scrollState.maxValue`;
+- прогресс вычисляется из `scrollState.value` и `scrollState.maxValue`;
 - `distinctUntilChanged` не дает повторять событие для каждого пикселя;
-- разные analytics events разделены на понятные flows;
+- разные аналитика events разделены на понятные flows;
 - `articleId` является ключом, потому что смена статьи должна перезапустить аналитику.
 
 ## Типичные ошибки
@@ -580,7 +580,7 @@ Flow не будет знать, когда она изменилась.
 
 ### Писать state внутри snapshotFlow
 
-Блок должен читать state, а side effects должны быть в collector.
+Блок должен читать state, а побочные эффекты должны быть в collector.
 
 ### Забывать ключи LaunchedEffect
 
@@ -595,8 +595,8 @@ Flow не будет знать, когда она изменилась.
 - emit-ит новое значение при изменении результата;
 - похож на `distinctUntilChanged` по смыслу равенства;
 - обычно собирается внутри `LaunchedEffect`;
-- полезен для analytics, debounce, filter и Flow operators;
+- полезен для аналитика, debounce, filter и Flow operators;
 - не нужен для простого отображения UI;
 - не должен писать state внутри snapshot block;
 - для UI-derived values используйте `derivedStateOf`;
-- для screen state из ViewModel используйте обычные Flow APIs во ViewModel и `collectAsStateWithLifecycle` в UI.
+- для состояние экрана из ViewModel используйте обычные Flow APIs во ViewModel и `collectAsStateWithLifecycle` в UI.

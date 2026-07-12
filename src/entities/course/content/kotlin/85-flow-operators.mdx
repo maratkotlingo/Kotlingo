@@ -1,8 +1,8 @@
 ---
-title: "Flow Operators"
+title: "Операторы Flow"
 description: "Flow operators: map, filter, transform, take, drop, debounce, sample, combine, zip, flatMapConcat, flatMapMerge, flatMapLatest, catch, retry, onEach, onStart, onCompletion и collectLatest."
 order: 85
-category: "Coroutines"
+category: "Корутины"
 difficulty: "Продвинутый"
 ---
 
@@ -37,7 +37,7 @@ fun operatorPipelineExample() = runBlocking {
 }
 ```
 
-Pipeline is lazy until terminal operator.
+Трубопровод ленив до терминального оператора.
 
 <CatTip>
 Операторы Flow — это кошачья тропинка: каждый шаг понятен отдельно, а вместе они ведут значение от источника к collector-у.
@@ -73,10 +73,10 @@ data class LessonCard(
 )
 ```
 
-Use cases:
+Сценарии использования:
 
-- DTO to domain;
-- domain to UI state;
+- DTO к домену;
+- domain to UI-состояние;
 - text normalization;
 - extracting fields;
 - formatting values.
@@ -156,9 +156,9 @@ fun transformExample() = runBlocking {
 }
 ```
 
-Use `transform`, когда:
+Используй `transform`, когда:
 
-- надо emit loading state before data;
+- надо emit состояние загрузки before data;
 - надо skip some values without separate `filter`;
 - надо emit multiple domain events per input;
 - надо call suspending function and conditionally emit.
@@ -256,7 +256,7 @@ fun takeFromHotFlowExample() = runBlocking {
 
 ## `debounce`
 
-`debounce` waits for a quiet period and emits latest value.
+`debounce` ожидает периода молчания и выдает последнее значение.
 
 Это идеально для search input.
 
@@ -298,7 +298,7 @@ fun fakeQueryChanges(): Flow<String> = flow {
 
 `sample` emits latest value periodically.
 
-Подходит для telemetry, progress bars and high-frequency updates, где не нужно каждое значение.
+Подходит для telemetry, прогресс bars and high-frequency updates, где не нужно каждое значение.
 
 ```kotlin
 import kotlinx.coroutines.FlowPreview
@@ -314,10 +314,10 @@ fun sampledProgress(progress: Flow<Int>): Flow<Int> {
 
 Разница:
 
-- `debounce` waits for silence;
-- `sample` emits latest value on schedule;
-- `conflate` skips intermediate values when collector is slow;
-- `collectLatest` cancels previous processing when new value arrives.
+- `debounce` ожидает тишины;
+- `sample` выдает последнее значение по расписанию;
+- `conflate` пропускает промежуточные значения, когда сборщик работает медленно;
+- `collectLatest` отменяет предыдущую обработку при поступлении нового значения.
 
 ## `combine`
 
@@ -351,16 +351,16 @@ data class LessonHeaderState(
 )
 ```
 
-Use cases:
+Сценарии использования:
 
-- UI state from multiple state holders;
+- UI-состояние from multiple держатели состояния;
 - filters + query + sorting;
 - authenticated user + permissions + data;
 - settings + remote config.
 
 ## `zip`
 
-`zip` pairs values by position: first with first, second with second.
+`zip` объединяет значения по позиции: первое с первым, второе со вторым.
 
 ```kotlin
 import kotlinx.coroutines.flow.asFlow
@@ -380,10 +380,10 @@ fun zipExample() = runBlocking {
 }
 ```
 
-Use `zip`, когда streams logically synchronized by position. Для UI state чаще нужен `combine`, потому что state changes are latest-based.
+Используй `zip`, когда потоки логически синхронизированы по позиции. Для UI-состояния чаще нужен `combine`, потому что изменения состояния основаны на последнем значении.
 
 <MouseTrap>
-Не заменяй `combine` на `zip` в UI state. `zip` ждет парные значения и может «застрять», если один поток обновляется чаще другого.
+Не заменяй `combine` на `zip` в UI-состояние. `zip` ждет парные значения и может «застрять», если один поток обновляется чаще другого.
 </MouseTrap>
 
 ## `flatMapConcat`
@@ -413,7 +413,7 @@ fun lessonEvents(slug: String): Flow<String> = flow {
 }
 ```
 
-Sequential property matters when order must be preserved.
+Последовательная собственность имеет значение, когда необходимо сохранить порядок.
 
 ## `flatMapMerge`
 
@@ -444,11 +444,11 @@ fun flatMapMergeExample() = runBlocking {
 }
 ```
 
-Use when independent operations can run concurrently and order of completion is acceptable.
+Используйте, когда независимые операции могут выполняться одновременно и порядок выполнения приемлем.
 
 ## `flatMapLatest`
 
-`flatMapLatest` cancels previous inner flow when new upstream value arrives.
+`flatMapLatest` отменяет предыдущий внутренний поток при поступлении нового восходящего значения.
 
 ```kotlin
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -466,17 +466,17 @@ fun liveSearch(queryChanges: Flow<String>): Flow<List<String>> =
     }
 ```
 
-Use cases:
+Сценарии использования:
 
 - search suggestions;
 - selected tab changes;
 - user id changes;
 - route parameter changes;
-- refresh trigger where only latest request matters.
+- триггер обновления, где важен только последний запрос.
 
 ## `catch`
 
-`catch` handles upstream exceptions and can emit fallback.
+`catch` обрабатывает исключения восходящего потока и может выдавать резервный вариант.
 
 ```kotlin
 import kotlinx.coroutines.flow.Flow
@@ -492,7 +492,7 @@ fun lessonStream(): Flow<String> =
     }
 ```
 
-`catch` does not catch downstream exceptions.
+`catch` не перехватывает нисходящие исключения.
 
 ```kotlin
 import kotlinx.coroutines.flow.catch
@@ -511,7 +511,7 @@ fun catchBoundaryExample() =
 
 ## `retry` и `retryWhen`
 
-`retry` restarts upstream flow on exception.
+`retry` перезапускает восходящий поток в случае исключения.
 
 ```kotlin
 import kotlinx.coroutines.delay
@@ -554,7 +554,7 @@ fun retryWhenExample(): Flow<String> =
     }
 ```
 
-Do not retry cancellation.
+Не повторяйте попытку отмены.
 
 ```kotlin
 import kotlinx.coroutines.CancellationException
@@ -569,7 +569,7 @@ fun safeRetry(source: Flow<String>): Flow<String> =
 
 ## `onEach`, `onStart`, `onCompletion`
 
-`onEach` performs side effect for each value and passes value downstream.
+`onEach` performs побочный эффект for each value and passes value downstream.
 
 ```kotlin
 import kotlinx.coroutines.flow.Flow
@@ -581,7 +581,7 @@ fun logEachLesson(source: Flow<String>): Flow<String> =
     }
 ```
 
-`onStart` emits or performs side effect before upstream starts.
+`onStart` emits or performs побочный эффект before upstream starts.
 
 ```kotlin
 import kotlinx.coroutines.flow.Flow
@@ -601,7 +601,7 @@ sealed interface LessonLoadState {
 }
 ```
 
-`onCompletion` observes normal completion, exception or cancellation.
+`onCompletion` наблюдает за обычным завершением, исключением или отменой.
 
 ```kotlin
 import kotlinx.coroutines.flow.Flow
@@ -619,7 +619,7 @@ fun observeCompletion(source: Flow<String>): Flow<String> =
 
 ## `collectLatest`
 
-`collectLatest` cancels previous collector block when new value arrives.
+`collectLatest` отменяет предыдущий блок коллектора при поступлении нового значения.
 
 ```kotlin
 import kotlinx.coroutines.delay
@@ -635,14 +635,14 @@ suspend fun renderSearchResults(results: Flow<List<String>>) {
 }
 ```
 
-Use cases:
+Сценарии использования:
 
-- rendering latest UI state;
-- image preview generation;
+- rendering latest UI-состояние;
+- image предпросмотр generation;
 - search result rendering;
-- progress display where old rendering is irrelevant.
+- прогресс display where old rendering is irrelevant.
 
-## Production pipeline: search UI
+## Боевой pipeline: search UI
 
 ```kotlin
 import kotlinx.coroutines.FlowPreview
@@ -717,11 +717,10 @@ class LessonSearchService {
 - waits until typing settles;
 - ignores duplicate query;
 - rejects too-short query;
-- cancels previous search when new query arrives;
-- emits loading, ready and failed states explicitly;
-- keeps cancellation behavior controlled by caller scope.
+- отменяет предыдущий поиск при поступлении нового запроса;
+- emits загрузка, ready and failed states explicitly;
+- keeps cancellation behavior controlled by вызывающий код scope.
 
 <CatTip>
 Когда pipeline читается сверху вниз как история user intent, Flow работает особенно хорошо: событие вошло, лишний шум отфильтровался, актуальная работа запустилась, UI получил состояние.
 </CatTip>
-

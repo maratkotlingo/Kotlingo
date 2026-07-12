@@ -1,5 +1,5 @@
 ---
-title: "Expect And Actual"
+title: "expect и actual"
 description: "expect и actual в Kotlin Multiplatform: expected declarations, actual implementations, functions, properties, classes, objects, annotations, typealiases, source set hierarchy и tradeoffs с interface-based design."
 order: 91
 category: "Kotlin Multiplatform"
@@ -42,7 +42,7 @@ actual fun platformName(): String {
 }
 ```
 
-Common code calls `platformName()` as if implementation already exists.
+Общий код вызывает `platformName()`, как если бы реализация уже существовала.
 
 ```kotlin
 // commonMain/kotlin/lesson/Diagnostics.kt
@@ -61,20 +61,20 @@ fun diagnosticsLine(): String {
 
 ## Matching rules
 
-`actual` declaration must match `expect` declaration.
+Объявление `actual` должно соответствовать объявлению `expect`.
 
 Совпадать должны:
 
 - package;
 - name;
-- kind of declaration;
+- вид декларации;
 - type parameters;
 - function parameters;
 - return type;
 - property type;
-- modifiers that affect contract;
-- class members expected by common code;
-- source set hierarchy where actual source set depends on expect source set.
+- модификаторы, влияющие на контракт;
+- члены класса, ожидаемые общим кодом;
+- Иерархия набора источников, где фактический набор источников зависит от ожидаемого набора источников.
 
 ```kotlin
 // commonMain/kotlin/platform/Clock.kt
@@ -104,7 +104,7 @@ actual object PlatformClock {
 
 ## Expected functions
 
-Functions are the simplest expect/actual case.
+Функции — это простейший случай ожидания/факта.
 
 ```kotlin
 // commonMain/kotlin/platform/Uuid.kt
@@ -153,7 +153,7 @@ data class LessonDraft(
 )
 ```
 
-Functions are good for:
+Функции хороши для:
 
 - platform constants;
 - small platform operations;
@@ -161,11 +161,11 @@ Functions are good for:
 - wrappers around APIs like UUID, clock, environment;
 - simple one-off platform bridges.
 
-For large services, interface plus injection is often easier to test and replace.
+Для крупных сервисов интерфейс плюс внедрение зачастую проще протестировать и заменить.
 
 ## Expected properties
 
-Properties can also be expected.
+Свойства также можно ожидать.
 
 ```kotlin
 // commonMain/kotlin/platform/RuntimeInfo.kt
@@ -202,7 +202,7 @@ data class AnalyticsContext(
 )
 ```
 
-If value is computed, use getter:
+Если значение вычислено, используйте метод получения:
 
 ```kotlin
 // jvmMain/kotlin/platform/RuntimeInfoJvm.kt
@@ -214,7 +214,7 @@ actual val runtimeFamily: String
 
 ## Expected classes
 
-`expect class` declares a type that common code can use, while each platform provides actual class.
+`expect class` объявляет тип, который может использовать общий код, тогда как каждая платформа предоставляет фактический класс.
 
 ```kotlin
 // commonMain/kotlin/platform/PlatformPath.kt
@@ -261,11 +261,11 @@ actual class PlatformPath actual constructor(
 }
 ```
 
-Expected classes are powerful but couple common code to a platform-shaped type. Prefer simple expected functions or interfaces unless the type itself is truly platform-dependent.
+Ожидаемые классы являются мощными, но объединяют общий код с типом в форме платформы. Предпочитайте простые ожидаемые функции или интерфейсы, если только сам тип действительно не зависит от платформы.
 
-## Constructors and members
+## Конструкторы и члены
 
-Common code can use only members declared in `expect`.
+Общий код может использовать только члены, объявленные в `expect`.
 
 ```kotlin
 // commonMain/kotlin/platform/PlatformToken.kt
@@ -278,7 +278,7 @@ expect class PlatformToken(value: String) {
 }
 ```
 
-Actual class can have extra platform-only members, but common code will not see them.
+Фактический класс может иметь дополнительные члены, предназначенные только для платформы, но общий код их не увидит.
 
 ```kotlin
 // jvmMain/kotlin/platform/PlatformTokenJvm.kt
@@ -310,9 +310,9 @@ fun renderToken(token: PlatformToken): String {
 }
 ```
 
-## Objects and constants
+## Объекты и константы
 
-`expect object` useful for singleton platform services with tiny surface.
+`expect object` полезен для одноэлементных платформенных сервисов с небольшой поверхностью.
 
 ```kotlin
 // commonMain/kotlin/platform/LineSeparator.kt
@@ -332,11 +332,11 @@ actual object PlatformText {
 }
 ```
 
-Use object carefully: global singleton can hide dependencies. For testability, interface injection often wins.
+Используйте объект осторожно: глобальный синглтон может скрыть зависимости. С точки зрения тестируемости часто выигрывает внедрение интерфейса.
 
-## Type aliases as actuals
+## Введите псевдонимы как фактические значения
 
-Actual declaration can be typealias to existing platform type if it satisfies expected API shape.
+Фактическое объявление может быть псевдонимом существующего типа платформы, если оно соответствует ожидаемой форме API.
 
 Common declaration:
 
@@ -349,7 +349,7 @@ expect class PlatformDateFormatter(pattern: String) {
 }
 ```
 
-Instead of typealias, JVM often needs wrapper because `java.text.SimpleDateFormat` does not match this exact constructor/member contract safely for common expectations.
+Вместо псевдонима типов JVM часто требуется оболочка, потому что `java.text.SimpleDateFormat` не соответствует этому конкретному контракту конструктора/члена безопасно для общих ожиданий.
 
 Wrapper actual:
 
@@ -372,7 +372,7 @@ actual class PlatformDateFormatter actual constructor(
 }
 ```
 
-Typealias actual works best for simple type reuse.
+Фактический Typealias лучше всего подходит для простого повторного использования типов.
 
 ```kotlin
 // commonMain/kotlin/platform/PlatformRegex.kt
@@ -390,15 +390,15 @@ package platform
 actual typealias PlatformRegex = kotlin.text.Regex
 ```
 
-This works because `Regex` has compatible constructor and `matches` member.
+Это работает, поскольку `Regex` имеет совместимый конструктор и член `matches`.
 
 <MouseTrap>
-`actual typealias` is not a magic adapter. Existing platform type must already match expected contract. If names, constructor or members differ, write wrapper actual class.
+`actual typealias` — это не волшебный адаптер. Существующий тип платформы уже должен соответствовать ожидаемому контракту. Если имена, конструктор или члены различаются, напишите фактический класс оболочки.
 </MouseTrap>
 
 ## Expected annotations
 
-Annotations can be expected too.
+Также можно ожидать аннотаций.
 
 ```kotlin
 // commonMain/kotlin/platform/SerializableName.kt
@@ -409,7 +409,7 @@ expect annotation class PlatformSerializableName(
 )
 ```
 
-JVM actual could map to a platform annotation if contract matches, or define real annotation:
+Фактический JVM может сопоставляться с аннотацией платформы, если контракт соответствует, или определять реальную аннотацию:
 
 ```kotlin
 // jvmMain/kotlin/platform/SerializableNameJvm.kt
@@ -420,11 +420,11 @@ actual annotation class PlatformSerializableName actual constructor(
 )
 ```
 
-Use expected annotations sparingly. Many multiplatform libraries already provide common annotations, for example serialization annotations.
+Используйте ожидаемые аннотации экономно. Многие мультиплатформенные библиотеки уже предоставляют общие аннотации, например аннотации сериализации.
 
 ## Visibility
 
-Visibility is part of API design.
+Видимость — это часть дизайна API.
 
 ```kotlin
 // commonMain/kotlin/platform/InternalSecret.kt
@@ -442,13 +442,13 @@ internal actual fun machineFingerprint(): String {
 }
 ```
 
-Do not expose expect declarations publicly unless you want them in your common API. Public expect declaration becomes public contract for every target.
+Не публикуйте объявления ожидаемых значений, если только вы не хотите, чтобы они были включены в ваш общий API. Декларация публичных ожиданий становится публичным контрактом для каждой цели.
 
-## Source set hierarchy and actuals
+## Иерархия исходного набора и фактические данные
 
-Actual implementation must live in a source set that depends on the expect source set.
+Фактическая реализация должна находиться в исходном наборе, который зависит от ожидаемого исходного набора.
 
-Example:
+Пример:
 
 ```text
 commonMain
@@ -460,13 +460,13 @@ commonMain
   jvmMain
 ```
 
-If expectation is in `commonMain`, then possible actual locations include:
+Если ожидание находится в `commonMain`, то возможные фактические местоположения включают:
 
 - `jvmMain` for JVM;
-- `iosMain` for iOS device and simulator;
-- `appleMain` for all Apple targets;
-- `nativeMain` for all Native targets;
-- specific target source set, if implementation truly target-specific.
+- `iosMain` для устройства iOS и симулятора;
+- `appleMain` для всех целей Apple;
+- `nativeMain` для всех Native целей;
+- конкретный целевой исходный набор, если реализация действительно специфична для цели.
 
 ```kotlin
 // commonMain/kotlin/platform/DeviceFamily.kt
@@ -484,18 +484,18 @@ actual fun deviceFamily(): String {
 }
 ```
 
-This actual can satisfy all targets under `appleMain`.
+Это фактическое значение может удовлетворить все цели в `appleMain`.
 
-## Interface or expect/actual
+## Интерфейс или ожидаемое/фактическое
 
-Prefer interface plus injection when:
+Отдавайте предпочтение интерфейсу плюс инъекция, когда:
 
-- implementation is a dependency;
-- tests need fake implementation;
-- multiple implementations may exist on one platform;
-- caller should choose implementation;
+- реализация является зависимостью;
+- tests need фиктивный implementation;
+- на одной платформе может существовать несколько реализаций;
+- вызывающий код should choose implementation;
 - lifecycle matters;
-- stateful service is involved.
+- задействована служба с отслеживанием состояния.
 
 ```kotlin
 // commonMain/kotlin/platform/Logger.kt
@@ -525,13 +525,13 @@ class JvmLogger : Logger {
 }
 ```
 
-Prefer expect/actual when:
+Предпочитайте ожидаемое/фактическое, когда:
 
-- common code needs a platform primitive;
-- implementation is naturally one per platform;
-- dependency injection would add noise;
-- API surface is small and stable;
-- platform-specific implementation is unavoidable.
+- общему коду нужен примитив платформы;
+- реализация естественно одна на платформу;
+- внедрение зависимостей добавило бы шума;
+- Поверхность API небольшая и стабильная;
+- специфичная для платформы реализация неизбежна.
 
 ```kotlin
 // commonMain/kotlin/platform/Platform.kt
@@ -544,7 +544,7 @@ expect fun defaultLocaleTag(): String
 Если common code спрашивает «какая сейчас platform-specific value», `expect/actual` удобен. Если common code просит «выполни сервисную работу», чаще лучше interface.
 </CatTip>
 
-## Production example: clock and UUID
+## Боевой example: clock and UUID
 
 Common:
 
@@ -627,20 +627,19 @@ actual fun randomUuidString(): String {
 }
 ```
 
-This design keeps `AuditEventFactory` in common code while platform source sets provide time and UUID details.
+Эта конструкция сохраняет `AuditEventFactory` в общем коде, в то время как наборы исходных кодов платформы предоставляют информацию о времени и UUID.
 
 ## Common mistakes
 
 Частые ошибки:
 
-- declaring `expect` when interface would be more testable;
-- exposing platform-shaped names in common API;
-- using `actual typealias` where wrapper is needed;
-- placing actual in wrong source set;
-- forgetting actual for one target;
-- changing expected public declaration without updating all actuals;
+- объявление `expect`, когда интерфейс будет более тестируемым;
+- предоставление имен в форме платформы в общем API;
+- использование `actual typealias` там, где нужна обертка;
+- размещение актуального в неправильном исходном наборе;
+- забывание актуального для одной цели;
+- изменение ожидаемого публичного заявления без обновления всех фактических данных;
 - hiding complex platform lifecycle behind tiny global expected object;
-- expecting common code to see actual-only members.
+- ожидание, что общий код увидит только фактические члены.
 
-Good expect/actual API is small, explicit and stable.
-
+Хороший ожидаемый/фактический API небольшой, явный и стабильный.

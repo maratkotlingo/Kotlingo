@@ -1,8 +1,8 @@
 ---
-title: "Индикаторы и feedback"
-description: "Разбираем feedback-компоненты Compose: CircularProgressIndicator, LinearProgressIndicator, Snackbar, Badge, BadgedBox, состояния loading/content/error/empty и правила честной обратной связи в UI."
+title: "Индикаторы и обратная связь"
+description: "Разбираем обратная связь-компоненты Compose: CircularProgressIndicator, LinearProgressIndicator, Snackbar, Badge, BadgedBox, состояния загрузка/контент/ошибка/empty и правила честной обратной связи в UI."
 order: 13
-category: "Compose: UI Fundamentals"
+category: "Compose: основы UI"
 difficulty: "Начальный"
 ---
 
@@ -11,14 +11,14 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Зачем UI нужна обратная связь
 
-Пользователь должен понимать, что приложение делает прямо сейчас. Если экран молчит после нажатия кнопки, человек не знает, сработало ли действие, зависло ли приложение или он промахнулся. Feedback-компоненты закрывают эту тревожную паузу:
+Пользователь должен понимать, что приложение делает прямо сейчас. Если экран молчит после нажатия кнопки, человек не знает, сработало ли действие, зависло ли приложение или он промахнулся. Обратная связь-компоненты закрывают эту тревожную паузу:
 
-- progress indicators показывают, что идет загрузка или обработка;
+- прогресс indicators показывают, что идет загрузка или обработка;
 - snackbar сообщает краткий результат действия;
 - badge показывает небольшой статус или количество;
-- empty/error/loading states объясняют, почему основного контента нет.
+- empty/error/загрузка states объясняют, почему основного контента нет.
 
-В Compose feedback особенно важно моделировать через состояние. Не "показать спиннер командой", а описать UI для каждого состояния.
+В Compose обратная связь особенно важно моделировать через состояние. Не "показать спиннер командой", а описать UI для каждого состояния.
 
 ```kotlin
 sealed interface LessonFeedState {
@@ -31,9 +31,9 @@ sealed interface LessonFeedState {
 
 Такая модель сразу заставляет экран ответить на вопрос: что пользователь видит при загрузке, пустом списке, успешном контенте и ошибке.
 
-## Determinate и indeterminate progress
+## Determinate и indeterminate прогресс
 
-Progress indicator бывает двух типов.
+Прогресс indicator бывает двух типов.
 
 Determinate indicator знает прогресс: например, 30 процентов загрузки файла. Для него передается значение от `0f` до `1f`.
 
@@ -50,7 +50,7 @@ Indeterminate indicator не знает прогресс: например, ид
 
 Основные параметры:
 
-- `progress` — lambda, возвращающая `Float` от `0f` до `1f` для determinate-варианта;
+- `progress` — лямбда, возвращающая `Float` от `0f` до `1f` для determinate-варианта;
 - `modifier` — размер и размещение;
 - `color` — цвет заполненной части;
 - `trackColor` — цвет дорожки;
@@ -104,9 +104,9 @@ fun LessonDownloadProgress(
 }
 ```
 
-`coerceIn(0f, 1f)` защищает UI от некорректных данных. Даже если repository случайно отдаст `1.4f`, индикатор не должен рисовать невозможное состояние.
+`coerceIn(0f, 1f)` защищает UI от некорректных данных. Даже если репозиторий случайно отдаст `1.4f`, индикатор не должен рисовать невозможное состояние.
 
-## Indeterminate linear progress
+## Indeterminate linear прогресс
 
 Если точный процент неизвестен, не передавай `progress`.
 
@@ -130,11 +130,11 @@ fun LoadingTopBarProgress(
 
 ## `CircularProgressIndicator`
 
-`CircularProgressIndicator` подходит для компактных мест: центр пустого экрана, кнопка загрузки, карточка, avatar placeholder.
+`CircularProgressIndicator` подходит для компактных мест: центр пустого экрана, кнопка загрузки, карточка, avatar заглушка.
 
 Основные параметры похожи:
 
-- `progress` — determinate progress;
+- `progress` — determinate прогресс;
 - `modifier`;
 - `color`;
 - `strokeWidth`;
@@ -338,7 +338,7 @@ fun NotificationIconButton(
 
 Почему `contentDescription = null` у `Icon`: описание задано на `IconButton`, и оно учитывает число. Иконка сама по себе не должна дублировать текст.
 
-## Empty, loading, error и content states
+## Empty, загрузка, error и content states
 
 Хороший экран не должен иметь только "успешный список". У него есть состояния.
 
@@ -470,7 +470,7 @@ fun LessonContentState(
 
 Здесь `when` exhaustive, потому что состояние описано sealed interface. Если появится новый вариант, компилятор заставит обновить UI.
 
-## Полный пример: feedback-панель загрузки курса
+## Полный пример: обратная связь-панель загрузки курса
 
 ```kotlin
 import androidx.compose.foundation.layout.Arrangement
@@ -535,19 +535,19 @@ fun CourseSyncBanner(
 }
 ```
 
-Важная деталь: `progress: Float?` различает два честных состояния. `null` означает "точный прогресс неизвестен", число означает determinate progress.
+Важная деталь: `progress: Float?` различает два честных состояния. `null` означает "точный прогресс неизвестен", число означает determinate прогресс.
 
 ## Итоги
 
-Feedback-компоненты делают UI честным и спокойным:
+Обратная связь-компоненты делают UI честным и спокойным:
 
 - `LinearProgressIndicator` подходит для горизонтального прогресса;
 - `CircularProgressIndicator` подходит для компактной загрузки;
-- determinate progress получает значение от `0f` до `1f`;
-- indeterminate progress используется, когда точный процент неизвестен;
+- determinate прогресс получает значение от `0f` до `1f`;
+- indeterminate прогресс используется, когда точный процент неизвестен;
 - `SnackbarHostState.showSnackbar` вызывается из coroutine;
 - `SnackbarResult` позволяет обработать действие пользователя;
 - `Badge` и `BadgedBox` показывают статус или число поверх элемента;
-- empty/loading/error/content лучше моделировать sealed-состояниями;
-- feedback должен объяснять происходящее, а не просто мигать индикатором.
+- empty/загрузка/error/content лучше моделировать sealed-состояниями;
+- обратная связь должен объяснять происходящее, а не просто мигать индикатором.
 

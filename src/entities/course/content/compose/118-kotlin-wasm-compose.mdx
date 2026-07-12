@@ -2,7 +2,7 @@
 title: "Kotlin/Wasm Compose"
 description: "Разбираем Kotlin/Wasm target для Compose Multiplatform: browser target, wasmJs, status Web/Wasm, resource limitations, preload resources, browser APIs, current constraints, deployment, performance и архитектурные границы web-specific code."
 order: 118
-category: "Compose: Multiplatform and advanced ecosystems"
+category: "Compose: Multiplatform и продвинутые экосистемы"
 difficulty: "Продвинутый"
 ---
 
@@ -11,16 +11,16 @@ import MouseTrap from "../../ui/MouseTrap.vue";
 
 ## Что такое Kotlin/Wasm Compose
 
-Kotlin/Wasm позволяет запускать Kotlin code в браузере через WebAssembly. Compose Multiplatform использует Wasm как основной путь для shared Compose UI на web. В отличие от DOM-first UI, Compose for Web/Wasm обычно рендерит UI через canvas/skia-like pipeline и переносит знакомую Compose model в browser target.
+Kotlin/Wasm позволяет запускать Kotlin code в браузере через WebAssembly. Compose Multiplatform использует Wasm как основной путь для общий Compose UI на web. В отличие от DOM-first UI, Compose for Web/Wasm обычно рендерит UI через canvas/skia-like pipeline и переносит знакомую Compose model в browser target.
 
-Важно: Web/Wasm target находится в beta-стадии для Compose Multiplatform. Это означает, что его можно изучать и применять осознанно, но production rollout требует отдельной оценки рисков:
+Важно: Web/Wasm target находится в beta-стадии для Compose Multiplatform. Это означает, что его можно изучать и применять осознанно, но боевой rollout требует отдельной оценки рисков:
 
 - browser compatibility;
 - startup/download size;
 - accessibility;
 - SEO;
-- resource loading;
-- debugging;
+- resource загрузка;
+- отладка;
 - hosting/CDN;
 - JavaScript interop;
 - performance на слабых devices;
@@ -71,9 +71,9 @@ kotlin {
 
 Exact DSL меняется вместе с Kotlin/Compose Multiplatform версиями. Проверяйте template, который генерирует актуальный JetBrains wizard.
 
-## Browser entry point
+## Browser точка входа
 
-Упрощенный entry point:
+Упрощенный точка входа:
 
 ```kotlin
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -91,7 +91,7 @@ fun main() {
 }
 ```
 
-В новых версиях API names могут меняться. Архитектурно важно: web target имеет собственный entry point и shell.
+В новых версиях API names могут меняться. Архитектурно важно: web target имеет собственный точка входа и shell.
 
 ## Browser target constraints
 
@@ -158,12 +158,12 @@ Web/Wasm startup включает:
 Оптимизируйте:
 
 - размер bundle;
-- lazy loading feature modules, если возможно;
+- lazy загрузка feature modules, если возможно;
 - CDN caching;
 - resource preloading;
 - первый экран;
 - избегайте тяжелых initialization в `main`;
-- показывайте lightweight loading shell.
+- показывайте lightweight загрузка shell.
 
 ```kotlin
 @Composable
@@ -181,7 +181,7 @@ fun WebStartupShell(
 
 Не стройте весь app graph до первого meaningful paint, если пользователь сначала видит только splash.
 
-## URL and navigation
+## URL и навигация
 
 Browser URL должен отражать navigation, если app ожидает web behavior:
 
@@ -210,7 +210,7 @@ fun WebRoute.toPath(): String {
 }
 ```
 
-Platform web shell синхронизирует `WebRoute` с browser history. Shared screen этого не должен знать.
+Platform web shell синхронизирует `WebRoute` с browser history. Общий screen этого не должен знать.
 
 ## Browser APIs
 
@@ -233,7 +233,7 @@ class WebBrowserClipboard : BrowserClipboard {
 }
 ```
 
-Shared UI:
+Общий UI:
 
 ```kotlin
 @Composable
@@ -252,7 +252,7 @@ Browser permissions/errors должны обрабатываться в platform
 
 Canvas-based web UI может иметь accessibility limitations по сравнению с DOM-native UI. Проверяйте:
 
-- screen reader behavior;
+- программа чтения с экрана behavior;
 - keyboard navigation;
 - focus visibility;
 - browser zoom;
@@ -303,8 +303,8 @@ data class WebImageAsset(
 - ограничениям browser APIs;
 - differences between Chrome/Firefox/Safari;
 - tooling gaps;
-- larger startup payload than DOM-first apps;
-- need for browser-specific QA.
+- большая полезная нагрузка при запуске, чем у приложений, ориентированных на DOM;
+- необходимость контроля качества для конкретного браузера.
 
 Это не делает target плохим. Это означает: rollout должен быть осознанным.
 
@@ -314,11 +314,11 @@ Web deployment требует:
 
 - build output;
 - static hosting;
-- correct MIME types for Wasm;
+- исправлены MIME-типы для Wasm;
 - caching headers;
 - compression;
 - HTTPS;
-- fallback route for SPA;
+- запасной маршрут для SPA;
 - source maps policy;
 - browser compatibility checks.
 
@@ -330,20 +330,20 @@ build/dist/wasmJs/productionExecutable/
   resources/
 ```
 
-CI должен публиковать artifact и запускать smoke test в браузере.
+CI должен публиковать артефакт и запускать smoke test в браузере.
 
 ## Testing
 
 Тестовая стратегия:
 
 - common unit tests;
-- screenshot tests for shared components;
+- screenshot tests for общий components;
 - browser smoke tests;
 - keyboard/focus tests;
 - route/deep link tests;
 - performance startup budget;
 - accessibility manual checks;
-- resource loading failure checks.
+- resource загрузка failure checks.
 
 ```kotlin
 data class WebSmokeCheck(
@@ -375,7 +375,7 @@ Startup в браузере начинается с download.
 
 ### Считать accessibility автоматической
 
-Проверяйте screen readers и keyboard в браузере.
+Проверяйте программы чтения с экрана и keyboard в браузере.
 
 ### Использовать Wasm Compose для SEO-first страниц
 
@@ -383,11 +383,11 @@ Startup в браузере начинается с download.
 
 ## Итоги
 
-Kotlin/Wasm Compose переносит shared Compose UI в браузер:
+Kotlin/Wasm Compose переносит общий Compose UI в браузер:
 
 - Web/Wasm target находится в beta для Compose Multiplatform;
 - Gradle target обычно `wasmJs { browser(); binaries.executable() }`;
-- browser entry point отличается от Android/Desktop;
+- browser точка входа отличается от Android/Desktop;
 - URL/history/resources/accessibility требуют web-specific shell;
 - resources нужно оптимизировать и preload-ить для первого экрана;
 - browser APIs держите за adapter boundary;

@@ -1,8 +1,8 @@
 ---
-title: "Material component customization"
-description: "Разбираем кастомизацию Material 3 компонентов в Compose: Defaults objects, ButtonDefaults, CardDefaults, TextFieldDefaults, colors, elevation, shapes, semantic tokens и стабильные дизайн-системные обертки."
+title: "Настройка компонентов Material"
+description: "Разбираем кастомизацию Material 3 компонентов в Compose: Значения по умолчанию objects, ButtonDefaults, CardDefaults, TextFieldDefaults, colors, elevation, shapes, semantic tokens и стабильные дизайн-системные обертки."
 order: 53
-category: "Compose: Material 3 components and app structure"
+category: "Compose: компоненты Material 3 и структура приложения"
 difficulty: "Средний"
 ---
 
@@ -62,7 +62,7 @@ fun BrandedPrimaryButton(
 }
 ```
 
-В этом примере кнопка остается обычной Material-кнопкой: она сохраняет минимальные размеры, ripple, semantics, корректный disabled state и поддержку темы. Мы меняем только те параметры, которые действительно относятся к визуальной системе приложения.
+В этом примере кнопка остается обычной Material-кнопкой: она сохраняет минимальные размеры, ripple, semantics, корректный отключенное состояние и поддержку темы. Мы меняем только те параметры, которые действительно относятся к визуальной системе приложения.
 
 <CatTip>
 Самый надежный путь кастомизации в Compose: сначала настройте `MaterialTheme`, затем используйте `Defaults` конкретного компонента, и только потом создавайте собственные обертки. Чем ниже уровень кастомизации, тем больше ответственности вы берете на себя.
@@ -84,7 +84,7 @@ fun BrandedPrimaryButton(
 Не начинайте с полного копирования Material-компонента в свой проект. В большинстве случаев достаточно настроить тему, передать `Defaults` и создать тонкую composable-обертку. Полное переписывание быстро ломает accessibility, touch targets, состояния и совместимость с будущими версиями Material.
 </MouseTrap>
 
-## Что такое Defaults objects
+## Что такое Значения по умолчанию objects
 
 Во многих Material 3 компонентах есть объект с суффиксом `Defaults`. Он содержит значения и фабрики, которые согласованы с Material Design:
 
@@ -93,7 +93,7 @@ fun BrandedPrimaryButton(
 - размеры и отступы;
 - формы;
 - border;
-- interaction defaults;
+- interaction значения по умолчанию;
 - вспомогательные composable для индикаторов или drag handle.
 
 Часто встречающиеся `Defaults`:
@@ -194,7 +194,7 @@ fun DangerButton(
 - `pressedElevation`: нажатие;
 - `focusedElevation`: фокус;
 - `hoveredElevation`: pointer hover;
-- `disabledElevation`: disabled state.
+- `disabledElevation`: отключенное состояние.
 
 ```kotlin
 import androidx.compose.foundation.layout.Arrangement
@@ -349,7 +349,7 @@ fun AccountStatusCard(
 
 ## TextFieldDefaults
 
-Текстовые поля особенно чувствительны к состояниям. У них есть фокус, ошибка, disabled state, label, supporting text, prefix, suffix, leading icon, trailing icon и cursor.
+Текстовые поля особенно чувствительны к состояниям. У них есть фокус, ошибка, отключенное состояние, label, supporting text, prefix, suffix, leading icon, trailing icon и cursor.
 
 `TextFieldDefaults.colors` обычно задает:
 
@@ -458,7 +458,7 @@ fun EmailTextField(
 
 ## IconButtonDefaults
 
-Icon buttons часто используются в app bars, списках и карточках. У них есть несколько Material-вариантов:
+Icon buttons часто используются в панели приложения, списках и карточках. У них есть несколько Material-вариантов:
 
 - `IconButton`: минимальная кнопка без плотного фона;
 - `FilledIconButton`: сильный акцент;
@@ -518,7 +518,7 @@ fun BookmarkToggle(
 }
 ```
 
-Для toggle-кнопок особенно важно различать `contentDescription` в selected и unselected состояниях. Screen reader должен озвучить действие, которое произойдет после нажатия.
+Для toggle-кнопок особенно важно различать `contentDescription` в selected и unselected состояниях. Программа чтения с экрана должен озвучить действие, которое произойдет после нажатия.
 
 ## Selection controls
 
@@ -606,7 +606,7 @@ fun NotificationSettingsControls(
 
 - принимает доменные варианты, а не сырые цвета;
 - сохраняет `modifier`;
-- не скрывает важные callbacks;
+- не скрывает важные обратные вызовы;
 - явно поддерживает `enabled`;
 - использует Material-компонент внутри;
 - оставляет escape hatch только там, где он действительно нужен;
@@ -724,7 +724,7 @@ fun AppButton(
 }
 ```
 
-Обратите внимание на `Color.Unspecified` в disabled danger-кнопке. Это означает: если кнопка отключена, пусть Material-компонент использует стандартный disabled color, а не принудительно красит disabled state в error-цвет.
+Обратите внимание на `Color.Unspecified` в disabled danger-кнопке. Это означает: если кнопка отключена, пусть Material-компонент использует стандартный disabled color, а не принудительно красит отключенное состояние в error-цвет.
 
 <CatTip>
 Enum для вариантов кнопки лучше, чем параметр `containerColor`, если приложение хочет контролировать дизайн-систему. Экран говорит "мне нужна опасная кнопка", а не "поставь мне вот такой оттенок".
@@ -849,7 +849,7 @@ fun TicketCodeChip(
 
 ## Elevation и tonal elevation
 
-В Material 3 elevation бывает не только shadow-based. Некоторые компоненты используют tonal elevation: поверхность получает цветовой overlay, чтобы визуально отделиться от фона. Поэтому не стоит воспринимать elevation только как тень.
+В Material 3 elevation бывает не только shadow-based. Некоторые компоненты используют tonal elevation: поверхность получает цветовой наложение, чтобы визуально отделиться от фона. Поэтому не стоит воспринимать elevation только как тень.
 
 Ключевые правила:
 
@@ -945,7 +945,7 @@ fun PressAwareButton(
 
 `interactionSource` нужно помнить через `remember`, иначе при recomposition компонент будет получать новый источник взаимодействий, а pressed/focused state может сбрасываться.
 
-## Production-пример: дизайн-системная карточка статуса
+## Боевой-пример: дизайн-системная карточка статуса
 
 Теперь соберем компонент, который показывает статус заказа и при этом не раскрывает наружу низкоуровневые Material-детали.
 
@@ -1093,7 +1093,7 @@ fun OrderStatusCard(
 }
 ```
 
-Этот компонент демонстрирует несколько production-принципов:
+Этот компонент демонстрирует несколько боевой-принципов:
 
 - внешний API говорит языком продукта: `OrderStatusTone`, `title`, `message`;
 - Material-цвета и собственные tokens используются внутри;
@@ -1108,7 +1108,7 @@ fun OrderStatusCard(
 
 Цвет `Color(0xFF1565C0)` может выглядеть нормально в одном режиме, но сломаться в темной теме, dynamic color и high contrast сценариях. Предпочитайте роли темы и собственные semantic tokens.
 
-### Менять только enabled state
+### Менять только включенное состояние
 
 Компонент должен выглядеть корректно в disabled, pressed, focused, hovered, selected и error состояниях. Если вы задали только `containerColor`, проверьте, что остальные состояния все еще читаемы.
 
