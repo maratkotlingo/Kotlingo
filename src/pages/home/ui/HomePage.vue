@@ -39,15 +39,7 @@ const tracks = [
     description: 'Курс по декларативному Android UI: setup, activity, mental model, lifecycle, composable-функции, state и Material 3.',
     icon: Layers3,
     accent: 'border-violet/35 bg-violet/10 text-violet',
-  },
-  {
-    title: 'Kotlin Sandbox',
-    href: '/sandbox',
-    status: 'browser IDE',
-    description: 'Многофайловая песочница с папками, Kotlin-файлами, импортами между файлами, запуском через compiler backend и диагностикой.',
-    icon: FileCode2,
-    accent: 'border-amber/35 bg-amber/10 text-amber',
-  },
+  }
 ]
 </script>
 
@@ -57,7 +49,8 @@ const tracks = [
       <header :class="[layout.panel, 'overflow-hidden']">
         <div class="grid gap-8 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-12">
           <div class="min-w-0">
-            <div class="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-accent">
+            <div
+              class="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-accent">
               <Sparkles :size="15" />
               Kotlin and Android learning hub
             </div>
@@ -77,33 +70,27 @@ const tracks = [
                 <span>Jetpack Compose</span>
                 <ArrowRight :size="18" />
               </RouterLink>
-              <RouterLink :class="buttons.secondary" to="/sandbox">
-                <span>Песочница</span>
-                <ArrowRight :size="18" />
-              </RouterLink>
             </div>
           </div>
 
           <div class="grid content-between gap-4 rounded-card border border-line bg-app-soft p-5">
-            <div class="grid h-16 w-16 place-items-center rounded-card border border-accent/35 bg-accent/10 text-accent shadow-glow">
+            <div
+              class="grid h-16 w-16 place-items-center rounded-card border border-accent/35 bg-accent/10 text-accent shadow-glow">
               <Code2 :size="30" />
             </div>
             <div>
               <p class="m-0 text-xs font-black uppercase tracking-wide text-muted">Сейчас доступно</p>
               <strong class="mt-2 block text-5xl font-black">3</strong>
-              <p class="m-0 mt-2 text-sm leading-6 text-muted">2 reader-курса и browser IDE для многофайловых Kotlin-экспериментов.</p>
+              <p class="m-0 mt-2 text-sm leading-6 text-muted">2 reader-курса и browser IDE для многофайловых
+                Kotlin-экспериментов.</p>
             </div>
           </div>
         </div>
       </header>
 
-      <section class="grid gap-4 md:grid-cols-3">
-        <RouterLink
-          v-for="track in tracks"
-          :key="track.title"
-          :to="track.href"
-          :class="[layout.panel, 'group grid gap-5 p-6 no-underline transition hover:-translate-y-0.5 hover:border-line-strong hover:bg-panel-soft']"
-        >
+      <section class="grid gap-4 md:grid-cols-2">
+        <RouterLink v-for="track in tracks" :key="track.title" :to="track.href"
+          :class="[layout.panel, 'group grid gap-5 p-6 no-underline transition hover:-translate-y-0.5 hover:border-line-strong hover:bg-panel-soft']">
           <div class="flex items-start justify-between gap-4">
             <div :class="['grid h-12 w-12 place-items-center rounded-card border', track.accent]">
               <component :is="track.icon" :size="24" />

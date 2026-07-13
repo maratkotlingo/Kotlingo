@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/pages/home/ui/HomePage.vue'
 import ComposeCoursePage from '@/pages/compose-course/ui/ComposeCoursePage.vue'
 import KotlinCoursePage from '@/pages/kotlin-course/ui/KotlinCoursePage.vue'
-import KotlinSandboxPage from '@/pages/kotlin-sandbox/ui/KotlinSandboxPage.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -10,7 +9,6 @@ export const router = createRouter({
     { path: '/', name: 'home', component: HomePage },
     { path: '/kotlin', name: 'kotlin', component: KotlinCoursePage },
     { path: '/compose', name: 'compose', component: ComposeCoursePage },
-    { path: '/sandbox', name: 'kotlin-sandbox', component: KotlinSandboxPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior(to, _from, savedPosition) {
