@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { markdown } from '@/shared/config/markdown'
 
 const props = defineProps<{
   type: 'tip' | 'trap'
@@ -12,21 +11,26 @@ const variant = computed(() =>
     ? {
         kicker: 'Осторожно',
         title: 'Разбор частой ошибки',
-        className: markdown.calloutTrap,
+        className: 'border-rose/30 bg-rose/10',
       }
     : {
         kicker: 'Совет',
         title: 'Практический ориентир',
-        className: markdown.calloutTip,
+        className: 'border-accent/25 bg-accent/10',
       },
 )
+
+const calloutClass = 'my-6 rounded-card border p-5 shadow-glow'
+const kickerClass = 'mb-1 text-xs font-black uppercase tracking-wide text-muted'
+const titleClass = 'mb-2 text-lg font-black text-ink'
+const bodyClass = 'text-ink/88 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0'
 </script>
 
 <template>
-  <aside :class="[markdown.callout, variant.className]">
-    <div :class="markdown.calloutKicker">{{ variant.kicker }}</div>
-    <p :class="markdown.calloutTitle">{{ title || variant.title }}</p>
-    <div :class="markdown.calloutBody">
+  <aside :class="[calloutClass, variant.className]">
+    <div :class="kickerClass">{{ variant.kicker }}</div>
+    <p :class="titleClass">{{ title || variant.title }}</p>
+    <div :class="bodyClass">
       <slot />
     </div>
   </aside>

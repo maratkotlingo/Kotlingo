@@ -6,7 +6,6 @@ import {
   ArrowRight,
   CheckCircle2,
   Circle,
-  Code2,
   Filter,
   Heart,
   Home,
@@ -24,8 +23,6 @@ import SearchField from '@/shared/ui/SearchField.vue'
 import CourseTopBar from '@/widgets/course-layout/ui/CourseTopBar.vue'
 import type { CourseLesson, CourseModule, CourseStats } from '@/entities/course/model/course'
 import { useCourseProgressStore } from '@/entities/course/model/courseProgress'
-import { markdown } from '@/shared/config/markdown'
-import { buttons, drawerPt, layout, progressPt, tagBase } from '@/shared/config/ui'
 
 interface FilterOption {
   label: string
@@ -49,6 +46,77 @@ interface CourseReaderProps {
   brandImageSrc?: string
   brandIcon?: Component
   brandIconClass?: string
+}
+
+const layout = {
+  page:
+    'min-h-screen bg-app text-ink [background-image:linear-gradient(var(--color-grid-line)_1px,transparent_1px),linear-gradient(90deg,var(--color-grid-line)_1px,transparent_1px)] [background-size:32px_32px]',
+  contentGrid:
+    'mx-auto grid w-full max-w-[1780px] grid-cols-[320px_minmax(0,1fr)_300px] items-start gap-5 px-6 py-5 pb-12 max-xl:grid-cols-[300px_minmax(0,1fr)] max-lg:block max-lg:px-3 max-lg:py-4',
+  panel: 'rounded-card border border-line bg-panel/95 shadow-panel backdrop-blur-xl',
+  stickyPane: 'sticky top-[92px] max-h-[calc(100vh-112px)] max-lg:hidden',
+}
+
+const buttons = {
+  icon:
+    'inline-flex h-10 w-10 items-center justify-center gap-2 rounded-control border border-line bg-panel-raised text-muted transition hover:border-accent/50 hover:bg-accent/10 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45',
+  iconActive:
+    'inline-flex h-10 w-10 items-center justify-center gap-2 rounded-control border border-accent/50 bg-accent/15 text-accent shadow-glow transition',
+  primary:
+    'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-accent bg-accent px-4 font-extrabold text-app no-underline transition hover:border-accent-strong hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-45',
+  secondary:
+    'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-line bg-panel-raised px-4 font-extrabold text-ink no-underline transition hover:border-line-strong hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-45',
+  subtle:
+    'inline-flex min-h-9 items-center justify-center gap-2 rounded-control border border-transparent px-3 font-extrabold text-accent transition hover:bg-accent/10',
+  complete:
+    'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-accent/35 bg-accent/10 px-4 font-extrabold text-accent transition hover:bg-accent/15',
+  completeDone:
+    'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-accent bg-accent px-4 font-extrabold text-app transition hover:bg-accent-strong',
+  favorite:
+    'inline-flex h-10 w-[42px] items-center justify-center rounded-control border border-line bg-panel-raised text-muted transition hover:border-rose/40 hover:bg-rose/10 hover:text-rose',
+  favoriteActive:
+    'inline-flex h-10 w-[42px] items-center justify-center rounded-control border border-rose/40 bg-rose/15 text-rose transition',
+}
+
+const progressPt = {
+  root: {
+    class: 'relative h-2 overflow-hidden rounded-full bg-line',
+  },
+  value: {
+    class: 'h-full rounded-full bg-gradient-to-r from-accent to-violet transition-[width] duration-300',
+  },
+  label: {
+    class: 'sr-only',
+  },
+}
+
+const drawerPt = {
+  root: {
+    class: 'h-screen w-[min(92vw,380px)] border-r border-line bg-panel text-ink shadow-panel',
+  },
+  mask: {
+    class: 'z-[90] bg-black/60 backdrop-blur-sm',
+  },
+  header: {
+    class: 'flex min-h-16 items-center justify-between border-b border-line px-4 font-black text-ink',
+  },
+  title: {
+    class: 'font-black text-ink',
+  },
+  content: {
+    class: 'h-[calc(100vh-4rem)] overflow-auto p-3',
+  },
+  closeButton: {
+    class: buttons.icon,
+  },
+}
+
+const tagBase = {
+  beginner: 'inline-flex min-h-7 items-center rounded-full bg-accent/12 px-3 text-xs font-black text-accent',
+  middle: 'inline-flex min-h-7 items-center rounded-full bg-blue/12 px-3 text-xs font-black text-blue',
+  advanced: 'inline-flex min-h-7 items-center rounded-full bg-amber/12 px-3 text-xs font-black text-amber',
+  expert: 'inline-flex min-h-7 items-center rounded-full bg-violet/12 px-3 text-xs font-black text-violet',
+  default: 'inline-flex min-h-7 items-center rounded-full bg-panel-raised px-3 text-xs font-black text-muted',
 }
 
 const props = defineProps<CourseReaderProps>()
@@ -472,7 +540,7 @@ function updateActiveHeading() {
             <p class="mt-5 max-w-3xl text-lg leading-8 text-muted">{{ currentLesson.description }}</p>
           </header>
 
-          <div :class="markdown.container" v-html="currentLesson.html"></div>
+          <div class="course-markdown" v-html="currentLesson.html"></div>
 
           <footer class="flex items-center justify-between gap-3 border-t border-line p-5 max-sm:flex-col">
             <Button :class="[buttons.secondary, 'max-sm:w-full']" :disabled="!previousLesson" title="Предыдущий урок"
@@ -558,3 +626,262 @@ function updateActiveHeading() {
     </Drawer>
   </div>
 </template>
+
+<style>
+.course-markdown {
+  max-width: 940px;
+  margin-inline: auto;
+  padding: 1.75rem 1.25rem;
+  color: rgb(247 251 255 / 0.88);
+  font-size: 17px;
+  line-height: 2rem;
+}
+
+.course-markdown__heading {
+  color: var(--color-ink);
+  font-weight: 900;
+  line-height: 1.25;
+  scroll-margin-top: 6rem;
+}
+
+.course-markdown__heading--h2 {
+  padding-top: 2rem;
+  font-size: 31px;
+}
+
+.course-markdown__heading--h3 {
+  padding-top: 1.5rem;
+  font-size: 1.5rem;
+}
+
+.course-markdown__heading--h4 {
+  padding-top: 1rem;
+  font-size: 1.25rem;
+}
+
+.course-markdown__paragraph {
+  margin-block: 1rem;
+}
+
+.course-markdown__list {
+  margin-block: 1rem;
+  padding-left: 1.5rem;
+}
+
+.course-markdown__list--unordered {
+  list-style: disc;
+}
+
+.course-markdown__list--ordered {
+  list-style: decimal;
+}
+
+.course-markdown__list-item {
+  padding-left: 0.25rem;
+}
+
+.course-markdown__list-item + .course-markdown__list-item {
+  margin-top: 0.5rem;
+}
+
+.course-markdown__link {
+  color: var(--color-accent);
+  font-weight: 800;
+  text-decoration-line: underline;
+  text-decoration-color: rgb(56 242 194 / 0.5);
+  text-underline-offset: 4px;
+  transition: color 150ms ease;
+}
+
+.course-markdown__link:hover {
+  color: var(--color-accent-strong);
+}
+
+.course-markdown__inline-code {
+  border: 1px solid rgb(56 242 194 / 0.2);
+  border-radius: 0.375rem;
+  background: rgb(56 242 194 / 0.1);
+  padding: 0.125rem 0.375rem;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.course-markdown__blockquote {
+  margin-block: 1.5rem;
+  border-left: 4px solid var(--color-accent);
+  background: rgb(56 242 194 / 0.1);
+  padding: 0.75rem 1.25rem;
+  color: rgb(247 251 255 / 0.9);
+}
+
+.course-markdown__table {
+  display: block;
+  width: 100%;
+  margin-block: 1.5rem;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.course-markdown__table-cell {
+  border: 1px solid var(--color-line);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  color: rgb(247 251 255 / 0.86);
+}
+
+.course-markdown__table-cell--heading {
+  background: var(--color-panel-raised);
+  color: var(--color-ink);
+  font-weight: 900;
+}
+
+.course-markdown__code-frame {
+  margin-block: 1.5rem;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-app);
+  box-shadow: var(--shadow-panel);
+}
+
+.course-markdown__code-caption {
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+  padding-inline: 1rem;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.course-markdown__pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 1.25rem;
+}
+
+.course-markdown__code-block {
+  color: rgb(247 251 255 / 0.9);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.75rem;
+}
+
+.course-callout {
+  margin-block: 1.5rem;
+  border: 1px solid;
+  border-radius: var(--radius-card);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-glow);
+}
+
+.course-callout--tip {
+  border-color: rgb(56 242 194 / 0.25);
+  background: rgb(56 242 194 / 0.1);
+}
+
+.course-callout--trap {
+  border-color: rgb(251 113 133 / 0.3);
+  background: rgb(251 113 133 / 0.1);
+}
+
+.course-callout__kicker {
+  margin-bottom: 0.25rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.course-callout__title {
+  margin-bottom: 0.5rem;
+  color: var(--color-ink);
+  font-size: 1.125rem;
+  font-weight: 900;
+}
+
+.course-callout__body {
+  color: rgb(247 251 255 / 0.88);
+}
+
+.course-callout__body > :first-child {
+  margin-top: 0;
+}
+
+.course-callout__body > :last-child {
+  margin-bottom: 0;
+}
+
+@media (width >= 640px) {
+  .course-markdown {
+    padding-inline: 2rem;
+  }
+}
+
+@media (width >= 1024px) {
+  .course-markdown {
+    padding-inline: 3.5rem;
+    padding-bottom: 3.5rem;
+  }
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-name {
+  color: var(--color-violet);
+  font-weight: 900;
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-function .hljs-title {
+  color: var(--color-accent);
+  font-weight: 800;
+}
+
+.hljs-string,
+.hljs-subst,
+.hljs-template-tag,
+.hljs-template-variable {
+  color: var(--color-amber);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--color-blue);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--color-muted-soft);
+  font-style: italic;
+}
+
+.hljs-params,
+.hljs-variable,
+.hljs-attr,
+.hljs-property {
+  color: rgb(247 251 255 / 0.9);
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+  color: var(--color-rose);
+}
+
+.hljs-meta,
+.hljs-operator,
+.hljs-punctuation {
+  color: var(--color-muted);
+}
+</style>

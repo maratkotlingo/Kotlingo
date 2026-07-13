@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { layout } from '@/shared/config/ui'
-
 withDefaults(
   defineProps<{
     eyebrow?: string
@@ -13,10 +11,13 @@ withDefaults(
     progressLabel: undefined,
   },
 )
+
+const headerClass =
+  'sticky top-0 z-40 grid min-h-[72px] grid-cols-[minmax(0,1fr)_minmax(220px,360px)_auto] items-center gap-5 border-b border-line/80 bg-app/90 px-6 py-3 shadow-panel backdrop-blur-xl max-lg:grid-cols-[minmax(0,1fr)_auto] max-sm:min-h-16 max-sm:px-3'
 </script>
 
 <template>
-  <header :class="layout.header">
+  <header :class="headerClass">
     <slot>
       <div class="flex min-w-0 items-center gap-3">
         <slot name="icon" />

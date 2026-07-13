@@ -1,24 +1,22 @@
 ---
 title: "Переменные, значения и базовая типизация"
-description: "Глубоко изучаем val, var, вывод типов, явные типы, инициализацию, область видимости, const val, lateinit и различие между неизменяемой ссылкой и изменяемым объектом."
+description: "Справочник по val, var, выводу типов, явным типам, инициализации, областям видимости, const val и lateinit."
 order: 3
 category: "Основы"
 difficulty: "Начальный"
 ---
 
-import CatTip from "../../ui/CatTip.vue";
-import MouseTrap from "../../ui/MouseTrap.vue";
+## `val` и `var`
 
-## Зачем так много внимания переменным
+```kotlin
+val name: Type = expression
+var name: Type = expression
+```
 
-Переменная — первое место, где Kotlin показывает свой характер. В языке нет привычного JavaScript-стиля "пусть тип решится во время выполнения". Тип каждого выражения известен компилятору. Даже если ты не пишешь тип явно, Kotlin выводит его из правой части.
-
-Главная пара ключевых слов:
-
-- `val` — неизменяемая ссылка;
-- `var` — изменяемая переменная.
-
-В Kotlin принято начинать с `val` и переходить на `var` только тогда, когда переназначение действительно нужно. Это снижает количество случайных изменений состояния и делает код проще для чтения.
+- `val` — ссылку нельзя переназначить после инициализации.
+- `var` — переменную можно переназначать, но ее тип остается тем же.
+- В Kotlin обычно начинают с `val` и переходят на `var` только при реальной
+  необходимости менять значение.
 
 ```kotlin
 fun main() {
@@ -32,159 +30,63 @@ fun main() {
 }
 ```
 
-Здесь `courseName` нельзя переназначить, а `completedLessons` можно.
-
-## Объявление `val`
-
-Базовая форма:
+Нельзя переназначить `val`:
 
 ```kotlin
-val name: Type = expression
+val title = "Переменные"
+title = "Типы" // ошибка компиляции
 ```
 
-Пример:
+Нельзя изменить тип `var`:
 
 ```kotlin
-fun main() {
-    val title: String = "Переменные"
-    val minutes: Int = 55
-    val isPublished: Boolean = true
-
-    println(title)
-    println(minutes)
-    println(isPublished)
-}
+var score = 10
+score = 15
+score = "пятнадцать" // ошибка компиляции
 ```
-
-`val` означает: после инициализации этой переменной нельзя присвоить новое значение.
-
-```kotlin
-fun main() {
-    val title = "Переменные"
-
-    // Этот код не компилируется: val нельзя переназначить.
-    title = "Типы"
-
-    println(title)
-}
-```
-
-Правильный подход — создать новое значение:
-
-```kotlin
-fun main() {
-    val originalTitle = "Переменные"
-    val updatedTitle = "Типы"
-
-    println(originalTitle)
-    println(updatedTitle)
-}
-```
-
-<CatTip title="Кошачье правило">
-  Если не уверен, выбирай `val`. Когда компилятор запретит переназначение, это
-  будет сигналом: либо переменная правда должна быть `var`, либо код стоит
-  переписать через новое значение.
-</CatTip>
-
-## Объявление `var`
-
-Базовая форма:
-
-```kotlin
-var name: Type = expression
-```
-
-Пример:
-
-```kotlin
-fun main() {
-    var attempts: Int = 0
-
-    attempts = attempts + 1
-    attempts += 1
-
-    println("Попыток: $attempts")
-}
-```
-
-`var` можно переназначать, но тип остается тем же.
-
-```kotlin
-fun main() {
-    var score = 10
-
-    score = 15
-
-    // Этот код не компилируется: score имеет тип Int, а не String.
-    score = "пятнадцать"
-
-    println(score)
-}
-```
-
-Kotlin не превращает `score` в переменную "любого типа". Если тип выведен как `Int`, переменная остается `Int`.
 
 ## Вывод типов
 
-Kotlin позволяет не писать тип, если его можно однозначно вывести:
+Kotlin выводит тип из правой части, если он однозначен.
 
 ```kotlin
-fun main() {
-    val title = "Переменные"
-    val minutes = 55
-    val rating = 4.9
-    val isRequired = true
-
-    println(title)
-    println(minutes)
-    println(rating)
-    println(isRequired)
-}
+val title = "Переменные" // String
+val minutes = 55        // Int
+val rating = 4.9        // Double
+val published = true    // Boolean
 ```
 
-Компилятор выводит:
+Вывод типов не делает переменную динамической. Тип фиксируется на этапе
+компиляции.
 
-- `title` как `String`;
-- `minutes` как `Int`;
-- `rating` как `Double`;
-- `isRequired` как `Boolean`.
-
-Вывод типов не ухудшает безопасность. Он просто убирает дублирование там, где тип очевиден.
-
-### Когда писать тип явно
+## Когда писать тип явно
 
 Явный тип полезен, когда:
 
 - правая часть не раскрывает намерение;
-- нужно зафиксировать более общий тип;
-- нужно избежать неожиданного числового типа;
+- нужен более общий тип, чем конкретная реализация;
+- важно избежать неожиданного числового типа;
 - переменная объявляется без немедленной инициализации;
-- публичное API должно быть очевидным для читателя;
-- выражение сложное и тип помогает быстрее читать код.
+- это публичное API;
+- выражение сложное и тип ускоряет чтение.
 
 ```kotlin
-fun main() {
-    val lessonTitles: List<String> = listOf(
-        "Введение",
-        "Первая программа",
-        "Переменные"
-    )
+val lessonTitles: List<String> = listOf(
+    "Введение",
+    "Первая программа",
+    "Переменные"
+)
 
-    val averageMinutes: Double = 42.5
-    val maxRetries: Long = 3L
-
-    println(lessonTitles)
-    println(averageMinutes)
-    println(maxRetries)
-}
+val averageMinutes: Double = 42.5
+val maxRetries: Long = 3L
 ```
 
-В этом примере `List<String>` показывает намерение: нам нужен только для чтения список строк, а не конкретная реализация.
+`List<String>` сообщает контракт: нужен список строк только для чтения, а не
+конкретная mutable-реализация.
 
 ## Неизменяемая ссылка и изменяемый объект
 
-`val` запрещает переназначить переменную. Он не всегда делает сам объект неизменяемым.
+`val` фиксирует ссылку, но не обязательно делает объект неизменяемым.
 
 ```kotlin
 fun main() {
@@ -193,153 +95,94 @@ fun main() {
     completedLessons.add("Введение")
     completedLessons.add("Первая программа")
 
-    // Этот код не компилируется: ссылку completedLessons нельзя заменить.
-    completedLessons = mutableListOf("Новый список")
-
-    println(completedLessons)
+    completedLessons = mutableListOf("Новый список") // ошибка
 }
 ```
 
-Ссылка `completedLessons` неизменяема, но объект `MutableList` изменяем. Поэтому `add` разрешен, а переназначение запрещено.
+`add` разрешен, потому что объект `MutableList` изменяем. Переназначение
+запрещено, потому что ссылка объявлена через `val`.
 
-Если нужна настоящая неизменяемость на уровне API, выбирай только для чтения тип:
+Для read-only API используй `List<T>`:
 
 ```kotlin
-fun main() {
-    val completedLessons: List<String> = listOf(
-        "Введение",
-        "Первая программа"
-    )
+val completedLessons: List<String> = listOf(
+    "Введение",
+    "Первая программа"
+)
 
-    // Этот код не компилируется: у List нет метода add.
-    completedLessons.add("Переменные")
-
-    println(completedLessons)
-}
+completedLessons.add("Переменные") // ошибка: у List нет add
 ```
 
-Важно: `List` в Kotlin — только для чтения view, а не абсолютная гарантия глубокой иммутабельности. Если тот же объект где-то хранится как `MutableList`, его могут изменить через другую ссылку.
-
-Безопаснее создавать копию при пересечении границы API:
+`List` — read-only view, а не глубокая иммутабельность. На границе API лучше
+копировать входные mutable-коллекции.
 
 ```kotlin
 class ProgressSnapshot(completedLessons: List<String>) {
-    private val lessons: List<String> = completedLessons.toList()
+    private val lessons = completedLessons.toList()
 
-    fun allLessons(): List<String> {
-        return lessons
-    }
-}
-
-fun main() {
-    val mutableSource = mutableListOf("Введение")
-    val snapshot = ProgressSnapshot(mutableSource)
-
-    mutableSource.add("Первая программа")
-
-    println(snapshot.allLessons())
-    println(mutableSource)
+    fun allLessons(): List<String> = lessons
 }
 ```
-
-`toList()` создает независимый список для snapshot. Теперь изменение `mutableSource` не меняет состояние `ProgressSnapshot`.
-
-<MouseTrap title="Мышеловка: val не делает MutableList безопасным">
-`val items = mutableListOf<String>()` означает "нельзя присвоить переменной другой список". Это не означает "список нельзя менять". Для API, где важна неизменяемость, возвращай `List`, копируй входные mutable-коллекции и не отдавай наружу внутреннее mutable-состояние.
-</MouseTrap>
 
 ## Инициализация
 
-Локальный `val` можно объявить без значения, если компилятор видит, что значение будет присвоено ровно один раз до использования.
+Локальный `val` можно объявить без значения, если компилятор видит, что значение
+будет присвоено ровно один раз до чтения.
 
 ```kotlin
 fun main() {
-    val lessonStatus: String
+    val status: String
     val score = 86
 
     if (score >= 70) {
-        lessonStatus = "урок усвоен"
+        status = "урок усвоен"
     } else {
-        lessonStatus = "нужно повторить"
+        status = "нужно повторить"
     }
 
-    println(lessonStatus)
+    println(status)
 }
 ```
 
-Если компилятор не может доказать инициализацию, код не скомпилируется.
+Часто короче и безопаснее использовать выражение:
 
 ```kotlin
-fun main() {
-    val lessonStatus: String
-    val score = 86
-
-    if (score >= 70) {
-        lessonStatus = "урок усвоен"
-    }
-
-    // Этот код не компилируется: при score < 70 значение не присвоено.
-    println(lessonStatus)
+val status = if (score >= 70) {
+    "урок усвоен"
+} else {
+    "нужно повторить"
 }
 ```
-
-Лучше часто писать через выражение:
-
-```kotlin
-fun main() {
-    val score = 86
-
-    val lessonStatus = if (score >= 70) {
-        "урок усвоен"
-    } else {
-        "нужно повторить"
-    }
-
-    println(lessonStatus)
-}
-```
-
-Так код короче, а переменная инициализируется в одном месте.
 
 ## Область видимости
 
-Область видимости определяет, где имя доступно.
+Имя доступно только внутри блока, где объявлено.
 
 ```kotlin
 fun main() {
-    val courseName = "kotlingo"
-
-    if (courseName.isNotBlank()) {
-        val message = "Курс найден: $courseName"
+    if (true) {
+        val message = "Готово"
         println(message)
     }
 
-    // Этот код не компилируется: message объявлен внутри if-блока.
-    println(message)
+    println(message) // ошибка
 }
 ```
 
-Переменная `message` существует только внутри блока `{ ... }`, где она объявлена.
-
-Правильный вариант:
+Если значение нужно после условия, объявляй его снаружи или вычисляй через
+expression:
 
 ```kotlin
-fun main() {
-    val courseName = "kotlingo"
-
-    val message = if (courseName.isNotBlank()) {
-        "Курс найден: $courseName"
-    } else {
-        "Курс не найден"
-    }
-
-    println(message)
+val message = if (courseName.isNotBlank()) {
+    "Курс найден: $courseName"
+} else {
+    "Курс не найден"
 }
 ```
 
 ## Shadowing
 
-Shadowing — ситуация, когда внутреннее имя скрывает внешнее.
+Shadowing — внутреннее имя скрывает внешнее.
 
 ```kotlin
 fun main() {
@@ -354,33 +197,19 @@ fun main() {
 }
 ```
 
-Вывод:
-
-```text
-Типы
-Переменные
-```
-
-Shadowing иногда полезен для нормализации значения:
+Используй осторожно. Допустимый случай — нормализация входного значения:
 
 ```kotlin
 fun printTitle(rawTitle: String) {
     val title = rawTitle.trim()
 
-    if (title.isBlank()) {
-        println("Название пустое")
-        return
-    }
+    if (title.isBlank()) return
 
-    println("Название: $title")
-}
-
-fun main() {
-    printTitle("  Переменные  ")
+    println(title)
 }
 ```
 
-Но злоупотреблять shadowing не стоит. Если во вложенном блоке одно и то же имя означает разные вещи, читатель легко ошибется.
+Если одно имя в разных блоках означает разные сущности, лучше переименовать.
 
 ## Top-level свойства
 
@@ -389,75 +218,57 @@ fun main() {
 ```kotlin
 package academy.kotlingo.variables
 
-val defaultCourseTitle: String = "kotlingo"
-
-fun main() {
-    println(defaultCourseTitle)
-}
+val defaultCourseTitle = "kotlingo"
 ```
 
-Top-level `val` инициализируется при загрузке соответствующего файла на платформе. Для простых констант лучше использовать `const val`, если значение известно на этапе компиляции.
+Top-level `val` инициализируется при загрузке соответствующего файла на
+платформе. Для значений, известных во время компиляции, используй `const val`.
 
 ## `const val`
 
-`const val` — compile-time constant. Его можно объявлять только:
+`const val` — compile-time constant.
 
-- на top-level;
+Где разрешен:
+
+- top-level;
 - внутри `object`;
 - внутри `companion object`.
 
-Тип должен быть примитивным, `String` или другим типом, разрешенным для compile-time constants. Значение должно быть известно во время компиляции.
+Типы: примитивные типы, `String` и другие типы, разрешенные для compile-time
+constants. Значение должно быть известно компилятору.
 
 ```kotlin
-const val COURSE_SLUG: String = "kotlingo"
-const val MAX_LESSONS_IN_BATCH: Int = 3
+const val COURSE_SLUG = "kotlingo"
+const val MAX_LESSONS_IN_BATCH = 3
 
 object CourseLimits {
-    const val MAX_TITLE_LENGTH: Int = 80
-}
-
-fun main() {
-    println(COURSE_SLUG)
-    println(MAX_LESSONS_IN_BATCH)
-    println(CourseLimits.MAX_TITLE_LENGTH)
+    const val MAX_TITLE_LENGTH = 80
 }
 ```
 
-`const val` нельзя объявить как local variable:
+Нельзя:
 
 ```kotlin
 fun main() {
-    // Этот код не компилируется: const val недоступен внутри функции.
-    const val localLimit = 10
-
-    println(localLimit)
+    const val localLimit = 10 // ошибка
 }
+
+const val NORMALIZED_TITLE = " Kotlin ".trim() // ошибка
 ```
 
-`const val` нельзя вычислять через runtime-функцию:
-
-```kotlin
-// Этот код не компилируется: trim выполняется не как compile-time constant.
-const val NORMALIZED_TITLE: String = " Kotlin ".trim()
-```
-
-Правильно:
-
-```kotlin
-const val NORMALIZED_TITLE: String = "Kotlin"
-```
-
-Когда использовать `const val`:
-
-- annotation arguments;
-- стабильные ключи настроек;
-- имена системных свойств;
-- compile-time флаги;
-- строки, которые должны быть доступны Java как константы.
+Используй `const val` для annotation arguments, стабильных ключей, лимитов,
+compile-time флагов и Java interop.
 
 ## `lateinit var`
 
-`lateinit` откладывает инициализацию изменяемого свойства. Он работает только для `var`-свойств non-null reference type. Его нельзя применять к local variables, primitive types и nullable types.
+`lateinit` откладывает инициализацию свойства.
+
+Ограничения:
+
+- только `var`;
+- только свойства, не local variables;
+- только non-null reference types;
+- нельзя для `Int`, `Long`, `Boolean` и nullable-типов.
 
 ```kotlin
 class LessonController {
@@ -475,33 +286,11 @@ class LessonController {
         }
     }
 }
-
-fun main() {
-    val controller = LessonController()
-
-    controller.printCurrentTitle()
-    controller.open("Переменные")
-    controller.printCurrentTitle()
-}
 ```
 
-`::currentTitle.isInitialized` доступен для проверки `lateinit`-свойства внутри области, где свойство видно.
-
-Когда `lateinit` уместен:
-
-- dependency injection инициализирует свойство после создания объекта;
-- тестовый framework заполняет поле перед тестом;
-- lifecycle гарантирует инициализацию перед использованием.
-
-Когда `lateinit` вреден:
-
-- можно передать значение через constructor;
-- отсутствие значения является нормальным состоянием;
-- свойство может быть прочитано до инициализации;
-- нужна потокобезопасность;
-- тип является `Int`, `Long`, `Boolean` или другим primitive-like типом.
-
-Если значение может отсутствовать, лучше nullable:
+`lateinit` уместен, когда значение гарантированно установит framework, DI или
+test lifecycle. Если отсутствие значения является нормальным состоянием, лучше
+nullable-свойство.
 
 ```kotlin
 class LessonController {
@@ -510,222 +299,74 @@ class LessonController {
     fun open(title: String) {
         currentTitle = title
     }
-
-    fun printCurrentTitle() {
-        val title = currentTitle
-
-        if (title == null) {
-            println("Урок еще не открыт")
-            return
-        }
-
-        println(title)
-    }
 }
 ```
 
-## Базовые типы, которые встречаются сразу
+Если зависимость обязательна, лучше constructor injection:
 
-### `String`
+```kotlin
+class LessonService(
+    private val repository: LessonRepository
+)
+```
 
-`String` хранит текст.
+## Nullable-типы
 
-Важные свойства и методы для первых программ:
+По умолчанию переменная не принимает `null`.
 
-- `length` возвращает количество UTF-16 code units;
-- `isEmpty()` проверяет, что строка имеет длину 0;
-- `isNotEmpty()` проверяет, что строка не пустая;
-- `isBlank()` проверяет, что строка пустая или состоит только из whitespace;
-- `isNotBlank()` проверяет, что в строке есть не-whitespace символ;
-- `trim()` убирает whitespace по краям;
-- `lowercase()` приводит строку к нижнему регистру;
-- `uppercase()` приводит строку к верхнему регистру;
-- `replace(oldValue, newValue)` заменяет фрагменты;
-- `contains(value)` проверяет наличие подстроки;
-- `startsWith(prefix)` проверяет начало строки;
-- `endsWith(suffix)` проверяет конец строки;
-- `substring(startIndex, endIndex)` возвращает часть строки;
-- `toInt()` преобразует строку в `Int` или бросает исключение;
-- `toIntOrNull()` преобразует строку в `Int` или возвращает `null`.
+```kotlin
+var title: String = "Переменные"
+title = null // ошибка
+```
+
+Если значение может отсутствовать, укажи nullable-тип:
+
+```kotlin
+var title: String? = "Переменные"
+title = null
+
+val visibleTitle = title ?: "урок не выбран"
+```
+
+Перед вызовом методов у nullable-значения нужна проверка, safe call или Elvis.
+
+```kotlin
+val rawInput: String? = readlnOrNull()
+val length = rawInput?.length ?: 0
+```
+
+## Частые базовые типы
+
+| Тип | Назначение |
+| --- | --- |
+| `String` | текст |
+| `Int` | 32-битное целое число |
+| `Long` | 64-битное целое число |
+| `Double` | 64-битное число с плавающей точкой |
+| `Boolean` | `true` или `false` |
+| `List<T>` | список только для чтения |
+| `MutableList<T>` | изменяемый список |
+
+Пример:
 
 ```kotlin
 fun main() {
     val rawTitle = "  Kotlin Basics  "
     val title = rawTitle.trim()
     val slug = title.lowercase().replace(" ", "-")
+    val visibleLessons = 12.coerceIn(1, 10)
+    val canOpenLesson = title.isNotBlank() && visibleLessons > 0
 
-    println("Название: $title")
-    println("Длина: ${title.length}")
-    println("Slug: $slug")
-    println("Начинается с Kotlin: ${title.startsWith("Kotlin")}")
+    println(slug)
+    println(canOpenLesson)
 }
 ```
 
-### `Int`
-
-`Int` хранит 32-битное целое число со знаком.
-
-Важные свойства и методы:
-
-- `Int.MIN_VALUE` — минимальное значение;
-- `Int.MAX_VALUE` — максимальное значение;
-- `toLong()` преобразует в `Long`;
-- `toDouble()` преобразует в `Double`;
-- `toString()` превращает число в строку;
-- `coerceAtLeast(minimumValue)` поднимает значение до минимума;
-- `coerceAtMost(maximumValue)` ограничивает значение сверху;
-- `coerceIn(minimumValue, maximumValue)` ограничивает значение диапазоном;
-- `compareTo(other)` сравнивает числа;
-- арифметические операторы `+`, `-`, `*`, `/`, `%` вызывают соответствующие operator-функции.
+## Практический шаблон
 
 ```kotlin
-fun main() {
-    val requestedLessons = 12
-    val visibleLessons = requestedLessons.coerceIn(1, 10)
-
-    println("Запрошено: $requestedLessons")
-    println("Показано: $visibleLessons")
-    println("Максимальный Int: ${Int.MAX_VALUE}")
-}
-```
-
-### `Boolean`
-
-`Boolean` хранит `true` или `false`.
-
-Важные операции:
-
-- `&&` — логическое "и" с short-circuit evaluation;
-- `||` — логическое "или" с short-circuit evaluation;
-- `!` — отрицание;
-- `and` — infix-функция без short-circuit;
-- `or` — infix-функция без short-circuit;
-- `xor` — исключающее или.
-
-```kotlin
-fun main() {
-    val hasAccount = true
-    val completedIntro = false
-
-    val canOpenSecondLesson = hasAccount && completedIntro
-
-    println("Можно открыть второй урок: $canOpenSecondLesson")
-}
-```
-
-### `Double`
-
-`Double` хранит 64-битное число с плавающей точкой.
-
-Важные свойства и методы:
-
-- `Double.NaN` — специальное значение "не число";
-- `Double.POSITIVE_INFINITY` — положительная бесконечность;
-- `Double.NEGATIVE_INFINITY` — отрицательная бесконечность;
-- `isNaN()` проверяет `NaN`;
-- `isInfinite()` проверяет бесконечность;
-- `toInt()` преобразует к `Int` с отбрасыванием дробной части;
-- `toString()` превращает в строку.
-
-```kotlin
-fun main() {
-    val totalMinutes = 125.0
-    val lessons = 3.0
-    val average = totalMinutes / lessons
-
-    println("Средняя длительность: $average")
-    println("Средняя длительность как Int: ${average.toInt()}")
-}
-```
-
-### `List<T>` и `MutableList<T>`
-
-`List<T>` — только для чтения список. `MutableList<T>` — изменяемый список.
-
-Важные свойства и методы:
-
-- `size` возвращает количество элементов;
-- `isEmpty()` проверяет пустоту;
-- `isNotEmpty()` проверяет наличие элементов;
-- `get(index)` или `[index]` возвращает элемент или бросает исключение при неверном индексе;
-- `getOrNull(index)` возвращает элемент или `null`;
-- `first()` возвращает первый элемент или бросает исключение;
-- `firstOrNull()` возвращает первый элемент или `null`;
-- `last()` возвращает последний элемент или бросает исключение;
-- `lastOrNull()` возвращает последний элемент или `null`;
-- `contains(element)` проверяет наличие элемента;
-- `map(transform)` преобразует элементы;
-- `filter(predicate)` оставляет подходящие элементы;
-- `joinToString()` собирает элементы в строку;
-- `add(element)` добавляет элемент только у `MutableList`;
-- `remove(element)` удаляет элемент только у `MutableList`;
-- `clear()` очищает список только у `MutableList`.
-
-```kotlin
-fun main() {
-    val plannedLessons = mutableListOf(
-        "Введение",
-        "Первая программа"
-    )
-
-    plannedLessons.add("Переменные")
-
-    val visiblePlan: List<String> = plannedLessons
-
-    println("Всего: ${visiblePlan.size}")
-    println("Первый урок: ${visiblePlan.firstOrNull() ?: "нет уроков"}")
-    println(visiblePlan.joinToString(separator = " -> "))
-}
-```
-
-## Nullable-типы в переменных
-
-По умолчанию переменная не может хранить `null`.
-
-```kotlin
-fun main() {
-    var title: String = "Переменные"
-
-    // Этот код не компилируется: String не принимает null.
-    title = null
-
-    println(title)
-}
-```
-
-Если отсутствие значения допустимо, тип должен быть nullable:
-
-```kotlin
-fun main() {
-    var title: String? = "Переменные"
-
-    title = null
-
-    val visibleTitle = title ?: "урок не выбран"
-
-    println(visibleTitle)
-}
-```
-
-`String?` и `String` — разные типы. Перед вызовом свойств и методов nullable-значение нужно проверить, безопасно вызвать через `?.` или обработать через Elvis `?:`.
-
-```kotlin
-fun main() {
-    val title: String? = readlnOrNull()
-
-    val length = title?.length ?: 0
-
-    println("Длина ввода: $length")
-}
-```
-
-## Практический пример: конфигурация курса
-
-В этом примере есть compile-time constants, только для чтения публичное API, private изменяемое состояние и безопасное обновление.
-
-```kotlin
-const val DEFAULT_LANGUAGE: String = "ru"
-const val MAX_BATCH_SIZE: Int = 3
+const val DEFAULT_LANGUAGE = "ru"
+const val MAX_BATCH_SIZE = 3
 
 data class LessonConfig(
     val title: String,
@@ -736,22 +377,21 @@ data class LessonConfig(
 class CoursePlan {
     private val lessons = mutableListOf<LessonConfig>()
 
-    fun addLesson(title: String, estimatedMinutes: Int, language: String = DEFAULT_LANGUAGE) {
-        require(title.isNotBlank()) {
-            "Название урока не должно быть пустым"
-        }
+    fun addLesson(
+        title: String,
+        estimatedMinutes: Int,
+        language: String = DEFAULT_LANGUAGE
+    ) {
+        require(title.isNotBlank())
+        require(estimatedMinutes > 0)
 
-        require(estimatedMinutes > 0) {
-            "Длительность урока должна быть положительной"
-        }
-
-        val config = LessonConfig(
-            title = title.trim(),
-            language = language,
-            estimatedMinutes = estimatedMinutes.coerceAtMost(180)
+        lessons.add(
+            LessonConfig(
+                title = title.trim(),
+                language = language,
+                estimatedMinutes = estimatedMinutes.coerceAtMost(180)
+            )
         )
-
-        lessons.add(config)
     }
 
     fun nextBatch(): List<LessonConfig> {
@@ -759,175 +399,25 @@ class CoursePlan {
             .take(MAX_BATCH_SIZE)
             .toList()
     }
-
-    fun totalMinutes(): Int {
-        return lessons.sumOf { lesson -> lesson.estimatedMinutes }
-    }
-}
-
-fun main() {
-    val plan = CoursePlan()
-
-    plan.addLesson(
-        title = "Введение в Kotlin",
-        estimatedMinutes = 35
-    )
-
-    plan.addLesson(
-        title = "Первая программа",
-        estimatedMinutes = 45
-    )
-
-    plan.addLesson(
-        title = "Переменные и типы",
-        estimatedMinutes = 55
-    )
-
-    val batch = plan.nextBatch()
-
-    println("Следующая партия уроков:")
-
-    batch.forEachIndexed { index, lesson ->
-        val number = index + 1
-        println("$number. ${lesson.title}, ${lesson.estimatedMinutes} мин., язык ${lesson.language}")
-    }
-
-    println("Всего минут в плане: ${plan.totalMinutes()}")
 }
 ```
 
-Что важно:
+Здесь:
 
-- `DEFAULT_LANGUAGE` и `MAX_BATCH_SIZE` — настоящие compile-time constants;
-- `LessonConfig` неизменяемый, потому что все свойства объявлены через `val`;
-- `CoursePlan.lessons` скрыт через `private`;
-- внешний код получает `List<LessonConfig>`, а не `MutableList<LessonConfig>`;
-- `toList()` возвращает копию партии уроков;
-- `require` защищает инварианты;
-- `coerceAtMost(180)` ограничивает чрезмерно большое значение.
+- константы объявлены через `const val`;
+- публичная модель неизменяема через `val`;
+- изменяемый список скрыт через `private`;
+- наружу возвращается `List`, а не `MutableList`;
+- `toList()` создает копию результата.
 
-## Практический пример: безопасный разбор пользовательского ввода
+## Выбор конструкции
 
-```kotlin
-data class ParsedLessonInput(
-    val title: String,
-    val minutes: Int
-)
-
-fun parseLessonInput(rawTitle: String?, rawMinutes: String?): ParsedLessonInput? {
-    val title = rawTitle?.trim()
-
-    if (title.isNullOrBlank()) {
-        println("Название урока обязательно")
-        return null
-    }
-
-    val minutes = rawMinutes
-        ?.trim()
-        ?.toIntOrNull()
-
-    if (minutes == null) {
-        println("Длительность должна быть целым числом")
-        return null
-    }
-
-    if (minutes <= 0) {
-        println("Длительность должна быть положительной")
-        return null
-    }
-
-    return ParsedLessonInput(
-        title = title,
-        minutes = minutes
-    )
-}
-
-fun main() {
-    print("Название урока: ")
-    val rawTitle = readlnOrNull()
-
-    print("Длительность в минутах: ")
-    val rawMinutes = readlnOrNull()
-
-    val parsedInput = parseLessonInput(
-        rawTitle = rawTitle,
-        rawMinutes = rawMinutes
-    )
-
-    if (parsedInput == null) {
-        println("Урок не создан")
-        return
-    }
-
-    println("Создан урок: ${parsedInput.title}, ${parsedInput.minutes} мин.")
-}
-```
-
-Разбор:
-
-- входные значения nullable, потому что `readlnOrNull()` может вернуть `null`;
-- `rawTitle?.trim()` безопасно вызывает `trim`;
-- `isNullOrBlank()` проверяет и `null`, и пустой текст;
-- цепочка `?.trim()?.toIntOrNull()` безопасно разбирает число;
-- функция возвращает `ParsedLessonInput?`, потому что разбор может не состояться;
-- после проверки `parsedInput == null` компилятор smart-cast превращает `parsedInput` в non-null значение.
-
-## Выбор между `val`, `var`, `const val` и `lateinit`
-
-Используй `val`, когда:
-
-- значение известно сразу;
-- ссылку не нужно переназначать;
-- ты хочешь облегчить чтение кода;
-- состояние можно выразить через новые значения.
-
-Используй `var`, когда:
-
-- значение действительно меняется во времени;
-- это счетчик, накопитель или текущее состояние;
-- объект имеет lifecycle, где свойство обновляется;
-- без переназначения код станет менее понятным.
-
-Используй `const val`, когда:
-
-- значение известно во время компиляции;
-- оно top-level или находится в `object`/`companion object`;
-- значение нужно использовать в annotations или Java interop;
-- это стабильный ключ, лимит или строковый идентификатор.
-
-Используй `lateinit var`, когда:
-
-- свойство не может быть nullable по смыслу;
-- значение будет гарантированно установлено framework или lifecycle;
-- constructor injection невозможен или не подходит;
-- ты готов явно контролировать момент чтения.
-
-Избегай `lateinit`, когда можно сделать так:
-
-```kotlin
-class LessonService(
-    private val repository: LessonRepository
-)
-
-interface LessonRepository {
-    fun findTitle(id: String): String?
-}
-```
-
-Constructor injection проще: объект невозможно создать без зависимости.
-
-## Итоги
-
-После этого урока ты должен уверенно различать:
-
-- `val` как неизменяемую ссылку;
-- `var` как переменную с переназначением;
-- явный тип и тип, выведенный компилятором;
-- только для чтения коллекцию и mutable-коллекцию;
-- top-level `val` и `const val`;
-- nullable-значение и non-null значение;
-- нормальную инициализацию и отложенную `lateinit`-инициализацию;
-- полезный shadowing и опасное скрытие имен.
-
-Главный практический вывод: Kotlin лучше раскрывается, когда состояние минимально, значения названы точно, а отсутствие данных выражено типом, а не устной договоренностью.
-
+| Конструкция | Когда использовать |
+| --- | --- |
+| `val` | значение известно и ссылка не должна меняться |
+| `var` | значение действительно меняется во времени |
+| `const val` | compile-time константа на top-level или в object |
+| `lateinit var` | обязательное свойство заполнит framework/lifecycle |
+| `T?` | отсутствие значения является нормальным состоянием |
+| `List<T>` | внешний код должен только читать коллекцию |
+| `MutableList<T>` | владелец коллекции должен менять ее содержимое |

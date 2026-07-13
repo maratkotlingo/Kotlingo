@@ -1,25 +1,20 @@
 ---
 title: "Базовые типы"
-description: "Подробно изучаем фундаментальные типы Kotlin: целые и дробные числа, unsigned-типы, Boolean, Char, String, Any, Unit, Nothing, а также JVM-представление и boxing."
+description: "Справочник по фундаментальным типам Kotlin: числам, Boolean, Char, String, Any, Unit, Nothing, nullable-формам и JVM boxing."
 order: 5
 category: "Базовый синтаксис"
 difficulty: "Начальный"
 ---
 
-import CatTip from "../../ui/CatTip.vue";
-import MouseTrap from "../../ui/MouseTrap.vue";
+## Что описывает тип
 
-## Что такое тип
+Тип задает:
 
-Тип описывает множество допустимых значений и операций над ними. Если переменная имеет тип `Int`, с ней можно выполнять целочисленную арифметику. Если значение имеет тип `String`, у него есть `length`, `trim`, `substring` и другие строковые операции. Если функция возвращает `Nothing`, она вообще не возвращает нормальное значение.
-
-Kotlin — статически типизированный язык. Это значит:
-
-- компилятор проверяет типы до запуска программы;
-- выражение всегда имеет тип;
-- `null` разрешен только там, где тип явно nullable;
-- тип может быть выведен автоматически;
-- ошибка типа останавливает компиляцию.
+- какие значения допустимы;
+- какие операции можно выполнить;
+- может ли значение быть `null`;
+- что увидит вызывающий код;
+- какие ошибки компилятор поймает до запуска.
 
 ```kotlin
 fun main() {
@@ -33,238 +28,99 @@ fun main() {
 }
 ```
 
-Здесь каждая операция разрешена типом:
+Kotlin статически типизирован: тип каждого выражения известен компилятору.
 
-- `uppercase()` доступен у `String`;
-- `+ 1` доступен у `Int`;
-- `!` доступен у `Boolean`.
+## Non-null и nullable
 
-<CatTip title="Кошачья типовая карта">
-Думай о типе как о контракте. Он отвечает на вопросы: какие значения допустимы, какие операции безопасны, может ли значение отсутствовать, что увидит вызывающий код и какие ошибки компилятор поймает заранее.
-</CatTip>
-
-## Non-null и nullable варианты
-
-Почти любой тип в Kotlin имеет non-null и nullable форму:
+Почти каждый тип имеет non-null и nullable форму.
 
 ```kotlin
-fun main() {
-    val requiredTitle: String = "Типы"
-    val optionalTitle: String? = null
+val requiredTitle: String = "Типы"
+val optionalTitle: String? = null
 
-    println(requiredTitle.length)
-    println(optionalTitle?.length ?: 0)
-}
+println(requiredTitle.length)
+println(optionalTitle?.length ?: 0)
 ```
 
-`String` и `String?` — разные типы. То же правило работает для `Int`, `Boolean`, `Lesson`, `List<String>` и почти всех других типов.
+`String` и `String?` — разные типы. Nullable-значение нельзя использовать как
+обычное без проверки.
 
 ```kotlin
-fun main() {
-    val requiredScore: Int = 100
-    val optionalScore: Int? = null
+val score: Int = 100
+val optionalScore: Int? = null
 
-    println(requiredScore + 1)
-    println((optionalScore ?: 0) + 1)
-}
+println(score + 1)
+println((optionalScore ?: 0) + 1)
 ```
 
-Nullable-форма влияет не только на безопасность, но и на runtime-представление на JVM. Например, `Int` в локальном вычислении может быть представлен как primitive `int`, а `Int?` требует object representation, потому что должен уметь хранить `null`.
+На JVM nullable primitive-like типы, например `Int?`, требуют объектного
+представления, потому что должны хранить `null`.
 
 ## Целые числа со знаком
 
-Kotlin имеет четыре signed integer-типа:
-
-- `Byte` — 8 бит;
-- `Short` — 16 бит;
-- `Int` — 32 бита;
-- `Long` — 64 бита.
-
-### `Byte`
-
-`Byte` хранит маленькое целое число от `Byte.MIN_VALUE` до `Byte.MAX_VALUE`.
+| Тип | Размер | Основное применение |
+| --- | --- | --- |
+| `Byte` | 8 бит | байтовые протоколы, файлы, interop |
+| `Short` | 16 бит | бинарные форматы, interop |
+| `Int` | 32 бита | счетчики, индексы, размеры, большинство целых чисел |
+| `Long` | 64 бита | ID, timestamps, большие счетчики, размеры файлов |
 
 ```kotlin
-fun main() {
-    val minValue: Byte = Byte.MIN_VALUE
-    val maxValue: Byte = Byte.MAX_VALUE
-
-    println("Byte min: $minValue")
-    println("Byte max: $maxValue")
-}
+val byteValue: Byte = 120
+val shortValue: Short = 32_000
+val intValue: Int = 42
+val longValue: Long = 9_223_372_036_854_775_000L
 ```
 
-Когда использовать `Byte`:
-
-- бинарные протоколы;
-- массивы байтов;
-- работа с файлами и сетью;
-- interop с Java API, где ожидается `byte`;
-- компактное хранение больших объемов низкоуровневых данных.
-
-В обычной бизнес-логике `Byte` используют редко. Если ты считаешь уроки, попытки, баллы или минуты, чаще нужен `Int`.
-
-Важные операции и свойства:
-
-- `Byte.MIN_VALUE` возвращает минимальное значение;
-- `Byte.MAX_VALUE` возвращает максимальное значение;
-- `toByte()` преобразует значение к `Byte`;
-- `toShort()`, `toInt()`, `toLong()` расширяют значение к более широким целым типам;
-- `toString()` возвращает строковое представление.
-
-```kotlin
-fun main() {
-    val rawCode = 120
-    val byteCode = rawCode.toByte()
-
-    println(byteCode)
-    println(byteCode.toInt())
-}
-```
-
-### `Short`
-
-`Short` хранит 16-битное целое число.
-
-```kotlin
-fun main() {
-    val minValue: Short = Short.MIN_VALUE
-    val maxValue: Short = Short.MAX_VALUE
-
-    println("Short min: $minValue")
-    println("Short max: $maxValue")
-}
-```
-
-Когда использовать `Short`:
-
-- interop с API, где ожидается `short`;
-- бинарные форматы;
-- массивы `ShortArray`;
-- низкоуровневые структуры данных.
-
-Важные операции и свойства:
-
-- `Short.MIN_VALUE`;
-- `Short.MAX_VALUE`;
-- `toByte()`;
-- `toShort()`;
-- `toInt()`;
-- `toLong()`;
-- `toString()`.
-
-### `Int`
-
-`Int` — основной целочисленный тип в Kotlin. Если ты пишешь целочисленный литерал без суффикса и он помещается в `Int`, компилятор обычно выводит `Int`.
-
-```kotlin
-fun main() {
-    val lessonCount = 8
-    val nextLesson = lessonCount + 1
-
-    println(nextLesson)
-}
-```
-
-Когда использовать `Int`:
-
-- счетчики;
-- индексы;
-- размеры коллекций;
-- длительность в минутах, если диапазона хватает;
-- баллы и проценты;
-- большинство обычных целочисленных вычислений.
-
-Важные свойства и методы:
-
-- `Int.MIN_VALUE`;
-- `Int.MAX_VALUE`;
-- `toByte()`;
-- `toShort()`;
-- `toInt()`;
-- `toLong()`;
-- `toFloat()`;
-- `toDouble()`;
-- `toUInt()`;
-- `coerceAtLeast(minimumValue)`;
-- `coerceAtMost(maximumValue)`;
-- `coerceIn(minimumValue, maximumValue)`;
-- `compareTo(other)`;
-- `toString()`.
+`Int` — основной целочисленный тип. Литерал без суффикса обычно выводится как
+`Int`, если значение помещается в диапазон.
 
 ```kotlin
 fun main() {
     val rawProgress = 137
+    val visibleProgress = rawProgress.coerceIn(0, 100)
 
-    val visibleProgress = rawProgress.coerceIn(
-        minimumValue = 0,
-        maximumValue = 100
-    )
-
-    println("Сырой прогресс: $rawProgress")
-    println("Видимый прогресс: $visibleProgress")
+    println(visibleProgress)
+    println(Int.MAX_VALUE)
 }
 ```
 
-### `Long`
+Частые операции:
 
-`Long` хранит 64-битное целое число. Литерал `Long` обычно помечают суффиксом `L`.
+- `+`, `-`, `*`, `/`, `%`;
+- `MIN_VALUE`, `MAX_VALUE`;
+- `toByte()`, `toShort()`, `toInt()`, `toLong()`;
+- `toFloat()`, `toDouble()`;
+- `coerceAtLeast`, `coerceAtMost`, `coerceIn`;
+- `compareTo`, `toString`.
+
+## Нет неявного widening
+
+Kotlin не расширяет числовые типы неявно.
 
 ```kotlin
-fun main() {
-    val userId: Long = 9_223_372_036_854_775_000L
+fun printLong(value: Long) {
+    println(value)
+}
 
-    println(userId)
+fun main() {
+    val value: Int = 42
+
+    printLong(value.toLong())
+    printLong(42L)
 }
 ```
 
-Когда использовать `Long`:
-
-- идентификаторы из базы данных;
-- timestamps;
-- большие счетчики;
-- размеры файлов;
-- значения, которые могут превысить диапазон `Int`;
-- interop с Java `long`.
-
-Важные свойства и методы:
-
-- `Long.MIN_VALUE`;
-- `Long.MAX_VALUE`;
-- `toInt()`;
-- `toLong()`;
-- `toFloat()`;
-- `toDouble()`;
-- `toULong()`;
-- `coerceAtLeast`;
-- `coerceAtMost`;
-- `coerceIn`;
-- `compareTo`;
-- `toString()`.
-
-```kotlin
-fun main() {
-    val fileSizeBytes = 1_572_864L
-    val fileSizeKilobytes = fileSizeBytes / 1024L
-
-    println("Размер: $fileSizeKilobytes КБ")
-}
-```
-
-<MouseTrap title="Мышеловка: Kotlin не делает неявное widening-преобразование">
-В Java `int` часто автоматически расширяется до `long`. В Kotlin явность важнее: если функция ждет `Long`, передай `value.toLong()` или используй литерал с `L`. Это защищает от скрытых преобразований и неоднозначных перегрузка-вызовов.
-</MouseTrap>
+Это снижает риск скрытых преобразований и неоднозначных перегрузок.
 
 ## Unsigned-типы
 
-Kotlin поддерживает unsigned integer-типы:
-
-- `UByte`;
-- `UShort`;
-- `UInt`;
-- `ULong`.
-
-Они хранят только неотрицательные значения, но не являются универсальной заменой обычным числам.
+| Тип | Аналог со знаком | Применение |
+| --- | --- | --- |
+| `UByte` | `Byte` | байтовые маски, бинарные форматы |
+| `UShort` | `Short` | низкоуровневые форматы |
+| `UInt` | `Int` | unsigned-семантика, bit masks |
+| `ULong` | `Long` | большие unsigned-счетчики |
 
 ```kotlin
 fun main() {
@@ -278,224 +134,99 @@ fun main() {
 }
 ```
 
-Когда использовать unsigned-типы:
-
-- бинарные протоколы;
-- bit masks;
-- низкоуровневые форматы;
-- interop с API, где значение реально unsigned;
-- алгоритмы, где важна точная беззнаковая семантика.
-
-Когда не использовать:
-
-- обычные бизнес-идентификаторы только потому, что они "не бывают отрицательными";
-- деньги;
-- пользовательский ввод без строгой причины;
-- публичный API, если потребители не ожидают unsigned-типы;
-- код, который должен легко интегрироваться с Java.
-
-Важные свойства и методы unsigned-типов:
-
-- `MIN_VALUE`;
-- `MAX_VALUE`;
-- `toUByte()`;
-- `toUShort()`;
-- `toUInt()`;
-- `toULong()`;
-- `toByte()`;
-- `toShort()`;
-- `toInt()`;
-- `toLong()`;
-- `toString()`;
-- арифметические операции с unsigned-операндами.
-
-```kotlin
-fun main() {
-    val rawMask = 0b1111_0000
-    val mask: UInt = rawMask.toUInt()
-
-    println(mask.toString(radix = 2))
-}
-```
-
-Unsigned arrays (`UByteArray`, `UShortArray`, `UIntArray`, `ULongArray`) полезны в низкоуровневой работе, но для обычных списков чаще используют `List<Int>` или `ByteArray`.
+Используй unsigned-типы, когда unsigned-семантика действительно часть модели:
+протоколы, bit masks, низкоуровневые алгоритмы. Не выбирай их только потому, что
+значение "не бывает отрицательным": для бизнес-кода чаще подходит `Int` или
+`Long` с валидацией.
 
 ## Дробные числа
 
-Kotlin имеет два floating-point типа:
+| Тип | Размер | Применение |
+| --- | --- | --- |
+| `Float` | 32 бита | графика, аудио, некоторые ML/API, экономия памяти |
+| `Double` | 64 бита | средние, коэффициенты, измерения, статистика |
 
-- `Float` — 32-битное число с плавающей точкой;
-- `Double` — 64-битное число с плавающей точкой.
+```kotlin
+val rating: Float = 4.8f
+val averageMinutes: Double = 42.5
+```
 
-### `Float`
-
-`Float` помечают суффиксом `f` или `F`.
+`Double` — основной дробный тип в обычных вычислениях.
 
 ```kotlin
 fun main() {
-    val rating: Float = 4.8f
+    val totalMinutes = 125.0
+    val lessons = 3.0
+    val average = totalMinutes / lessons
 
-    println(rating)
+    println(average)
+    println(average.toInt())
 }
 ```
 
-Когда использовать `Float`:
+Частые свойства и операции:
 
-- графика;
-- аудио;
-- некоторые ML/численные API;
-- interop с API, где ожидается 32-битное значение;
-- экономия памяти в больших массивах.
+- `Float.NaN`, `Double.NaN`;
+- `POSITIVE_INFINITY`, `NEGATIVE_INFINITY`;
+- `isNaN()`, `isInfinite()`, `isFinite()`;
+- `toInt()`, `toLong()`, `toFloat()`, `toDouble()`;
+- арифметические операторы.
 
-В обычных вычислениях Kotlin чаще использует `Double`.
-
-Важные свойства и методы:
-
-- `Float.MIN_VALUE` — минимальное положительное ненулевое значение;
-- `Float.MAX_VALUE` — максимальное конечное значение;
-- `Float.NaN`;
-- `Float.POSITIVE_INFINITY`;
-- `Float.NEGATIVE_INFINITY`;
-- `isNaN()`;
-- `isInfinite()`;
-- `toInt()`;
-- `toLong()`;
-- `toDouble()`;
-- `toString()`.
-
-### `Double`
-
-`Double` — основной дробный тип.
-
-```kotlin
-fun main() {
-    val averageMinutes = 42.5
-    val totalMinutes = averageMinutes * 3.0
-
-    println(totalMinutes)
-}
-```
-
-Когда использовать `Double`:
-
-- средние значения;
-- коэффициенты;
-- измерения;
-- статистика;
-- вычисления, где допустима floating-point погрешность.
-
-Важные свойства и методы:
-
-- `Double.MIN_VALUE`;
-- `Double.MAX_VALUE`;
-- `Double.NaN`;
-- `Double.POSITIVE_INFINITY`;
-- `Double.NEGATIVE_INFINITY`;
-- `isNaN()`;
-- `isInfinite()`;
-- `isFinite()`;
-- `toInt()`;
-- `toLong()`;
-- `toFloat()`;
-- `toString()`;
-- `compareTo(other)`.
-
-```kotlin
-fun main() {
-    val totalScore = 275.0
-    val lessonCount = 3.0
-    val averageScore = totalScore / lessonCount
-
-    println("Средний балл: $averageScore")
-    println("Это конечное число: ${averageScore.isFinite()}")
-}
-```
-
-<MouseTrap title="Мышеловка: Double не подходит для денег">
-`Double` и `Float` представляют числа в двоичном floating-point формате. Они могут хранить `0.1` неточно. Для денег обычно используют `BigDecimal`, целые минимальные единицы вроде копеек или доменный тип, который явно фиксирует правила округления.
-</MouseTrap>
+`Float` и `Double` не подходят для денег без специальных правил округления и
+представления. Для денежных значений обычно используют `BigDecimal`, minor units
+в `Long` или доменный тип.
 
 ## `Boolean`
 
-`Boolean` имеет два значения: `true` и `false`.
+`Boolean` хранит `true` или `false`.
 
 ```kotlin
 fun main() {
-    val isCompleted = false
-    val hasAccess = true
+    val hasAccount = true
+    val completedIntro = false
 
-    println(isCompleted)
-    println(hasAccess)
+    val canOpenSecondLesson = hasAccount && completedIntro
+    println(canOpenSecondLesson)
 }
 ```
 
-Важные операции:
+Операции:
 
-- `!value` возвращает отрицание;
-- `a && b` возвращает true, если оба выражения true;
-- `a || b` возвращает true, если хотя бы одно выражение true;
-- `a and b` выполняет логическое "и" без short-circuit;
-- `a or b` выполняет логическое "или" без short-circuit;
-- `a xor b` возвращает true, если значения различаются;
-- `toString()` возвращает `"true"` или `"false"`.
+- `&&` — логическое "и" с short-circuit evaluation;
+- `||` — логическое "или" с short-circuit evaluation;
+- `!` — отрицание;
+- `and`, `or`, `xor` — infix-функции без short-circuit.
 
 ```kotlin
+fun expensiveCheck(): Boolean {
+    println("Проверка выполнена")
+    return true
+}
+
 fun main() {
-    val completedIntro = true
-    val passedQuiz = false
-
-    val canOpenNextLesson = completedIntro && passedQuiz
-    val needsPractice = !passedQuiz
-
-    println("Можно открыть следующий урок: $canOpenNextLesson")
-    println("Нужна практика: $needsPractice")
+    val result = false && expensiveCheck()
+    println(result)
 }
 ```
 
-Short-circuit важен:
-
-```kotlin
-fun main() {
-    val title: String? = null
-
-    if (title != null && title.isNotBlank()) {
-        println(title)
-    } else {
-        println("Название отсутствует")
-    }
-}
-```
-
-Правая часть `&&` не выполняется, если левая уже false. Поэтому `title.isNotBlank()` безопасен после проверки `title != null`.
+`expensiveCheck()` не вызовется из-за short-circuit.
 
 ## `Char`
 
-`Char` хранит один UTF-16 code unit. Символ пишется в одинарных кавычках:
+`Char` хранит один UTF-16 code unit.
 
 ```kotlin
-fun main() {
-    val firstLetter: Char = 'K'
-    val newline: Char = '\n'
-
-    println(firstLetter)
-    println(newline)
-}
+val shortcut: Char = 'K'
 ```
 
-Важные свойства и методы:
+Частые операции:
 
-- `isDigit()` проверяет цифру;
-- `isLetter()` проверяет букву;
-- `isLetterOrDigit()` проверяет букву или цифру;
-- `isWhitespace()` проверяет whitespace;
-- `isUpperCase()` проверяет верхний регистр;
-- `isLowerCase()` проверяет нижний регистр;
-- `lowercaseChar()` возвращает символ в нижнем регистре, если это возможно;
-- `uppercaseChar()` возвращает символ в верхнем регистре, если это возможно;
-- `digitToInt()` превращает цифровой символ в число или бросает исключение;
-- `digitToIntOrNull()` превращает цифровой символ в число или возвращает `null`;
-- `code` возвращает числовой код UTF-16 code unit;
-- `toString()` превращает символ в строку.
+- `isDigit()`, `isLetter()`, `isLetterOrDigit()`;
+- `isUpperCase()`, `isLowerCase()`;
+- `lowercaseChar()`, `uppercaseChar()`;
+- `digitToInt()`, `digitToIntOrNull()`;
+- `code`;
+- `toString()`.
 
 ```kotlin
 fun main() {
@@ -507,15 +238,17 @@ fun main() {
         return
     }
 
-    println("Цифра: $digit")
+    println(digit)
 }
 ```
 
-Важно: не каждый видимый пользователю символ помещается в один `Char`. Некоторые emoji и редкие символы представляются surrogate pair. Подробно это разберем в уроке про строки.
+Не каждый видимый пользователю символ помещается в один `Char`: некоторые emoji
+и редкие символы представлены несколькими code units.
 
 ## `String`
 
-`String` хранит последовательность символов. Строки неизменяемы: операции вроде `trim()` или `replace()` возвращают новую строку.
+`String` хранит неизменяемую последовательность символов. Методы вроде `trim`
+и `replace` возвращают новую строку.
 
 ```kotlin
 fun main() {
@@ -527,31 +260,17 @@ fun main() {
 }
 ```
 
-Важные свойства и методы:
+Частые свойства и методы:
 
-- `length` возвращает количество UTF-16 code units;
-- `indices` возвращает диапазон допустимых индексов;
-- `lastIndex` возвращает последний индекс;
-- `isEmpty()`;
-- `isNotEmpty()`;
-- `isBlank()`;
-- `isNotBlank()`;
-- `trim()`;
-- `trimStart()`;
-- `trimEnd()`;
-- `lowercase()`;
-- `uppercase()`;
+- `length`, `indices`, `lastIndex`;
+- `isEmpty()`, `isNotEmpty()`;
+- `isBlank()`, `isNotBlank()`;
+- `trim()`, `trimStart()`, `trimEnd()`;
+- `lowercase()`, `uppercase()`;
 - `replace(oldValue, newValue)`;
-- `contains(other)`;
-- `startsWith(prefix)`;
-- `endsWith(suffix)`;
-- `substring(startIndex, endIndex)`;
-- `split(delimiter)`;
-- `lines()`;
-- `toInt()`;
-- `toIntOrNull()`;
-- `toLongOrNull()`;
-- `toDoubleOrNull()`.
+- `contains`, `startsWith`, `endsWith`;
+- `substring`, `split`, `lines`;
+- `toInt()`, `toIntOrNull()`, `toLongOrNull()`, `toDoubleOrNull()`.
 
 ```kotlin
 fun main() {
@@ -569,7 +288,8 @@ fun main() {
 
 ## `Any`
 
-`Any` — корень non-null типов в Kotlin. Любое non-null значение можно рассматривать как `Any`.
+`Any` — корень non-null типов Kotlin. Любое non-null значение можно рассматривать
+как `Any`.
 
 ```kotlin
 fun printValue(value: Any) {
@@ -583,26 +303,15 @@ fun main() {
 }
 ```
 
-У `Any` есть базовые методы:
+Базовые методы:
 
 - `equals(other: Any?)`;
 - `hashCode()`;
 - `toString()`.
 
-`Any` не равен Java `Object` полностью по смыслу, но на JVM non-null `Any` близко отображается на `java.lang.Object`.
-
-Когда использовать `Any`:
-
-- логирование произвольных значений;
-- generic-free API, где тип действительно неизвестен;
-- межплатформенные utility-функции;
-- временное хранение разных типов при четкой последующей проверке.
-
-Когда избегать:
-
-- когда можно выразить точный тип;
-- когда список на самом деле должен быть sealed hierarchy;
-- когда `Any` скрывает слабую доменную модель.
+`Any` полезен для логирования, generic-free utility API и временного хранения
+разных типов с последующей проверкой. Не используй `Any`, когда можно выразить
+точный тип, sealed hierarchy или generic.
 
 ```kotlin
 fun describe(value: Any): String {
@@ -613,30 +322,20 @@ fun describe(value: Any): String {
         else -> "Неизвестное значение: $value"
     }
 }
-
-fun main() {
-    println(describe("Типы"))
-    println(describe(5))
-}
 ```
 
 ## `Unit`
 
-`Unit` означает отсутствие полезного возвращаемого значения. Это не то же самое, что `null`: `Unit` — реальное значение с единственным экземпляром.
+`Unit` означает отсутствие полезного возвращаемого значения. Это реальное
+значение с единственным экземпляром, а не `null`.
 
 ```kotlin
 fun printLesson(title: String): Unit {
     println(title)
 }
-
-fun main() {
-    val result: Unit = printLesson("Базовые типы")
-
-    println(result)
-}
 ```
 
-В Kotlin возвращаемый тип `Unit` обычно не пишут:
+Обычно `Unit` в возвращаемом типе не пишут:
 
 ```kotlin
 fun printLesson(title: String) {
@@ -644,33 +343,26 @@ fun printLesson(title: String) {
 }
 ```
 
-Когда `Unit` важен явно:
+Где `Unit` важен явно:
 
-- function types вроде `(String) -> Unit`;
-- обратные вызовы;
+- function types: `(String) -> Unit`;
+- callbacks;
 - generic API;
-- документация намеренного побочный эффект.
+- документация намеренного side effect.
 
 ```kotlin
 fun runForEachLesson(
     lessons: List<String>,
     action: (String) -> Unit
 ) {
-    lessons.forEach { lesson ->
-        action(lesson)
-    }
-}
-
-fun main() {
-    runForEachLesson(listOf("Лексика", "Типы")) { lesson ->
-        println("Открываем: $lesson")
-    }
+    lessons.forEach(action)
 }
 ```
 
 ## `Nothing`
 
-`Nothing` — тип, у которого нет значений. Функция с возвращаемым типом `Nothing` не завершается нормальным результатом: она бросает исключение, завершает процесс или бесконечно работает.
+`Nothing` — тип без значений. Функция с типом `Nothing` не возвращает нормальный
+результат: бросает исключение, завершает процесс или работает бесконечно.
 
 ```kotlin
 fun fail(message: String): Nothing {
@@ -679,42 +371,35 @@ fun fail(message: String): Nothing {
 
 fun main() {
     val title: String? = null
-
     val safeTitle = title ?: fail("Название урока отсутствует")
 
     println(safeTitle)
 }
 ```
 
-Почему это работает: Elvis-оператор справа возвращает `Nothing`, а `Nothing` совместим с любым ожидаемым типом, потому что нормального значения там никогда не будет.
+`Nothing` совместим с любым ожидаемым типом, потому что значения там никогда не
+будет. Поэтому он хорошо работает в правой части Elvis `?:`.
 
-Еще пример:
+`TODO()` из стандартной библиотеки тоже возвращает `Nothing`, но в готовом коде
+его нельзя оставлять как заглушку.
 
-```kotlin
-fun infiniteLoop(): Nothing {
-    while (true) {
-        println("Работаем бесконечно")
-    }
-}
-```
+## JVM primitives и boxing
 
-`TODO()` из стандартной библиотеки тоже возвращает `Nothing`, но в финальном коде курса мы не используем его как заглушку.
-
-## Primitive representation и boxing на JVM
-
-В исходном Kotlin ты работаешь с типами `Int`, `Boolean`, `Double` и другими как с обычными типами. На JVM компилятор может представлять non-null числовые и boolean-значения как primitives:
+В исходном Kotlin `Int`, `Boolean`, `Double` и другие типы выглядят как обычные
+типы. На JVM компилятор может представить non-null числовые и boolean-значения
+как primitives:
 
 - `Int` как `int`;
 - `Long` как `long`;
 - `Boolean` как `boolean`;
 - `Double` как `double`.
 
-Это помогает производительности. Но иногда требуется boxing — обертка primitive в объект:
+Boxing нужен, когда значение должно стать объектом:
 
-- nullable primitive-like тип, например `Int?`;
-- generic-контейнер, например `List<Int>`;
-- значение передается как `Any`;
-- требуется Java object API.
+- nullable primitive-like тип: `Int?`;
+- generic-контейнер: `List<Int>`;
+- передача как `Any`;
+- Java object API.
 
 ```kotlin
 fun printAny(value: Any) {
@@ -732,19 +417,15 @@ fun main() {
 }
 ```
 
-В этом примере `score` может быть primitive в локальном вычислении, но при помещении в `Any`, `Int?` или `List<Int>` на JVM потребуется объектное представление.
+Сначала выбирай точный и понятный типовой контракт. Оптимизируй представление
+только после измерений или в очевидных hot paths.
 
-<CatTip title="Purr-fect правило производительности">
-Не начинай оптимизацию с ручного выбора `Byte` вместо `Int` или страха перед boxing. Сначала пиши ясный типовой контракт, потом измеряй. Низкоуровневые представления важны в hot paths, больших массивах, serialization и протоколах, но редко являются первой проблемой бизнес-кода.
-</CatTip>
-
-## Практический пример: модель урока с разными типами
+## Практическая модель
 
 ```kotlin
 data class LessonMetrics(
     val id: Long,
     val title: String,
-    val difficulty: String,
     val estimatedMinutes: Int,
     val averageScore: Double,
     val completed: Boolean,
@@ -752,47 +433,24 @@ data class LessonMetrics(
 )
 
 fun validateMetrics(metrics: LessonMetrics) {
-    require(metrics.id > 0L) {
-        "Идентификатор урока должен быть положительным"
-    }
-
-    require(metrics.title.isNotBlank()) {
-        "Название урока не должно быть пустым"
-    }
-
-    require(metrics.estimatedMinutes in 1..240) {
-        "Длительность урока должна быть от 1 до 240 минут"
-    }
-
-    require(metrics.averageScore.isFinite()) {
-        "Средний балл должен быть конечным числом"
-    }
-
-    require(metrics.averageScore in 0.0..100.0) {
-        "Средний балл должен быть от 0 до 100"
-    }
-
-    require(metrics.shortcut.isLetterOrDigit()) {
-        "Горячая клавиша должна быть буквой или цифрой"
-    }
+    require(metrics.id > 0L)
+    require(metrics.title.isNotBlank())
+    require(metrics.estimatedMinutes in 1..240)
+    require(metrics.averageScore.isFinite())
+    require(metrics.averageScore in 0.0..100.0)
+    require(metrics.shortcut.isLetterOrDigit())
 }
 
 fun formatMetrics(metrics: LessonMetrics): String {
     validateMetrics(metrics)
 
-    val status = if (metrics.completed) {
-        "пройден"
-    } else {
-        "в процессе"
-    }
+    val status = if (metrics.completed) "пройден" else "в процессе"
 
     return buildString {
         append("Урок #")
         append(metrics.id)
         append(": ")
         append(metrics.title.trim())
-        append(", сложность: ")
-        append(metrics.difficulty)
         append(", длительность: ")
         append(metrics.estimatedMinutes)
         append(" мин., средний балл: ")
@@ -803,46 +461,30 @@ fun formatMetrics(metrics: LessonMetrics): String {
         append(metrics.shortcut.uppercaseChar())
     }
 }
-
-fun main() {
-    val metrics = LessonMetrics(
-        id = 5L,
-        title = "Базовые типы",
-        difficulty = "Начальный",
-        estimatedMinutes = 70,
-        averageScore = 91.4,
-        completed = false,
-        shortcut = 't'
-    )
-
-    println(formatMetrics(metrics))
-}
 ```
 
-Что здесь демонстрируется:
+Здесь:
 
-- `Long` подходит для идентификатора;
-- `String` хранит текстовые поля;
-- `Int` подходит для длительности в минутах;
+- `Long` хранит идентификатор;
+- `String` хранит текст;
+- `Int` хранит длительность;
 - `Double` хранит средний балл;
-- `Boolean` хранит состояние прохождения;
-- `Char` хранит горячую клавишу;
-- `require` защищает типы от некорректных доменных значений;
-- `buildString` собирает строку без лишних промежуточных конкатенаций.
+- `Boolean` хранит состояние;
+- `Char` хранит клавишу;
+- `require` проверяет доменные ограничения, которые типы сами не выражают.
 
-## Итоги
+## Быстрый выбор типа
 
-Базовые типы Kotlin — это не набор скучных примитивов, а фундамент типового контракта:
-
-- `Byte`, `Short`, `Int`, `Long` хранят signed integers разных размеров;
-- `UByte`, `UShort`, `UInt`, `ULong` нужны для явной unsigned-семантики;
-- `Float` и `Double` подходят для floating-point вычислений, но не для денег без специальных правил;
-- `Boolean` выражает логическое состояние;
-- `Char` хранит UTF-16 code unit, а не обязательно целый видимый символ;
-- `String` хранит неизменяемый текст;
-- `Any` является корнем non-null типов;
-- `Unit` означает отсутствие полезного результата;
-- `Nothing` означает невозможность нормального результата;
-- nullable-форма типа меняет и безопасность, и иногда runtime-представление;
-- на JVM компилятор может использовать primitives, но generics, nullable и `Any` приводят к boxing.
-
+| Задача | Тип |
+| --- | --- |
+| текст | `String` |
+| номер, счетчик, индекс | `Int` |
+| ID, timestamp, большой счетчик | `Long` |
+| среднее, коэффициент, измерение | `Double` |
+| графика/аудио/interop с 32-битным float | `Float` |
+| флаг состояния | `Boolean` |
+| одиночная клавиша или UTF-16 code unit | `Char` |
+| значение может отсутствовать | `T?` |
+| функция ничего полезного не возвращает | `Unit` |
+| функция не возвращается нормально | `Nothing` |
+| нужен произвольный non-null тип | `Any` |

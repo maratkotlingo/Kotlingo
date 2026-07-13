@@ -9,7 +9,6 @@ import kotlin from 'highlight.js/lib/languages/kotlin'
 import properties from 'highlight.js/lib/languages/properties'
 import plaintext from 'highlight.js/lib/languages/plaintext'
 import xml from 'highlight.js/lib/languages/xml'
-import { markdown as mdClass } from '@/shared/config/markdown'
 import { replaceCourseCallouts, restoreCourseCallouts, stripCourseComponentImports } from './courseCallouts'
 
 export interface LessonHeading {
@@ -87,6 +86,26 @@ const markdown = new MarkdownIt({
   linkify: true,
   typographer: true,
 })
+
+const mdClass = {
+  h2: 'course-markdown__heading course-markdown__heading--h2',
+  h3: 'course-markdown__heading course-markdown__heading--h3',
+  h4: 'course-markdown__heading course-markdown__heading--h4',
+  p: 'course-markdown__paragraph',
+  ul: 'course-markdown__list course-markdown__list--unordered',
+  ol: 'course-markdown__list course-markdown__list--ordered',
+  li: 'course-markdown__list-item',
+  link: 'course-markdown__link',
+  inlineCode: 'course-markdown__inline-code',
+  blockquote: 'course-markdown__blockquote',
+  table: 'course-markdown__table',
+  th: 'course-markdown__table-cell course-markdown__table-cell--heading',
+  td: 'course-markdown__table-cell',
+  codeFrame: 'course-markdown__code-frame',
+  codeCaption: 'course-markdown__code-caption',
+  pre: 'course-markdown__pre',
+  codeBlock: 'course-markdown__code-block',
+}
 
 const baseHeadingOpen = markdown.renderer.rules.heading_open
 

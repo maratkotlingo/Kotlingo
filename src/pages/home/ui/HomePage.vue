@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { ArrowRight, BookOpen, Code2, FileCode2, Layers3, Sparkles } from '@lucide/vue'
+import { ArrowRight, BookOpen, Code2, Layers3, Sparkles } from '@lucide/vue'
 import { RouterLink } from 'vue-router'
-import { buttons, layout } from '@/shared/config/ui'
 import { composeCourseStats, courseStats } from '@/entities/course/model/course'
+
+const layout = {
+  page:
+    'min-h-screen bg-app text-ink [background-image:linear-gradient(var(--color-grid-line)_1px,transparent_1px),linear-gradient(90deg,var(--color-grid-line)_1px,transparent_1px)] [background-size:32px_32px]',
+  panel: 'rounded-card border border-line bg-panel/95 shadow-panel backdrop-blur-xl',
+}
+
+const buttons = {
+  primary:
+    'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-accent bg-accent px-4 font-extrabold text-app no-underline transition hover:border-accent-strong hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-45',
+  secondary:
+    'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-line bg-panel-raised px-4 font-extrabold text-ink no-underline transition hover:border-line-strong hover:bg-panel-soft disabled:cursor-not-allowed disabled:opacity-45',
+}
 
 function lessonWord(count: number): string {
   const remainder100 = count % 100

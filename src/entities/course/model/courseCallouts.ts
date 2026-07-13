@@ -1,5 +1,3 @@
-import { markdown as mdClass } from '@/shared/config/markdown'
-
 type CalloutTag = 'CatTip' | 'MouseTrap'
 
 interface CalloutVariant {
@@ -10,12 +8,12 @@ interface CalloutVariant {
 
 const calloutVariants: Record<CalloutTag, CalloutVariant> = {
   CatTip: {
-    className: mdClass.calloutTip,
+    className: 'course-callout--tip',
     fallbackTitle: 'Практический ориентир',
     kicker: 'Совет',
   },
   MouseTrap: {
-    className: mdClass.calloutTrap,
+    className: 'course-callout--trap',
     fallbackTitle: 'Разбор частой ошибки',
     kicker: 'Осторожно',
   },
@@ -56,10 +54,10 @@ function renderCourseCallout(tag: CalloutTag, title: string, innerHtml: string):
   const variant = calloutVariants[tag]
 
   return [
-    `<aside class="${mdClass.callout} ${variant.className}">`,
-    `<div class="${mdClass.calloutKicker}">${variant.kicker}</div>`,
-    `<p class="${mdClass.calloutTitle}">${escapeHtml(title || variant.fallbackTitle)}</p>`,
-    `<div class="${mdClass.calloutBody}">${innerHtml}</div>`,
+    `<aside class="course-callout ${variant.className}">`,
+    `<div class="course-callout__kicker">${variant.kicker}</div>`,
+    `<p class="course-callout__title">${escapeHtml(title || variant.fallbackTitle)}</p>`,
+    `<div class="course-callout__body">${innerHtml}</div>`,
     `</aside>`,
   ].join('')
 }
