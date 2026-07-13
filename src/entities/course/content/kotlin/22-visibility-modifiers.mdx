@@ -1,0 +1,596 @@
+---
+title: "Модификаторы видимости"
+description: "Разбираем public, internal, protected и private для top-level объявлений, классов, constructors и members, а также границы module, API и inline-кода."
+order: 22
+category: "Классы и объекты"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Видимость как граница контракта
+
+Visibility modifier определяет, откуда declaration можно назвать и использовать в исходном коде. Kotlin предоставляет четыре основных модификатора:
+
+- `public` — доступно всем клиентам, которые видят containing declaration;
+- `internal` — доступно внутри одного Kotlin module;
+- `protected` — доступно в declaring class и subclasses;
+- `private` — доступно в минимальной enclosing области.
+
+Видимость помогает:
+
+- отделить public API от implementation details;
+- защитить инварианты объекта;
+- уменьшить число зависимостей между частями системы;
+- оставить свободу для рефакторинга;
+- сделать архитектурные нарушения compile-time ошибками.
+
+```kotlin
+class CourseProgress(totalLessons: Int) {
+    val totalLessons: Int = totalLessons
+
+    var completedLessons: Int = 0
+        private set
+
+    init {
+        require(totalLessons > 0) { "Число уроков должно быть положительным" }
+    }
+
+    fun completeNext(): Boolean {
+        if (completedLessons == totalLessons) return false
+
+        completedLessons += 1
+        return true
+    }
+}
+```
+
+Public API разрешает чтение и допустимый переход `completeNext`, а private setter запрещает произвольное нарушение диапазона.
+
+## `public`
+
+`public` — видимость по умолчанию, поэтому модификатор часто не пишут.
+
+```kotlin
+public class Lesson(public val title: String) {
+    public fun displayTitle(): String = title
+}
+```
+
+Эквивалентно:
+
+```kotlin
+class Lesson(val title: String) {
+    fun displayTitle(): String = title
+}
+```
+
+Public member всё равно ограничен видимостью containing class. Public-функция внутри internal class не становится доступной за пределами module:
+
+```kotlin
+internal class InternalParser {
+    public fun parse(raw: String): String = raw.trim()
+}
+```
+
+Эффективная видимость declaration не может быть шире enclosing declaration.
+
+## Public API — обязательство
+
+Как только внешний код использует public declaration, изменения могут ломать source или binary compatibility:
+
+- удаление/переименование функции;
+- изменение типов и порядка параметров;
+- изменение visibility;
+- изменение generic variance/bounds;
+- добавление abstract member в interface;
+- изменение semantics без изменения сигнатуры.
+
+Поэтому не стоит делать public всё «на всякий случай».
+
+<CatTip title="Котосовет: минимальная достаточная видимость">
+Начинай с `private`, затем расширяй до `internal` или `public`, только когда появляется реальный клиент. Чем меньше API surface, тем дешевле дальнейшие изменения.
+</CatTip>
+
+## `private` top-level declaration
+
+Top-level `private` виден только внутри того же Kotlin-файла.
+
+```kotlin
+package kotlingo.lesson
+
+private val whitespace = Regex("""\s+""")
+
+private fun normalize(raw: String): String {
+    return raw.trim().replace(whitespace, " ")
+}
+
+fun createLessonTitle(raw: String): String {
+    val title = normalize(raw)
+    require(title.isNotEmpty()) { "Название не должно быть пустым" }
+    return title
+}
+```
+
+Другой файл того же package не может обратиться к `normalize` или `whitespace`. Kotlin не имеет Java-style package-private visibility по умолчанию.
+
+File-private helpers хорошо подходят для деталей реализации группы public functions в одном файле.
+
+## `private` member
+
+Private member доступен только внутри declaring class и его members. Subclass не получает доступ.
+
+```kotlin
+open class LessonService {
+    private val cache = mutableMapOf<Int, String>()
+
+    fun titleFor(id: Int): String {
+        return cache.getOrPut(id) { "Урок $id" }
+    }
+}
+```
+
+Даже subclass `LessonService` не может напрямую читать `cache`. Это позволяет superclass менять storage без влияния на наследников.
+
+### Private nested declarations
+
+```kotlin
+class CourseLoader {
+    private data class RawLesson(
+        val id: Int,
+        val title: String
+    )
+
+    fun load(): List<String> {
+        val rows = listOf(RawLesson(24, "Видимость"))
+        return rows.map { row -> row.title }
+    }
+}
+```
+
+Private nested type не попадает в public модель.
+
+## Private constructor
+
+```kotlin
+class LessonId private constructor(val value: Int) {
+    companion object {
+        fun of(value: Int): LessonId {
+            require(value > 0) { "Идентификатор должен быть положительным" }
+            return LessonId(value)
+        }
+    }
+}
+```
+
+Клиенты обязаны использовать factory. Это позволяет validation, caching, subtype selection или controlled failure.
+
+Private constructor также применяется к utility namespaces, singleton-like classes и sealed hierarchies, но `object` часто выражает singleton точнее.
+
+## `internal`
+
+`internal` доступен внутри одного **module**.
+
+```kotlin
+internal class LessonJsonParser {
+    fun parseTitle(json: String): String {
+        require(json.isNotBlank()) { "JSON не должен быть пустым" }
+        return json.substringAfter(":").trim(' ', '"', '}')
+    }
+}
+```
+
+Module — набор Kotlin sources, компилируемый вместе одним invocation/build target. Примеры:
+
+- Gradle module;
+- Maven module;
+- IntelliJ module в соответствующей конфигурации;
+- один compilation target в multiplatform project.
+
+Package не определяет границу `internal`. Два разных package одного module видят internal declarations при обычных правилах import. Одинаковый package в разных modules не даёт доступ.
+
+<MouseTrap title="Мышеловка: internal — не package-private">
+Не переноси Java-интуицию. `internal` означает module-wide visibility, а не доступ внутри package. Для file scope используй top-level `private`.
+</MouseTrap>
+
+### Tests и friend modules
+
+Build tools могут настроить test compilation как friend к main compilation, поэтому tests видят internal declarations. Это удобство toolchain, а не общее правило, что любой test module автоматически получает доступ.
+
+Public behaviour обычно лучше тестировать через public API. Прямой тест internal деталей уместен для сложного алгоритма, но усиливает coupling tests к implementation.
+
+### `internal` на JVM
+
+JVM не имеет точного эквивалента Kotlin `internal`. Compiler использует metadata и может mangling имён некоторых members, чтобы Kotlin-клиенты соблюдали границу. Java, reflection или bytecode tooling иногда способны обратиться к реализации.
+
+`internal` — compile-time архитектурная граница, не механизм безопасности и не защита секретов.
+
+## `protected`
+
+`protected` разрешён для class members. Он доступен в declaring class и subclasses.
+
+```kotlin
+open class ContentRenderer {
+    protected fun sanitize(text: String): String {
+        return text.trim().replace(Regex("""\s+"""), " ")
+    }
+}
+
+class LessonRenderer : ContentRenderer() {
+    fun render(title: String): String {
+        return "Урок: ${sanitize(title)}"
+    }
+}
+```
+
+Обычный внешний код не может вызвать `sanitize`.
+
+В Kotlin `protected` не даёт package access, в отличие от дополнительного package-поведения Java `protected`.
+
+### Protected receiver restriction
+
+Доступ к protected member осуществляется в контексте subclass и подчиняется правилам receiver. Нельзя использовать subclass как произвольный мост к protected state любого base instance.
+
+```kotlin
+open class Progress {
+    protected var completed: Int = 0
+}
+
+class DetailedProgress : Progress() {
+    fun increment() {
+        completed += 1
+    }
+}
+```
+
+Лучше предоставлять protected operations, а не protected mutable fields, чтобы сохранять invariants:
+
+```kotlin
+open class SafeProgress(private val total: Int) {
+    private var completed: Int = 0
+
+    protected fun completeOne(): Boolean {
+        if (completed == total) return false
+        completed += 1
+        return true
+    }
+
+    fun snapshot(): String = "$completed из $total"
+}
+```
+
+## Где `protected` недопустим
+
+Top-level declarations не могут быть protected: у файла/package нет subclass concept.
+
+```kotlin
+// protected fun normalize(raw: String): String = raw.trim()
+```
+
+Для top level выбирай `public`, `internal` или `private`.
+
+## Visibility членов класса
+
+```kotlin
+open class LessonRepository {
+    public fun find(id: Int): String? = findInternal(id)
+
+    internal fun warmUp() {
+        println("Подготавливаем repository")
+    }
+
+    protected open fun findInternal(id: Int): String? {
+        return if (id > 0) "Урок $id" else null
+    }
+
+    private fun clearTemporaryState() {
+        println("Очищаем временное состояние")
+    }
+}
+```
+
+- `find` — клиентский контракт;
+- `warmUp` — module infrastructure;
+- `findInternal` — extension point для subclasses;
+- `clearTemporaryState` — внутренняя деталь одного класса.
+
+Не всякая техническая функция должна быть protected extension point. Наследование создаёт долгосрочный контракт с subclasses.
+
+## Visibility и override
+
+Override не может уменьшить доступность базового public contract.
+
+```kotlin
+open class BaseRenderer {
+    open fun render(): String = "base"
+}
+
+class Renderer : BaseRenderer() {
+    override fun render(): String = "lesson"
+}
+```
+
+`render` остаётся public. Попытка сделать override private/protected недопустима.
+
+Protected member при override может оставаться protected или быть расширен до public:
+
+```kotlin
+open class BaseParser {
+    protected open fun parse(raw: String): String = raw.trim()
+}
+
+class PublicParser : BaseParser() {
+    public override fun parse(raw: String): String {
+        return super.parse(raw).uppercase()
+    }
+}
+```
+
+Расширение visibility — API-решение: теперь реализацию могут вызывать все клиенты.
+
+## Visibility property accessors
+
+Setter `var` можно сделать уже, чем property/getter.
+
+```kotlin
+class Publication {
+    var published: Boolean = false
+        private set
+
+    fun publish() {
+        published = true
+    }
+}
+```
+
+Getter нельзя отдельно сделать уже таким способом, оставив setter шире: запись без возможности чтения редко образует разумный property contract, и Kotlin syntax ориентирован на visibility setter.
+
+Annotations и modifiers accessor записываются перед `set`:
+
+```kotlin
+class ModuleState {
+    var status: String = "idle"
+        internal set
+}
+```
+
+## Visibility и типы сигнатуры
+
+Public declaration не должна раскрывать тип с меньшей видимостью.
+
+```kotlin
+internal data class InternalLesson(val title: String)
+
+// Public-функция не может корректно раскрывать internal тип.
+// fun loadLesson(): InternalLesson = InternalLesson("Видимость")
+```
+
+Иначе внешний клиент видит функцию, но не способен назвать её return type. Compiler диагностирует exposed private/internal type в соответствующих случаях.
+
+Решения:
+
+- сделать тип public;
+- сузить visibility функции;
+- вернуть public interface/DTO;
+- скрыть implementation за abstraction.
+
+```kotlin
+interface LessonView {
+    val title: String
+}
+
+internal data class InternalLesson(
+    override val title: String
+) : LessonView
+
+fun loadLesson(): LessonView {
+    return InternalLesson("Модификаторы видимости")
+}
+```
+
+## Inline и непубличные declarations
+
+Public inline function вставляется в код внешнего клиента. Поэтому она не может свободно обращаться к private/internal implementation: после inlining этот код окажется за границей module.
+
+```kotlin
+private fun logInternal(message: String) {
+    println(message)
+}
+
+// public inline fun measured(action: () -> Unit) {
+//     logInternal("Начало")
+//     action()
+// }
+```
+
+Для internal declaration, необходимого public inline API, существует `@PublishedApi`:
+
+```kotlin
+@PublishedApi
+internal fun logForInline(message: String) {
+    println(message)
+}
+
+inline fun measured(action: () -> Unit) {
+    logForInline("Начало")
+    action()
+    logForInline("Конец")
+}
+```
+
+`@PublishedApi` превращает implementation в часть binary contract для inline clients. Её нельзя бездумно менять как обычную internal detail.
+
+<MouseTrap title="Мышеловка: @PublishedApi уменьшает свободу рефакторинга">
+Хотя declaration остаётся `internal` для обычного source use, её binary shape нужна внешнему inlined коду. Считай её опубликованной частью ABI.
+</MouseTrap>
+
+## Local declarations
+
+Локальные variables/functions/classes видны только в enclosing block. Visibility modifiers для них не нужны и обычно недопустимы.
+
+```kotlin
+fun renderLesson(raw: String): String {
+    fun normalize(value: String): String = value.trim()
+
+    class Prefixer(private val prefix: String) {
+        fun apply(value: String): String = "$prefix: $value"
+    }
+
+    return Prefixer("Урок").apply(normalize(raw))
+}
+```
+
+Block scope уже является границей.
+
+## Java interop
+
+На JVM Kotlin visibility отображается на JVM mechanisms настолько близко, насколько возможно:
+
+- public/private/protected обычно имеют знакомые bytecode modifiers;
+- internal не имеет прямого JVM modifier;
+- file-private top-level declaration компилируется как private detail file facade;
+- properties представлены methods/fields согласно annotations и compiler strategy.
+
+Java-код может видеть surface иначе, особенно при `internal`, `@JvmField`, synthetic bridges и reflection. Если Java — поддерживаемый клиент, проверяй generated signatures инструментами IDE, `javap` или binary compatibility validator.
+
+## Архитектурные patterns видимости
+
+### Публичный интерфейс, внутренняя реализация
+
+```kotlin
+interface LessonStore {
+    fun title(id: Int): String?
+}
+
+internal class InMemoryLessonStore(
+    private val lessons: Map<Int, String>
+) : LessonStore {
+    override fun title(id: Int): String? = lessons[id]
+}
+
+fun lessonStore(): LessonStore {
+    return InMemoryLessonStore(
+        lessons = mapOf(24 to "Модификаторы видимости")
+    )
+}
+```
+
+Клиенты зависят от interface и factory, implementation можно заменить.
+
+### Public read, private write
+
+```kotlin
+class DownloadState {
+    var percent: Int = 0
+        private set
+
+    fun update(percent: Int) {
+        require(percent in this.percent..100) {
+            "Прогресс не должен уменьшаться и выходить за 100"
+        }
+        this.percent = percent
+    }
+}
+```
+
+### File-private coordination
+
+```kotlin
+private fun validateId(id: Int) {
+    require(id > 0) { "Идентификатор должен быть положительным" }
+}
+
+fun lessonPath(id: Int): String {
+    validateId(id)
+    return "/kotlin/$id"
+}
+
+fun lessonCacheKey(id: Int): String {
+    validateId(id)
+    return "lesson:$id"
+}
+```
+
+## Практический пример: границы модуля каталога
+
+```kotlin
+package kotlingo.catalog
+
+public data class LessonSummary(
+    val id: Int,
+    val title: String
+)
+
+public interface LessonCatalog {
+    fun find(id: Int): LessonSummary?
+    fun all(): List<LessonSummary>
+}
+
+internal data class StoredLesson(
+    val id: Int,
+    val rawTitle: String,
+    val deleted: Boolean
+)
+
+internal class DefaultLessonCatalog(
+    records: List<StoredLesson>
+) : LessonCatalog {
+    private val recordsById: Map<Int, StoredLesson> = records.associateBy { it.id }
+
+    override fun find(id: Int): LessonSummary? {
+        require(id > 0) { "Идентификатор должен быть положительным" }
+        return recordsById[id]?.toSummaryOrNull()
+    }
+
+    override fun all(): List<LessonSummary> {
+        return recordsById.values
+            .mapNotNull(StoredLesson::toSummaryOrNull)
+            .sortedBy(LessonSummary::id)
+    }
+
+    private fun StoredLesson.toSummaryOrNull(): LessonSummary? {
+        if (deleted) return null
+
+        return LessonSummary(
+            id = id,
+            title = rawTitle.trim()
+        )
+    }
+}
+
+public fun createLessonCatalog(): LessonCatalog {
+    val records = listOf(
+        StoredLesson(24, "  Модификаторы видимости  ", deleted = false),
+        StoredLesson(25, "Наследование", deleted = false)
+    )
+
+    return DefaultLessonCatalog(records)
+}
+```
+
+Границы ясны:
+
+- `LessonSummary`, `LessonCatalog`, factory — public API;
+- storage model и реализация по умолчанию — internal;
+- index и mapping extension — private details класса;
+- public signatures не раскрывают internal types;
+- клиент не может создавать implementation в обход factory;
+- `private`/`internal` защищают архитектуру на compile time, а не секретные данные.
+
+## Итоги
+
+- `public` доступен всем и является default;
+- effective visibility ограничена enclosing declaration;
+- top-level `private` означает видимость только в одном файле;
+- member `private` скрыт даже от subclasses;
+- `internal` действует внутри module, а не package;
+- `protected` доступен классу и наследникам, но не package;
+- constructor visibility контролирует способы создания объектов;
+- override не может сузить public contract;
+- setter может иметь более узкую visibility;
+- public API не должен раскрывать private/internal types;
+- public inline code ограничен в доступе к non-public implementation;
+- `@PublishedApi` делает internal declaration частью ABI;
+- visibility — архитектурная compile-time граница, а не security mechanism;
+- минимальная достаточная visibility сохраняет свободу изменений.

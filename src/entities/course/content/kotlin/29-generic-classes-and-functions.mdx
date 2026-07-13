@@ -1,0 +1,606 @@
+---
+title: "Обобщенные классы и функции"
+description: "Изучаем type parameters, вывод типов, generic-классы и функции, upper bounds, несколько ограничений через where, generic factories и ограничения constructors."
+order: 29
+category: "Дженерики и типовая система"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Алгоритм один, типы разные
+
+Generics позволяют писать declarations, параметризованные типом.
+
+```kotlin
+class Box<T>(val value: T)
+
+fun main() {
+    val titleBox = Box("Generics")
+    val scoreBox = Box(95)
+
+    println(titleBox.value.length)
+    println(scoreBox.value + 5)
+}
+```
+
+`T` — type parameter. При создании `Box("Generics")` compiler выводит `T = String`, для `Box(95)` — `T = Int`.
+
+Generics сохраняют type safety без `Any` и casts.
+
+## Type parameter и type argument
+
+В declaration:
+
+```kotlin
+class Holder<T>(val value: T)
+```
+
+`T` — parameter. В usage:
+
+```kotlin
+val holder: Holder<String> = Holder("Kotlin")
+```
+
+`String` — type argument.
+
+Имена обычно:
+
+- `T` — произвольный type;
+- `E` — element;
+- `K`/`V` — key/value;
+- `R` — result;
+- содержательное `Request`, `Response`, `Item`, если parameters много.
+
+```kotlin
+class Cache<Key, Value> {
+    private val values = mutableMapOf<Key, Value>()
+
+    fun put(key: Key, value: Value) {
+        values[key] = value
+    }
+
+    fun get(key: Key): Value? = values[key]
+}
+```
+
+## Generic class
+
+```kotlin
+class Repository<T> {
+    private val items = mutableListOf<T>()
+
+    fun add(item: T) {
+        items += item
+    }
+
+    fun all(): List<T> {
+        return items.toList()
+    }
+}
+```
+
+Каждая instantiation имеет свой static type:
+
+```kotlin
+val titles = Repository<String>()
+titles.add("Generic classes")
+
+val scores = Repository<Int>()
+scores.add(100)
+```
+
+`titles.add(100)` не компилируется.
+
+На JVM runtime objects generic arguments обычно erased, но compile-time checks предотвращают смешивание через typed API. Erasure подробно рассматривается в теме reified.
+
+## Generic interface
+
+```kotlin
+interface Mapper<Input, Output> {
+    fun map(value: Input): Output
+}
+
+class TitleLengthMapper : Mapper<String, Int> {
+    override fun map(value: String): Int {
+        return value.trim().length
+    }
+}
+```
+
+Implementation фиксирует arguments `String` и `Int`.
+
+```kotlin
+fun <I, O> mapAll(values: List<I>, mapper: Mapper<I, O>): List<O> {
+    return values.map(mapper::map)
+}
+```
+
+## Generic function
+
+Type parameters функции объявляются перед именем:
+
+```kotlin
+fun <T> singleton(value: T): List<T> {
+    return listOf(value)
+}
+```
+
+Вызов с явным argument:
+
+```kotlin
+val lesson = singleton<String>("Generics")
+```
+
+Обычно type inference достаточно:
+
+```kotlin
+val lesson = singleton("Generics")
+val score = singleton(100)
+```
+
+## Несколько type parameters
+
+```kotlin
+fun <K, V> pairMap(key: K, value: V): Map<K, V> {
+    return mapOf(key to value)
+}
+
+val lesson = pairMap(34, "Generic classes")
+```
+
+Compiler выводит `K = Int`, `V = String`.
+
+## Generic extension function
+
+```kotlin
+fun <T> List<T>.secondOrNull(): T? {
+    return getOrNull(1)
+}
+```
+
+`T` описывает element type receiver.
+
+```kotlin
+println(listOf("first", "second").secondOrNull())
+println(listOf(10, 20).secondOrNull())
+```
+
+Type parameter объявляется до имени/receiver.
+
+## Что доступно у unconstrained `T`
+
+Default upper bound type parameter — `Any?`. Значение может быть null, поэтому безопасно доступны только операции nullable root contract.
+
+```kotlin
+fun <T> debug(value: T): String {
+    return value.toString()
+}
+```
+
+`Any?.toString()` работает и для null.
+
+Нельзя вызвать `value.length`, потому что compiler не знает, что `T` — String/CharSequence.
+
+## Upper bound
+
+```kotlin
+fun <T : CharSequence> normalized(value: T): String {
+    return value.trim().toString()
+}
+```
+
+Теперь `T` обязан быть subtype `CharSequence`, доступны `length`, indexing и другие members contract.
+
+```kotlin
+println(normalized(" Kotlin "))
+println(normalized(StringBuilder(" Generics ")))
+```
+
+Default bound `Any?` можно сузить до non-null `Any`:
+
+```kotlin
+fun <T : Any> requireValue(value: T): T = value
+```
+
+`requireValue(null)` не компилируется.
+
+## Recursive bound
+
+```kotlin
+fun <T : Comparable<T>> maxOfTwo(first: T, second: T): T {
+    return if (first >= second) first else second
+}
+```
+
+`T` должен уметь сравниваться с самим собой.
+
+```kotlin
+println(maxOfTwo(10, 20))
+println(maxOfTwo("Data", "Generics"))
+```
+
+Для некоторых hierarchies более flexible bound использует contravariant comparable:
+
+```kotlin
+fun <T : Comparable<in T>> maximum(values: List<T>): T {
+    require(values.isNotEmpty()) { "Список не должен быть пустым" }
+    return values.maxOrNull() ?: error("Максимум отсутствует")
+}
+```
+
+Variance подробно рассматривается дальше.
+
+## Несколько bounds через `where`
+
+В angle brackets можно записать только один bound. Остальные помещаются после signature.
+
+```kotlin
+fun <T> longestAfter(
+    values: List<T>,
+    threshold: T
+): T? where T : CharSequence, T : Comparable<T> {
+    return values
+        .filter { value -> value > threshold }
+        .maxByOrNull(CharSequence::length)
+}
+```
+
+`T` одновременно является `CharSequence` и `Comparable<T>`.
+
+```kotlin
+println(longestAfter(listOf("a", "kotlin", "generic"), "b"))
+```
+
+Class с multiple bounds:
+
+```kotlin
+interface Identifiable {
+    val id: Int
+}
+
+class SortedRegistry<T> where T : Identifiable, T : Comparable<T> {
+    private val items = sortedSetOf<T>()
+
+    fun add(item: T) {
+        items += item
+    }
+
+    fun all(): List<T> = items.toList()
+}
+```
+
+Все bounds должны выполняться одновременно.
+
+## Nullable type arguments
+
+Поскольку default bound — `Any?`, generic API допускает nullable argument:
+
+```kotlin
+val nullableBox: Box<String?> = Box(null)
+```
+
+Внутри `Box<T>` compiler не может считать value non-null.
+
+Если null запрещён:
+
+```kotlin
+class NonNullBox<T : Any>(val value: T)
+```
+
+`String` подходит, `String?` — нет.
+
+## Generic nullable result
+
+```kotlin
+fun <T> firstOrNull(values: List<T>): T? {
+    return values.firstOrNull()
+}
+```
+
+Если `T` сам nullable, `T?` collapses по nullability и не различает:
+
+- список пуст;
+- первый element равен null.
+
+```kotlin
+val result: String? = firstOrNull(listOf(null))
+```
+
+Для различия используй sealed result:
+
+```kotlin
+sealed interface Lookup<out T> {
+    data object Missing : Lookup<Nothing>
+    data class Found<T>(val value: T) : Lookup<T>
+}
+```
+
+Теперь `Found(null)` и `Missing` различимы.
+
+## Type inference из arguments и expected type
+
+```kotlin
+fun <T> emptyMutableList(): MutableList<T> = mutableListOf()
+
+val titles: MutableList<String> = emptyMutableList()
+```
+
+Expected type задаёт `T = String`.
+
+Без context compiler не всегда может вывести type:
+
+```kotlin
+// val items = emptyMutableList()
+```
+
+Нужно указать argument:
+
+```kotlin
+val items = emptyMutableList<String>()
+```
+
+## Underscore type argument
+
+`_` просит compiler вывести отдельный type argument, когда остальные заданы явно.
+
+```kotlin
+abstract class Parser<T> {
+    abstract fun parse(raw: String): T
+}
+
+class IntParser : Parser<Int>() {
+    override fun parse(raw: String): Int = raw.toInt()
+}
+
+inline fun <reified P : Parser<T>, T> parseWith(raw: String, parser: P): T {
+    return parser.parse(raw)
+}
+
+val number = parseWith<IntParser, _>("34", IntParser())
+```
+
+`T` выводится как `Int` из `P`. Underscore уместен только там, где часть arguments действительно нужно зафиксировать.
+
+## Generic member функции
+
+Class может иметь class type parameter и method type parameter.
+
+```kotlin
+class Container<T>(val value: T) {
+    fun <R> map(transform: (T) -> R): Container<R> {
+        return Container(transform(value))
+    }
+}
+
+val length: Container<Int> = Container("Generics").map(String::length)
+```
+
+`T` принадлежит instance type, `R` существует только для одного вызова `map`.
+
+Не переиспользуй то же имя для method parameter без причины:
+
+```kotlin
+// class Confusing<T> {
+//     fun <T> replace(value: T): T = value
+// }
+```
+
+Внутренний `T` затеняет class `T` и запутывает contract.
+
+## Generic constructors
+
+Primary/secondary constructors generic class используют type parameters самого class:
+
+```kotlin
+class PairBox<A, B>(val first: A, val second: B)
+
+val box = PairBox(34, "Generics")
+```
+
+Constructor не объявляет независимые `<T>` перед `constructor` в Kotlin. Если конкретному способу создания нужен новый type parameter, используй generic factory function.
+
+```kotlin
+class Snapshot<T> private constructor(val values: List<T>) {
+    companion object {
+        fun <T> from(values: Iterable<T>): Snapshot<T> {
+            return Snapshot(values.toList())
+        }
+
+        fun <T> single(value: T): Snapshot<T> {
+            return Snapshot(listOf(value))
+        }
+    }
+}
+
+val titles = Snapshot.from(sequenceOf("Generics", "Variance").asIterable())
+```
+
+## Generic factory и subtype
+
+```kotlin
+interface Decoder<T> {
+    fun decode(raw: String): T
+}
+
+fun <T> decodeList(rawValues: List<String>, decoder: Decoder<T>): List<T> {
+    return rawValues.map(decoder::decode)
+}
+```
+
+Factory algorithm не знает concrete type, но decoder предоставляет operation.
+
+```kotlin
+object PositiveIntDecoder : Decoder<Int> {
+    override fun decode(raw: String): Int {
+        val value = raw.trim().toInt()
+        require(value > 0) { "Число должно быть положительным" }
+        return value
+    }
+}
+```
+
+## Generic object невозможен напрямую
+
+Object declaration один на process/classloader и не может иметь type parameters:
+
+```kotlin
+// object Cache<T>
+```
+
+Используй generic class instances или generic functions companion/object:
+
+```kotlin
+object Lists {
+    fun <T> copyOf(values: Iterable<T>): List<T> = values.toList()
+}
+```
+
+## `Nothing` и generic covariance
+
+```kotlin
+emptyList<String>()
+```
+
+`emptyList()` может conceptually создавать `List<Nothing>`, который подходит `List<String>` благодаря covariance `List<out T>`. `Nothing` не имеет values, поэтому пустой producer безопасен.
+
+Variance будет разобрана в следующем уроке.
+
+## Constraints как semantic contract
+
+Не добавляй bound только ради вызова implementation method, если abstraction можно передать function/interface.
+
+Жёсткий bound:
+
+```kotlin
+fun <T : Comparable<T>> sorted(values: List<T>): List<T> {
+    return values.sorted()
+}
+```
+
+Более flexible strategy:
+
+```kotlin
+fun <T> sortedByComparator(
+    values: List<T>,
+    comparator: Comparator<T>
+): List<T> {
+    return values.sortedWith(comparator)
+}
+```
+
+Второй API работает для types без natural Comparable.
+
+<CatTip title="Котосовет: bound должен отражать реальную способность">
+Если algorithm требует только извлечь key, принимай selector. Не заставляй domain class реализовывать Comparable ради одного экрана сортировки.
+</CatTip>
+
+## Generic API и mutable leakage
+
+```kotlin
+class UnsafeStore<T> {
+    val items: MutableList<T> = mutableListOf()
+}
+```
+
+Client может изменить storage в обход invariants. Лучше:
+
+```kotlin
+class Store<T> {
+    private val mutableItems = mutableListOf<T>()
+
+    val items: List<T>
+        get() = mutableItems.toList()
+
+    fun add(item: T) {
+        mutableItems += item
+    }
+}
+```
+
+Generic не заменяет encapsulation.
+
+## Практический пример: типизированный репозиторий
+
+```kotlin
+interface Entity<Id : Any> {
+    val id: Id
+}
+
+interface Repository<Id : Any, Item : Entity<Id>> {
+    fun find(id: Id): Item?
+    fun save(item: Item)
+    fun all(): List<Item>
+}
+
+class InMemoryRepository<Id : Any, Item : Entity<Id>> : Repository<Id, Item> {
+    private val items = linkedMapOf<Id, Item>()
+
+    override fun find(id: Id): Item? = items[id]
+
+    override fun save(item: Item) {
+        items[item.id] = item
+    }
+
+    override fun all(): List<Item> = items.values.toList()
+}
+
+@JvmInline
+value class LessonId(val value: Int) {
+    init {
+        require(value > 0) { "Идентификатор должен быть положительным" }
+    }
+}
+
+data class Lesson(
+    override val id: LessonId,
+    val title: String
+) : Entity<LessonId> {
+    init {
+        require(title.isNotBlank()) { "Название обязательно" }
+    }
+}
+
+fun <Id : Any, Item : Entity<Id>> requireEntity(
+    repository: Repository<Id, Item>,
+    id: Id
+): Item {
+    return repository.find(id) ?: error("Сущность $id не найдена")
+}
+
+fun main() {
+    val repository: Repository<LessonId, Lesson> = InMemoryRepository()
+    val id = LessonId(34)
+
+    repository.save(Lesson(id, "Generic classes и generic functions"))
+    val lesson = requireEntity(repository, id)
+
+    println(lesson)
+}
+```
+
+Контракт гарантирует:
+
+- ID non-null через `Id : Any`;
+- Item связан с тем же ID через `Item : Entity<Id>`;
+- нельзя использовать StudentId для Lesson репозиторий;
+- factory inference выводит arguments `InMemoryRepository` из expected type;
+- storage скрыт и возвращает snapshots;
+- generic helper работает с любым совместимым репозиторий.
+
+## Итоги
+
+- type parameter объявляет место для будущего type argument;
+- compiler часто выводит arguments из values и expected type;
+- default upper bound — nullable `Any?`;
+- `T : Any` запрещает nullable arguments;
+- upper bound открывает members соответствующего contract;
+- multiple bounds записываются через `where`;
+- generic function имеет собственные type parameters;
+- constructor использует class parameters, independent generics выносятся в factory;
+- nullable `T?` не всегда различает missing и present-null;
+- underscore `_` оставляет отдельный argument для inference;
+- bounds и strategy parameters выбираются по нужной abstraction;
+- generics обеспечивают compile-time safety, но не отменяют encapsulation/erasure.
+

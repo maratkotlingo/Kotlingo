@@ -1,0 +1,402 @@
+---
+title: "Аннотации"
+description: "Аннотации Kotlin: annotation classes, meta-annotations, targets, retention, constructor parameters, use-site targets, @all, repeatable annotations, Java compatibility, annotation processors и KSP."
+order: 49
+category: "DSL, аннотации и метапрограммирование"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Аннотации — metadata для кода
+
+Annotation прикрепляет metadata к declaration, type usage, expression или другому элементу программы. Compiler, runtime reflection, frameworks, annotation processors и KSP могут читать эту metadata и принимать решения.
+
+```kotlin
+annotation class Reviewed
+
+@Reviewed
+class LessonController
+```
+
+Аннотация сама по себе обычно ничего не делает. Смысл появляется, когда tool или framework ее обрабатывает.
+
+<CatTip>
+Аннотация — это кошачий ярлычок на коробке: сам ярлычок не двигает коробку, но люди и инструменты понимают, как с ней обращаться.
+</CatTip>
+
+## `annotation class`
+
+Аннотация объявляется через `annotation class`.
+
+```kotlin
+annotation class RequiresAuth
+
+@RequiresAuth
+fun publishLesson(slug: String) {
+    println("Публикуем $slug")
+}
+```
+
+Аннотации не имеют обычного изменяемое состояние и не выполняют business logic.
+
+## Параметры аннотаций
+
+Annotation constructor может иметь parameters ограниченных типов:
+
+- primitive-like types: `Int`, `Long`, `Boolean` и похожие;
+- `String`;
+- class literals через `KClass`;
+- enum values;
+- другие annotations;
+- arrays перечисленных типов.
+
+```kotlin
+import kotlin.reflect.KClass
+
+enum class AuditLevel {
+    LOW,
+    HIGH
+}
+
+annotation class Audit(
+    val level: AuditLevel,
+    val owner: String,
+    val validator: KClass<*>
+)
+
+class LessonValidator
+
+@Audit(
+    level = AuditLevel.HIGH,
+    owner = "education",
+    validator = LessonValidator::class
+)
+fun deleteLesson(slug: String) {
+    println("Удаляем $slug")
+}
+```
+
+Annotation parameters не могут быть nullable.
+
+```kotlin
+// annotation class Broken(val value: String?)
+// Так нельзя: JVM annotations не хранят null как annotation value.
+```
+
+## Meta-annotations
+
+Meta-annotations описывают саму annotation.
+
+```kotlin
+@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+@MustBeDocumented
+annotation class PublicApi
+```
+
+Основные meta-annotations:
+
+- `@Target` ограничивает места применения;
+- `@Retention` задает, где annotation сохраняется;
+- `@Repeatable` разрешает повторять annotation на одном элементе;
+- `@MustBeDocumented` включает annotation в generated API documentation.
+
+## `@Target`
+
+`@Target` принимает `AnnotationTarget`.
+
+```kotlin
+@Target(
+    AnnotationTarget.CLASS,
+    AnnotationTarget.FUNCTION,
+    AnnotationTarget.VALUE_PARAMETER
+)
+annotation class VisibleForTools
+```
+
+Примеры targets:
+
+- `CLASS` — class, interface, object;
+- `FUNCTION` — function;
+- `PROPERTY` — Kotlin property;
+- `FIELD` — backing field;
+- `VALUE_PARAMETER` — parameter;
+- `CONSTRUCTOR` — constructor;
+- `PROPERTY_GETTER` и `PROPERTY_SETTER`;
+- `TYPE` — использование типа;
+- `EXPRESSION` — expression;
+- `FILE` — file annotation.
+
+Выбирай target как можно уже. Это снижает случайное использование не там.
+
+```kotlin
+@Target(AnnotationTarget.FUNCTION)
+annotation class TransactionalAction
+```
+
+## `@Retention`
+
+Retention задает, как долго annotation сохраняется.
+
+```kotlin
+@Retention(AnnotationRetention.SOURCE)
+annotation class GenerateDocsOnly
+
+@Retention(AnnotationRetention.BINARY)
+annotation class CompilerMetadata
+
+@Retention(AnnotationRetention.RUNTIME)
+annotation class RuntimeRoute(val path: String)
+```
+
+Значения:
+
+- `SOURCE` — доступна source tools, не попадает в bytecode;
+- `BINARY` — сохраняется в compiled output, но обычно не видна runtime reflection;
+- `RUNTIME` — доступна через reflection.
+
+Если annotation нужна KSP или плагин компилятора на этапе компиляции, часто достаточно `SOURCE` или `BINARY`. Если framework читает annotation во время выполнения, нужен `RUNTIME`.
+
+<MouseTrap>
+Не ставь `RUNTIME` автоматически. Runtime retention увеличивает metadata и создает ожидание, что annotation можно читать reflection-ом.
+</MouseTrap>
+
+## Use-site targets
+
+Свойство Kotlin может породить несколько JVM-элементов: constructor parameter, property metadata, backing field, getter, setter. Use-site target уточняет, куда именно поставить annotation.
+
+```kotlin
+annotation class NotBlank
+
+data class User(
+    @field:NotBlank
+    val name: String,
+
+    @get:NotBlank
+    val displayName: String,
+
+    @param:NotBlank
+    val constructorOnly: String
+)
+```
+
+Популярные use-site targets:
+
+- `@file:` — annotation на файл;
+- `@field:` — backing field;
+- `@property:` — Kotlin property metadata, не видна Java;
+- `@get:` — getter;
+- `@set:` — setter;
+- `@param:` — constructor parameter;
+- `@setparam:` — parameter setter-а;
+- `@receiver:` — receiver extension function/property;
+- `@delegate:` — field, который хранит delegate;
+- `@all:` — meta-target для property, который распространяет annotation на несколько применимых мест.
+
+```kotlin
+@file:JvmName("LessonApi")
+
+package com.example.lessons
+```
+
+Для receiver:
+
+```kotlin
+annotation class SanitizedReceiver
+
+fun @receiver:SanitizedReceiver String.toLessonSlug(): String {
+    return trim().lowercase()
+}
+```
+
+## `@all` meta-target
+
+`@all:` применяет annotation сразу к нескольким релевантным target-ам property.
+
+```kotlin
+annotation class Email
+
+data class Account(
+    @all:Email
+    var email: String
+)
+```
+
+По документации `@all` может распространяться на constructor parameter, property, field, getter, setter parameter и Java record component, если они применимы.
+
+Ограничения:
+
+- не распространяется на types, extension receivers, context receivers или context parameters;
+- нельзя объединять несколько annotations в одном `@all:[A B]`;
+- нельзя использовать с delegated properties.
+
+## Repeatable annotations
+
+`@Repeatable` позволяет ставить одну annotation несколько раз на один элемент.
+
+```kotlin
+@Repeatable
+annotation class Tag(val name: String)
+
+@Tag("kotlin")
+@Tag("advanced")
+class AdvancedLesson
+```
+
+На JVM compiler сгенерирует container annotation автоматически. Если нужен пользовательский container name для Java compatibility, используй `@JvmRepeatable`.
+
+```kotlin
+@JvmRepeatable(Tags::class)
+annotation class JavaTag(val name: String)
+
+annotation class Tags(val value: Array<JavaTag>)
+```
+
+## Аннотации на конструкторах и accessors
+
+Primary constructor annotation требует keyword `constructor`.
+
+```kotlin
+annotation class Inject
+
+class LessonService @Inject constructor(
+    private val repository: LessonRepository
+)
+
+class LessonRepository
+```
+
+Accessor annotation:
+
+```kotlin
+annotation class TrackedSetter
+
+class MutableLesson {
+    var title: String = ""
+        @TrackedSetter set(value) {
+            field = value.trim()
+        }
+}
+```
+
+## Java annotations в Kotlin
+
+Java annotations совместимы с Kotlin. Если Java annotation имеет parameter `value`, его можно передать без имени.
+
+```kotlin
+@Deprecated("Используй publishLessonV2")
+fun publishLessonV1() {
+    println("old")
+}
+```
+
+Для Java annotation с array parameter Kotlin поддерживает array literal syntax.
+
+```kotlin
+@Suppress("UNCHECKED_CAST", "DEPRECATION")
+fun legacyBridge(value: Any): List<String> {
+    return value as List<String>
+}
+```
+
+## Annotation processors и KSP
+
+Annotation processing — способ прочитать annotations во время сборки и сгенерировать код, ресурсы или diagnostics.
+
+В Kotlin мире есть два частых пути:
+
+- KSP — Kotlin Symbol Processing, Kotlin-first API для processors;
+- kapt — bridge к Java annotation processing API.
+
+Для новых Kotlin-first processors обычно выбирают KSP. kapt нужен, когда библиотека предоставляет только Java annotation processor.
+
+```kotlin
+@Target(AnnotationTarget.CLASS)
+annotation class GenerateRoute
+
+@GenerateRoute
+class LessonsPage
+```
+
+Processor может найти `@GenerateRoute` и сгенерировать registration code.
+
+## Боевой-пример: annotation для маршрутов
+
+```kotlin
+@Target(AnnotationTarget.CLASS)
+@Retention(AnnotationRetention.RUNTIME)
+@MustBeDocumented
+annotation class Route(
+    val path: String,
+    val requiresAuth: Boolean = true
+)
+
+@Route(path = "/lessons", requiresAuth = false)
+class LessonListController
+
+@Route(path = "/admin/lessons", requiresAuth = true)
+class AdminLessonController
+```
+
+Runtime scanner:
+
+```kotlin
+import kotlin.reflect.KClass
+import kotlin.reflect.full.findAnnotation
+
+data class RouteInfo(
+    val controller: KClass<*>,
+    val path: String,
+    val requiresAuth: Boolean
+)
+
+fun routeInfo(controller: KClass<*>): RouteInfo? {
+    val route = controller.findAnnotation<Route>() ?: return null
+
+    require(route.path.startsWith("/")) {
+        "Route path должен начинаться с /"
+    }
+
+    return RouteInfo(
+        controller = controller,
+        path = route.path,
+        requiresAuth = route.requiresAuth
+    )
+}
+```
+
+Если route registry нужен в боевой среде hot path, лучше сгенерировать его через KSP, а не сканировать reflection-ом на каждом запуске.
+
+## Практические правила
+
+Делай annotation narrow.
+
+```kotlin
+@Target(AnnotationTarget.CLASS)
+annotation class GenerateAdapter
+```
+
+Выбирай retention по потребителю.
+
+```kotlin
+@Retention(AnnotationRetention.SOURCE)
+annotation class ConsumedByKsp
+```
+
+Уточняй use-site target для Java frameworks.
+
+```kotlin
+data class Form(
+    @field:NotBlank
+    val title: String
+)
+```
+
+Не храни business state в annotations. Annotation — metadata, а не runtime configuration object.
+
+<CatTip>
+Хорошая annotation коротко отвечает: кто должен ее читать, где ее можно ставить и на каком этапе она нужна — source, binary или runtime.
+</CatTip>
+

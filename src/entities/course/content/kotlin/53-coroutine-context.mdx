@@ -1,0 +1,613 @@
+---
+title: "Контекст корутины"
+description: "CoroutineContext в Kotlin: Job, CoroutineDispatcher, CoroutineName, CoroutineExceptionHandler, composition operator plus, inheritance, отладка и практические правила проектирования scope."
+order: 53
+category: "Корутины"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Контекст coroutine
+
+`CoroutineContext` — immutable набор элементов, которые описывают, где и как выполняется coroutine.
+
+Обычно в context входят:
+
+- `Job` — lifecycle, cancellation, parent-child relationship;
+- `CoroutineDispatcher` — где выполнять code: CPU pool, I/O pool, UI thread или пользовательский executor;
+- `CoroutineName` — имя для отладки;
+- `CoroutineExceptionHandler` — last-resort обработчик uncaught exceptions на верхних границах;
+- дополнительные элементы library/framework-level, например transaction context, MDC для logging или test scheduler.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    launch(Dispatchers.Default + CoroutineName("lesson-renderer")) {
+        println("Рендерим урок в coroutine context")
+    }
+}
+```
+
+<CatTip>
+Context — это ошейник coroutine: в нем видно имя, маршрут, хозяина lifecycle и правила поведения при ошибках.
+</CatTip>
+
+## Composition через operator `+`
+
+Context собирается operator-ом `+`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.CoroutineContext
+
+val lessonContext: CoroutineContext =
+    Dispatchers.Default + CoroutineName("lesson-worker")
+```
+
+Если справа и слева есть element с одинаковым key, правый element заменяет левый.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.runBlocking
+
+fun contextReplacementExample() = runBlocking(
+    CoroutineName("outer") + CoroutineName("inner")
+) {
+    // Итоговое имя будет inner, потому что второй CoroutineName заменил первый.
+    println(coroutineContext[CoroutineName]?.name)
+}
+```
+
+Это особенно важно для dispatcher:
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun dispatcherReplacementExample() = runBlocking {
+    launch(Dispatchers.Default + Dispatchers.IO) {
+        // Итоговый dispatcher — Dispatchers.IO.
+        println("Работаю на I/O dispatcher")
+    }
+}
+```
+
+## Inheritance
+
+Child coroutine наследует context parent-а, но получает собственный child `Job`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun inheritanceExample() = runBlocking(CoroutineName("parent")) {
+    launch {
+        // CoroutineName inherited from parent.
+        println(coroutineContext[CoroutineName]?.name)
+    }
+}
+```
+
+Можно override часть context при запуске child coroutine.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun overrideChildContextExample() = runBlocking(CoroutineName("request")) {
+    launch(Dispatchers.IO + CoroutineName("request-db-call")) {
+        // Dispatcher и name отличаются, но lifecycle все еще связан с parent Job.
+        println(coroutineContext[CoroutineName]?.name)
+    }
+}
+```
+
+Если передать новый `Job` в builder context, child больше не будет child-ом parent job. Это почти всегда ошибка.
+
+```kotlin
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun brokenParentChildExample() = runBlocking {
+    val detachedJob = Job()
+
+    launch(detachedJob) {
+        // Эта coroutine больше не принадлежит Job runBlocking.
+        delay(1_000)
+        println("Могу пережить отмену parent scope")
+    }
+}
+```
+
+<MouseTrap>
+Не добавляй `Job()` в `launch` или `async`, если цель — просто назвать coroutine или сменить dispatcher. Новый `Job` отрывает child от parent hierarchy и ломает structured concurrency.
+</MouseTrap>
+
+Правильнее:
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun properChildContextExample() = runBlocking {
+    launch(Dispatchers.IO + CoroutineName("db-call")) {
+        // Эта coroutine остается child-ом текущего scope.
+        println("Выполняю database call")
+    }
+}
+```
+
+## `Job`
+
+`Job` отвечает за lifecycle coroutine.
+
+Важные состояния conceptually:
+
+- active — coroutine работает;
+- completing — body завершился, но children еще могут завершаться;
+- cancelling — cancellation началась;
+- cancelled — завершение из-за cancellation или failure;
+- completed — успешное завершение.
+
+```kotlin
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun jobLifecycleExample() = runBlocking {
+    val job: Job = launch {
+        delay(200)
+        println("Готово")
+    }
+
+    println(job.isActive)
+
+    job.join()
+
+    println(job.isCompleted)
+}
+```
+
+`Job` можно получить из context.
+
+```kotlin
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+
+suspend fun printCurrentJobState() {
+    val job = currentCoroutineContext()[Job]
+
+    println("Active: ${job?.isActive}")
+}
+```
+
+Parent job tracks children.
+
+```kotlin
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun childrenExample() = runBlocking {
+    val first = launch {
+        delay(100)
+    }
+
+    val second = launch {
+        delay(100)
+    }
+
+    val parentJob = coroutineContext[Job]
+    val childCount = parentJob?.children?.count()
+
+    println("Children: $childCount")
+
+    first.join()
+    second.join()
+}
+```
+
+Cancellation идет сверху вниз.
+
+```kotlin
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun parentCancellationExample() = runBlocking {
+    val parent = launch {
+        launch {
+            try {
+                delay(10_000)
+            } finally {
+                println("Child cleanup")
+            }
+        }
+    }
+
+    delay(100)
+    parent.cancelAndJoin()
+}
+```
+
+## `CoroutineDispatcher`
+
+`CoroutineDispatcher` решает, на каком thread или thread pool продолжать coroutine execution.
+
+Основные dispatchers:
+
+- `Dispatchers.Default` — CPU-bound work: parsing, sorting, compression, pure computation;
+- `Dispatchers.IO` — blocking I/O: JDBC, blocking filesystem, old blocking HTTP clients;
+- `Dispatchers.Main` — UI thread на Android/Desktop/JS targets при наличии соответствующего module;
+- `Dispatchers.Unconfined` — starts in current call frame and resumes wherever suspension function decides; advanced tool, не default choice;
+- пользовательский dispatcher — wrapper around executor или limited parallelism для специальных pools.
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.nio.file.Files
+import java.nio.file.Path
+
+suspend fun readLessonFile(path: Path): String = withContext(Dispatchers.IO) {
+    // Blocking filesystem call перенесен на I/O dispatcher.
+    Files.readString(path)
+}
+```
+
+CPU work:
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+suspend fun calculateLessonScore(answerTimesMs: List<Long>): Int = withContext(Dispatchers.Default) {
+    // CPU-bound aggregation: здесь нет blocking I/O.
+    answerTimesMs
+        .map { time -> if (time <= 1_000) 10 else 5 }
+        .sum()
+}
+```
+
+Limited parallelism:
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+
+class ScreenshotRenderer {
+    private val renderDispatcher = Dispatchers.Default.limitedParallelism(2)
+
+    suspend fun renderAll(slugs: List<String>): List<String> = withContext(renderDispatcher) {
+        coroutineScope {
+            slugs.map { slug ->
+                async {
+                    renderOne(slug)
+                }
+            }.awaitAll()
+        }
+    }
+
+    private fun renderOne(slug: String): String {
+        // Представим CPU-heavy rendering.
+        return "rendered:$slug"
+    }
+}
+```
+
+<CatTip>
+Выбор dispatcher — это не украшение. Он показывает runtime, где работа не будет мешать остальной программе мурлыкать ровно.
+</CatTip>
+
+## `CoroutineName`
+
+`CoroutineName` добавляет readable name в context.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun namedCoroutinesExample() = runBlocking(CoroutineName("request-42")) {
+    launch(CoroutineName("load-metadata")) {
+        delay(100)
+        println("Метаданные готовы")
+    }
+
+    launch(CoroutineName("load-body")) {
+        delay(100)
+        println("Тело урока готово")
+    }
+}
+```
+
+Имена полезны при отладке, логах и thread dumps. Для JVM можно включить coroutine debug mode:
+
+```bash
+-Dkotlinx.coroutines.debug
+```
+
+После этого thread names в debug output могут включать coroutine id/name.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun debugNameExample() = runBlocking {
+    launch(CoroutineName("sync-progress")) {
+        delay(100)
+        println(Thread.currentThread().name)
+    }
+}
+```
+
+## `CoroutineExceptionHandler`
+
+`CoroutineExceptionHandler` — last-resort handler для uncaught exceptions.
+
+Он не является универсальным `try/catch`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun exceptionHandlerExample() = runBlocking {
+    val handler = CoroutineExceptionHandler { context, throwable ->
+        val name = context[CoroutineName]?.name ?: "unknown"
+
+        println("Coroutine $name упала: ${throwable.message}")
+    }
+
+    val ownerScope = CoroutineScope(
+        SupervisorJob() +
+            Dispatchers.Default +
+            handler
+    )
+
+    val job = ownerScope.launch(CoroutineName("analytics-root")) {
+        delay(100)
+        error("Сервис аналитики недоступен")
+    }
+
+    job.join()
+
+    // В настоящем application owner сделал бы cancel во время shutdown.
+    ownerScope.cancel()
+}
+```
+
+В обычном parent-child tree handler child coroutine часто не сработает так, как ожидает новичок, потому что exception передается parent-у.
+
+```kotlin
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+
+suspend fun childHandlerTrap() = coroutineScope {
+    val handler = CoroutineExceptionHandler { _, throwable ->
+        println("Не стоит рассчитывать на этот handler: ${throwable.message}")
+    }
+
+    launch(handler) {
+        error("Child failure отменит parent scope")
+    }
+}
+```
+
+Для expected errors используй local handling:
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
+
+suspend fun loadOptionalBadge(slug: String): String? = supervisorScope {
+    val badge = async {
+        loadBadgeFromRemote(slug)
+    }
+
+    runCatching {
+        badge.await()
+    }.getOrNull()
+}
+
+suspend fun loadBadgeFromRemote(slug: String): String {
+    // Network error здесь expected: caller явно превращает его в null.
+    error("Badge для $slug не найден")
+}
+```
+
+<MouseTrap>
+`CoroutineExceptionHandler` не чинит failed coroutine. Когда handler вызван, coroutine уже завершилась с exception. Используй его для logging, metrics и аварийной диагностики, а не для обычного control flow.
+</MouseTrap>
+
+`async` хранит exception внутри `Deferred` до `await` в root/supervised сценариях. В обычном `coroutineScope` failure child все равно делает scope failed, поэтому expected errors лучше обрабатывать внутри `supervisorScope`.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
+
+suspend fun asyncExceptionExample(): String? = supervisorScope {
+    val deferred = async {
+        error("Ошибка внутри async")
+    }
+
+    return@supervisorScope try {
+        deferred.await()
+    } catch (exception: IllegalStateException) {
+        println("Поймали exception при await: ${exception.message}")
+        null
+    }
+}
+```
+
+## Доступ к current context
+
+В `CoroutineScope` есть property `coroutineContext`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+
+fun CoroutineScope.printScopeName() {
+    val name = coroutineContext[CoroutineName]?.name
+
+    println("Scope name: $name")
+}
+```
+
+В suspending function используй `currentCoroutineContext()`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.currentCoroutineContext
+
+suspend fun currentContextExample() {
+    val context = currentCoroutineContext()
+    val name = context[CoroutineName]?.name
+
+    println("Current coroutine: $name")
+}
+```
+
+Для cancellation checks чаще используют `coroutineContext.ensureActive()` или `currentCoroutineContext().ensureActive()`, но подробная cancellation будет в следующей теме.
+
+## Производственный application scope
+
+Long-lived scope должен принадлежать owner-у и явно закрываться.
+
+```kotlin
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+class ApplicationCoroutineOwner {
+    private val exceptionHandler = CoroutineExceptionHandler { context, throwable ->
+        val name = context[CoroutineName]?.name ?: "application"
+
+        println("Coroutine $name завершилась с ошибкой: ${throwable.message}")
+    }
+
+    private val scope = CoroutineScope(
+        SupervisorJob() +
+            Dispatchers.Default +
+            CoroutineName("kotlingo-app") +
+            exceptionHandler
+    )
+
+    fun startBackgroundSync(): kotlinx.coroutines.Job = scope.launch(CoroutineName("lesson-sync")) {
+        while (true) {
+            syncLessonsOnce()
+            delay(60_000)
+        }
+    }
+
+    fun close() {
+        // Owner explicitly cancels all work it owns.
+        scope.cancel()
+    }
+
+    private suspend fun syncLessonsOnce() {
+        delay(200)
+        println("Синхронизировали уроки")
+    }
+}
+```
+
+Почему здесь `SupervisorJob` уместен:
+
+- это top-level application-owned scope;
+- отдельные background tasks могут быть независимыми;
+- failure одной task не обязана убивать весь application scope;
+- owner все равно может cancel scope в `close`.
+
+Почему `Job()` внутри `launch` был бы ошибкой:
+
+- он оторвал бы task от owner lifecycle;
+- `close()` мог бы не остановить detached work;
+- exception propagation стала бы менее предсказуемой.
+
+## Context в library API
+
+Хорошая библиотечная suspending function обычно не принимает `CoroutineScope` без необходимости.
+
+```kotlin
+class LessonSearchService(
+    private val index: LessonIndex
+) {
+    suspend fun search(query: String): List<String> {
+        // Caller context сохраняется. Service не создает скрытую global coroutine.
+        return index.search(query)
+    }
+}
+
+class LessonIndex {
+    suspend fun search(query: String): List<String> {
+        return listOf("Результат для $query")
+    }
+}
+```
+
+Если service действительно должен владеть background work, scope передают или создают на уровне owner-а.
+
+```kotlin
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+class LessonSyncService(
+    private val externalScope: CoroutineScope
+) {
+    fun startSync(): Job = externalScope.launch(CoroutineName("lesson-sync-service")) {
+        while (true) {
+            syncOnce()
+            delay(30_000)
+        }
+    }
+
+    private suspend fun syncOnce() {
+        delay(100)
+        println("Sync completed")
+    }
+}
+```
+
+<CatTip>
+Практическое правило: suspending APIs наследуют context вызывающий код-а, а long-lived background work получает scope от владельца lifecycle.
+</CatTip>

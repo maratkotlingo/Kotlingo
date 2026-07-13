@@ -1,0 +1,507 @@
+---
+title: "Массивы"
+description: "Подробно разбираем Array<T>, primitive и unsigned arrays, создание и доступ, invariance, копирование, fill, content equality, sorting, binarySearch, vararg и conversions."
+order: 36
+category: "Коллекции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Array — fixed-size mutable container
+
+Array хранит фиксированное количество элементов. Размер после создания не меняется, но элементы можно заменять.
+
+```kotlin
+val lessons: Array<String> = arrayOf(
+    "Collections",
+    "Creating collections",
+    "Arrays"
+)
+
+lessons[2] = "Kotlin arrays"
+println(lessons[2])
+```
+
+`Array<T>` не является subtype `Collection<T>`, хотя поддерживает iteration и множество extension operations.
+
+## Свойства array
+
+```kotlin
+val values = arrayOf("A", "B", "C")
+
+println(values.size)
+println(values.indices)
+println(values.lastIndex)
+println(values.isEmpty())
+println(values.isNotEmpty())
+```
+
+- `size` — число элементов;
+- `indices` — valid range `0..lastIndex`;
+- `lastIndex` — `size - 1`, для empty array равен -1;
+- `isEmpty`/`isNotEmpty` проверяют size.
+
+## `arrayOf`
+
+```kotlin
+val ids = arrayOf(45, 46, 47, 48)
+```
+
+Compiler выводит `Array<Int>` — array boxed `Int` elements на JVM, не `IntArray`.
+
+Explicit mixed type:
+
+```kotlin
+val mixed: Array<Any> = arrayOf(48, "Arrays", true)
+```
+
+## `emptyArray`
+
+```kotlin
+val titles = emptyArray<String>()
+val ids: Array<Int> = emptyArray()
+```
+
+Type argument/expected type нужен, потому что elements отсутствуют.
+
+## Constructor `Array(size, init)`
+
+```kotlin
+val labels = Array(5) { index ->
+    "Урок ${index + 1}"
+}
+```
+
+Initializer вызывается ровно size раз с index.
+
+```kotlin
+val squares = Array(5) { index -> index * index }
+```
+
+Negative size бросает exception. Constructor создаёт все elements сразу; uninitialized non-null slots невозможны через safe API.
+
+## `arrayOfNulls`
+
+```kotlin
+val slots: Array<String?> = arrayOfNulls(3)
+slots[0] = "Arrays"
+```
+
+Все элементы изначально null. Используй только если lifecycle действительно допускает empty slots. Для non-null final result проверь/преобразуй:
+
+```kotlin
+val completed: List<String> = slots.filterNotNull()
+```
+
+Не делай unchecked cast `Array<String?>` в `Array<String>`.
+
+## Access `get` и `set`
+
+```kotlin
+val values = arrayOf("A", "B")
+val first = values[0]
+values[1] = "C"
+```
+
+Эквивалентно `get(0)` и `set(1, "C")`. Invalid index бросает `ArrayIndexOutOfBoundsException`/platform equivalent.
+
+Safe access:
+
+```kotlin
+val missing: String? = values.getOrNull(10)
+val fallback = values.getOrElse(10) { index -> "Нет элемента $index" }
+```
+
+## Iteration
+
+```kotlin
+for (value in values) {
+    println(value)
+}
+
+for (index in values.indices) {
+    println("$index: ${values[index]}")
+}
+
+values.forEachIndexed { index, value ->
+    println("$index: $value")
+}
+```
+
+Indexed loop позволяет mutation текущего slot.
+
+## Arrays invariant
+
+Даже если `Lesson <: Content`, `Array<Lesson>` не subtype `Array<Content>`.
+
+```kotlin
+open class Content(val title: String)
+class Lesson(title: String) : Content(title)
+class Quiz(title: String) : Content(title)
+
+val lessons: Array<Lesson> = arrayOf(Lesson("Arrays"))
+// val contents: Array<Content> = lessons
+```
+
+Иначе через contents можно записать Quiz в actual `Array<Lesson>`.
+
+Для только для чтения producer parameter используй projection:
+
+```kotlin
+fun titles(values: Array<out Content>): List<String> {
+    return values.map(Content::title)
+}
+```
+
+Запись в `Array<out Content>` запрещена.
+
+## Fixed size не означает immutable
+
+```kotlin
+val array = arrayOf("A", "B")
+array[0] = "C"
+```
+
+`val` фиксирует reference, array elements mutable. Для snapshot передавай copy/только для чтения list/immutable model.
+
+## `copyOf`
+
+```kotlin
+val original = arrayOf("A", "B", "C")
+val copy = original.copyOf()
+
+copy[0] = "X"
+println(original.contentToString())
+println(copy.contentToString())
+```
+
+Structure independent, elements copied shallow.
+
+Resize copy:
+
+```kotlin
+val larger: Array<String?> = original.copyOf(newSize = 5)
+val smaller: Array<String> = original.copyOf(newSize = 2)
+```
+
+При увеличении reference array новые slots заполнены null, поэтому result type/перегрузка semantics нужно учитывать. Primitive arrays заполняются zero-like значения по умолчанию.
+
+## `copyOfRange`
+
+```kotlin
+val middle = original.copyOfRange(fromIndex = 1, toIndex = 3)
+```
+
+`fromIndex` inclusive, `toIndex` exclusive. Invalid range/index бросает exception.
+
+## Shallow copy
+
+```kotlin
+data class Draft(var title: String)
+
+val original = arrayOf(Draft("Arrays"))
+val copy = original.copyOf()
+copy[0].title = "Изменено"
+```
+
+Оба arrays указывают на один Draft. Для deep copy:
+
+```kotlin
+val deepCopy = original.map { draft -> draft.copy() }.toTypedArray()
+```
+
+Deep semantics domain-specific: nested graphs/cycles требуют отдельной стратегии.
+
+## `fill`
+
+```kotlin
+val scores = IntArray(5)
+scores.fill(100)
+```
+
+Partial range:
+
+```kotlin
+scores.fill(
+    value = 0,
+    fromIndex = 1,
+    toIndex = 4
+)
+```
+
+Range half-open. Для reference object одно и то же instance помещается во все slots:
+
+```kotlin
+val shared = Draft("Общий")
+val drafts = Array(3) { shared }
+```
+
+Если нужны независимые objects, создавай внутри initializer:
+
+```kotlin
+val independent = Array(3) { index -> Draft("Черновик $index") }
+```
+
+## Equality arrays
+
+Оператор `==` для arrays сравнивает references, не contents.
+
+```kotlin
+val first = arrayOf(1, 2, 3)
+val second = arrayOf(1, 2, 3)
+
+println(first == second)
+println(first.contentEquals(second))
+```
+
+Используй:
+
+- `contentEquals` — elements одного уровня;
+- `contentDeepEquals` — nested arrays;
+- `contentHashCode`/`contentDeepHashCode` — согласованный hash;
+- `contentToString`/`contentDeepToString` — readable output.
+
+<MouseTrap title="Мышеловка: data class с Array сравнивает array reference">
+Generated equals вызывает Array.equals, а не contentEquals. Оберни array в тип с правильной semantics или реализуй equals/hashCode согласованно.
+</MouseTrap>
+
+## Сортировка по месту
+
+```kotlin
+val scores = intArrayOf(70, 100, 85)
+scores.sort()
+println(scores.contentToString())
+```
+
+Mutates original. Descending helpers могут возвращать list или выполнять platform-specific operation в зависимости от перегрузка; проверяй return type.
+
+Reference array:
+
+```kotlin
+val titles = arrayOf("Arrays", "Collections", "Contracts")
+titles.sort()
+titles.sortBy { title -> title.length }
+```
+
+`sortWith` comparator:
+
+```kotlin
+titles.sortWith(compareBy<String> { it.length }.thenBy { it })
+```
+
+## Non-mutating sorting
+
+```kotlin
+val original = arrayOf(3, 1, 2)
+val sorted: List<Int> = original.sorted()
+```
+
+Result List, original unchanged. Для sorted Array:
+
+```kotlin
+val sortedArray = original.copyOf().apply { sort() }
+```
+
+## Binary search
+
+```kotlin
+val ids = intArrayOf(45, 46, 47, 48)
+val index = ids.binarySearch(47)
+```
+
+Precondition: array/range sorted according to same order/comparator. На unsorted array result meaningless.
+
+Если found, returned index non-negative. Если not found, returned negative encodes insertion point:
+
+```kotlin
+val result = ids.binarySearch(50)
+val insertionPoint = -(result + 1)
+```
+
+Не используйте `-result` — формула именно `-(result + 1)`.
+
+Range search:
+
+```kotlin
+val indexInRange = ids.binarySearch(
+    element = 47,
+    fromIndex = 1,
+    toIndex = 4
+)
+```
+
+Пользовательский comparator order должен совпадать с sorting.
+
+<CatTip title="Котосовет: binarySearch требует доказанного порядка">
+Храни invariant «array отсортирован» рядом с owner type или сортируй copy перед поиском. Случайный вызов на mutable array после update — тихая logic error.
+</CatTip>
+
+## Primitive arrays
+
+Специализированные types избегают boxing primitive elements:
+
+- `ByteArray`;
+- `ShortArray`;
+- `IntArray`;
+- `LongArray`;
+- `FloatArray`;
+- `DoubleArray`;
+- `BooleanArray`;
+- `CharArray`.
+
+```kotlin
+val scores = intArrayOf(70, 85, 100)
+val generated = IntArray(3) { index -> index * 10 }
+```
+
+`IntArray` не subtype `Array<Int>`.
+
+```kotlin
+val boxed: Array<Int> = scores.toTypedArray()
+val primitive: IntArray = boxed.toIntArray()
+```
+
+Conversions allocate/copy.
+
+## Unsigned arrays
+
+```kotlin
+@OptIn(ExperimentalUnsignedTypes::class)
+fun unsignedExample(): UIntArray {
+    return uintArrayOf(1u, 2u, 3u)
+}
+```
+
+Доступны `UByteArray`, `UShortArray`, `UIntArray`, `ULongArray`. API unsigned arrays остаётся experimental на актуальных toolchains; opt-in и compatibility policy обязательны.
+
+Unsigned arithmetic не проверяет overflow автоматически и не подходит для отрицательных domain values.
+
+## Multidimensional arrays
+
+Kotlin использует nested arrays:
+
+```kotlin
+val grid = Array(2) { row ->
+    IntArray(3) { column -> row * 10 + column }
+}
+
+println(grid[1][2])
+```
+
+Rows — независимые IntArray, если создаются initializer. Не заполняй все rows одной mutable reference:
+
+```kotlin
+val sharedRow = IntArray(3)
+val unsafeGrid = Array(2) { sharedRow }
+```
+
+Mutation одной row изменит обе positions.
+
+## Array и collections conversions
+
+```kotlin
+val array = arrayOf("A", "B")
+val snapshotList = array.toList()
+val mutableList = array.toMutableList()
+
+val list = listOf("A", "B")
+val typedArray = list.toTypedArray()
+```
+
+Array transformations `map` обычно возвращают List, а specialized `map...` return types нужно проверять по signature.
+
+## Vararg и spread
+
+```kotlin
+fun join(vararg parts: String): String = parts.joinToString("/")
+
+val parts = arrayOf("kotlin", "48", "arrays")
+println(join(*parts))
+```
+
+Spread разворачивает array в vararg call и на JVM часто создаёт защитную copy. В hot path предоставь перегрузка, принимающий Array/List directly.
+
+Primitive vararg требует primitive array:
+
+```kotlin
+fun sumAll(vararg values: Int): Int = values.sum()
+val values = intArrayOf(1, 2, 3)
+println(sumAll(*values))
+```
+
+## Java interop
+
+На JVM `Array<String>` отображается к reference array, IntArray — `int[]`. Arrays runtime-reified по component class частично, поэтому Java array store checks существуют; Kotlin invariance предотвращает многие проблемы compile time.
+
+Java может передать/mutate same array. Для ownership boundary используй `copyOf()`.
+
+## Практический пример: отсортированный индекс оценок
+
+```kotlin
+class ScoreIndex private constructor(
+    private val scores: IntArray
+) {
+    init {
+        require(scores.all { score -> score in 0..100 }) {
+            "Каждый балл должен быть от 0 до 100"
+        }
+        require((1 until scores.size).all { index ->
+            scores[index - 1] <= scores[index]
+        }) {
+            "Баллы должны быть отсортированы"
+        }
+    }
+
+    val size: Int
+        get() = scores.size
+
+    fun contains(score: Int): Boolean {
+        return scores.binarySearch(score) >= 0
+    }
+
+    fun insertionPoint(score: Int): Int {
+        require(score in 0..100) { "Балл должен быть от 0 до 100" }
+        val result = scores.binarySearch(score)
+        return if (result >= 0) result else -(result + 1)
+    }
+
+    fun snapshot(): IntArray = scores.copyOf()
+
+    companion object {
+        fun from(values: Iterable<Int>): ScoreIndex {
+            val scores = values.toList().toIntArray()
+            scores.sort()
+            return ScoreIndex(scores)
+        }
+    }
+}
+
+fun main() {
+    val index = ScoreIndex.from(listOf(100, 70, 85, 70))
+    println(index.contains(85))
+    println(index.insertionPoint(90))
+    println(index.snapshot().contentToString())
+}
+```
+
+Owner копирует input, сортирует до construction, проверяет invariant и возвращает defensive copies. Binary search всегда работает по доказанно sorted private array.
+
+## Итоги
+
+- Array имеет fixed size и mutable slots;
+- Array не является Collection;
+- `arrayOf`, `emptyArray`, `Array(size)` и `arrayOfNulls` создают разные формы;
+- direct index вне bounds бросает exception;
+- arrays invariant, только для чтения parameter использует `Array<out T>`;
+- `copyOf`/`copyOfRange` создают shallow copies;
+- `fill` одним reference не создаёт independent objects;
+- `==` сравнивает array identity, contents — через `contentEquals`;
+- `sort` mutates, `sorted` возвращает List;
+- binarySearch требует тот же sorted order и кодирует insertion point;
+- primitive arrays избегают boxing, но не являются `Array<Int>`;
+- unsigned arrays требуют opt-in на актуальном API;
+- spread vararg может копировать;
+- ownership boundary защищается `copyOf`.
+

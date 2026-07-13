@@ -1,0 +1,481 @@
+---
+title: "Создание коллекций"
+description: "Подробно изучаем listOf и mutableListOf, set implementations, map factories, duplicate keys, constructors, conversion, capacities и buildList/buildSet/buildMap."
+order: 35
+category: "Коллекции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Выбирай contract до implementation
+
+Перед созданием collection определи:
+
+- важен ли порядок;
+- допустимы ли duplicates;
+- нужен ли key lookup;
+- кто будет mutate;
+- нужна ли sorted iteration;
+- известен ли размер;
+- важна ли platform portability.
+
+List — order + duplicates, Set — uniqueness, Map — key-value lookup.
+
+## `listOf`
+
+```kotlin
+val lessons: List<String> = listOf(
+    "Contracts",
+    "Collections",
+    "Создание коллекций"
+)
+```
+
+Возвращает только для чтения `List<T>`.
+
+```kotlin
+val empty = emptyList<String>()
+val one = listOf("Kotlin")
+```
+
+Не полагайся на concrete implementation `listOf`: stdlib может использовать optimized empty/singleton/list implementations.
+
+## Type inference фабрик
+
+```kotlin
+val numbers = listOf(1, 2, 3)
+val mixed: List<Any> = listOf(1, "Kotlin", true)
+```
+
+Compiler выводит common type. Для empty factory type argument/expected type обязателен:
+
+```kotlin
+val titles = emptyList<String>()
+val ids: List<Int> = emptyList()
+```
+
+## Nullable elements
+
+```kotlin
+val titles: List<String?> = listOf("Kotlin", null)
+```
+
+`List<String?>` и nullable collection `List<String>?` различны:
+
+- первая collection существует, elements могут null;
+- вторая collection сама может отсутствовать.
+
+## `mutableListOf`
+
+```kotlin
+val lessons: MutableList<String> = mutableListOf("Contracts")
+lessons += "Collections"
+lessons.add("Создание коллекций")
+```
+
+Default mutable list обычно ArrayList-like. `val` фиксирует reference, не contents.
+
+## `arrayListOf`
+
+```kotlin
+val lessons: ArrayList<String> = arrayListOf("Kotlin", "Collections")
+```
+
+Возвращает concrete `ArrayList`. Используй, если API/algorithm нужны implementation-specific operations/type. В остальных cases предпочитай `MutableList` contract:
+
+```kotlin
+val lessons: MutableList<String> = arrayListOf()
+```
+
+## Constructor `List(size)`
+
+```kotlin
+val labels = List(5) { index -> "Урок ${index + 1}" }
+```
+
+Initializer вызывается для каждого index от 0 до size - 1. Result только для чтения List.
+
+```kotlin
+val squares = List(5) { index -> index * index }
+```
+
+Negative size приводит к exception.
+
+## Constructor `MutableList(size)`
+
+```kotlin
+val progress = MutableList(3) { 0 }
+progress[1] = 50
+```
+
+Создаёт fixed initial count, но MutableList затем может grow/shrink. Не путай с array fixed size.
+
+## Copy и conversion List
+
+```kotlin
+val source = mutableListOf("A", "B")
+val snapshot = source.toList()
+val mutableCopy = source.toMutableList()
+```
+
+Copies shallow: elements references общие.
+
+`toList()` может оптимизировать representation; contract — только для чтения list with same iteration order at conversion moment.
+
+## `setOf`
+
+```kotlin
+val tags: Set<String> = setOf("kotlin", "collections", "kotlin")
+println(tags)
+```
+
+Duplicate equal elements устраняются. Default factory обычно сохраняет insertion order в стандартных implementations, но если order является domain contract, фиксируй его в API/tests и не заменяй implementation случайно.
+
+```kotlin
+val emptyTags = emptySet<String>()
+```
+
+## `mutableSetOf`
+
+```kotlin
+val tags = mutableSetOf("kotlin")
+tags += "collections"
+```
+
+Обычно backed by LinkedHashSet-like implementation и сохраняет insertion order. Function `add` сообщает, изменился ли set.
+
+## `hashSetOf`
+
+```kotlin
+val tags: HashSet<String> = hashSetOf("kotlin", "collections")
+```
+
+HashSet оптимизирован для hash lookup и не обещает stable iteration order. Не сериализуй/рендери его без sorting, если output должен быть deterministic.
+
+## `linkedSetOf`
+
+```kotlin
+val orderedTags: LinkedHashSet<String> = linkedSetOf(
+    "kotlin",
+    "collections",
+    "education"
+)
+```
+
+Сохраняет insertion order и uniqueness.
+
+## `sortedSetOf`
+
+На JVM:
+
+```kotlin
+val sortedTags = sortedSetOf("education", "kotlin", "collections")
+```
+
+Использует natural order. Пользовательский comparator:
+
+```kotlin
+val byLength = sortedSetOf(compareBy<String> { it.length }.thenBy { it })
+byLength += listOf("set", "collections", "kotlin")
+```
+
+Sorted set определяет uniqueness через comparator (`compare(a,b) == 0`), что может отличаться от `equals`. Comparator должен быть consistent, transitive и stable относительно element state.
+
+```kotlin
+val caseInsensitive = sortedSetOf(String.CASE_INSENSITIVE_ORDER)
+caseInsensitive += "Kotlin"
+caseInsensitive += "kotlin"
+```
+
+В set останется один comparator-equivalent element.
+
+<MouseTrap title="Мышеловка: sorted set уникален по comparator">
+Если comparator игнорирует поле, два неравных по equals объекта могут считаться одной записью. Добавляй tie-breakers или используй map/group model.
+</MouseTrap>
+
+## Conversion Set
+
+```kotlin
+val unique = listOf("a", "b", "a").toSet()
+val mutableUnique = unique.toMutableSet()
+val linked = listOf("b", "a").toCollection(linkedSetOf())
+```
+
+`toCollection(destination)` позволяет выбрать target implementation.
+
+## `mapOf`
+
+```kotlin
+val lessons: Map<Int, String> = mapOf(
+    45 to "Contracts",
+    46 to "Collections",
+    47 to "Создание коллекций"
+)
+```
+
+`to` создаёт `Pair`, который factory превращает в entry.
+
+Только для чтения Map не предоставляет `put`.
+
+## Duplicate keys
+
+```kotlin
+val duplicate = mapOf(
+    47 to "Первое",
+    47 to "Последнее"
+)
+```
+
+При обычном factory later pair заменяет earlier value для того же equal key. Не используйте это как неявную deduplication policy, если duplicate input является ошибкой.
+
+```kotlin
+fun <K, V> uniqueMapOf(pairs: List<Pair<K, V>>): Map<K, V> {
+    require(pairs.map { pair -> pair.first }.distinct().size == pairs.size) {
+        "Обнаружены повторяющиеся ключи"
+    }
+    return pairs.toMap()
+}
+```
+
+## `mutableMapOf`
+
+```kotlin
+val lessons = mutableMapOf<Int, String>()
+lessons[47] = "Создание коллекций"
+```
+
+Обычно preserves insertion order через LinkedHashMap-like implementation.
+
+## `hashMapOf`
+
+```kotlin
+val cache: HashMap<Int, String> = hashMapOf(
+    47 to "Collections"
+)
+```
+
+Iteration order unspecified. Подходит lookup cache, если order не нужен.
+
+## `linkedMapOf`
+
+```kotlin
+val navigation: LinkedHashMap<Int, String> = linkedMapOf(
+    45 to "Contracts",
+    46 to "Collections"
+)
+```
+
+Insertion order deterministic, useful для navigation/serialization с осознанным order.
+
+## `sortedMapOf`
+
+На JVM:
+
+```kotlin
+val navigation = sortedMapOf(
+    47 to "Создание коллекций",
+    45 to "Contracts",
+    46 to "Collections"
+)
+```
+
+Keys iterate sorted. Пользовательский comparator:
+
+```kotlin
+val descending = sortedMapOf<Int, String>(compareByDescending { it })
+```
+
+Как у sorted set, comparator определяет key equivalence.
+
+## Map conversions
+
+```kotlin
+val pairs = listOf(45 to "Contracts", 46 to "Collections")
+val map = pairs.toMap()
+val mutableMap = map.toMutableMap()
+val linkedMap = pairs.toMap(linkedMapOf())
+```
+
+Duplicate keys используют last-value policy conversion.
+
+## Initial capacity
+
+Если ожидается много elements и implementation позволяет capacity, предварительная capacity уменьшает reallocations/rehashing.
+
+```kotlin
+val largeList = ArrayList<String>(10_000)
+val largeMap = HashMap<Int, String>(10_000)
+```
+
+Capacity не равна size: elements ещё не добавлены. Не завышай её без измерения, иначе расходуется memory.
+
+## `buildList`
+
+```kotlin
+val lessons: List<String> = buildList {
+    add("Contracts")
+    add("Collections")
+    if (true) {
+        add("Создание коллекций")
+    }
+}
+```
+
+Block получает MutableList receiver, result только для чтения List.
+
+Builder удобен для conditional/loop population без temporary mutable variable.
+
+```kotlin
+val labels = buildList {
+    for (order in 45..47) {
+        add("Урок $order")
+    }
+}
+```
+
+Не сохраняй receiver за пределами builder block: mutation после завершения нарушает contract и может привести к unspecified behavior.
+
+## `buildSet`
+
+```kotlin
+val tags = buildSet {
+    add("kotlin")
+    add("collections")
+    add("kotlin")
+}
+```
+
+Result unique только для чтения Set. Optional initial capacity:
+
+```kotlin
+val tags = buildSet(capacity = 16) {
+    add("kotlin")
+}
+```
+
+## `buildMap`
+
+```kotlin
+val lessons = buildMap<Int, String> {
+    put(45, "Contracts")
+    put(46, "Collections")
+    put(47, "Создание коллекций")
+}
+```
+
+Builder inference часто выводит K/V из `put`:
+
+```kotlin
+val inferred = buildMap {
+    put(47, "Создание коллекций")
+}
+```
+
+Duplicate `put` replaces previous value. Для validation используй helper `put` с `require(key !in this)`.
+
+## Builder против `apply` mutable collection
+
+```kotlin
+val mutable = mutableListOf<String>().apply {
+    add("Kotlin")
+}
+```
+
+Result mutable. `buildList` возвращает только для чтения result и лучше выражает «собрать и закрыть mutation phase».
+
+## Copy ownership при создании
+
+```kotlin
+fun lessonSnapshot(source: Collection<String>): List<String> {
+    return source.toList()
+}
+```
+
+`listOf(*array)`/spread может копировать. Выбирай API по ownership, не только краткости.
+
+## Factory и mutable elements
+
+```kotlin
+data class Draft(var title: String)
+
+val drafts = listOf(Draft("Collections"))
+drafts[0].title = "Изменено"
+```
+
+Только для чтения list не делает elements immutable. Используй immutable element models/snapshots.
+
+## Практический пример: построение навигации
+
+```kotlin
+data class Lesson(
+    val order: Int,
+    val title: String,
+    val tags: Set<String>
+)
+
+data class Navigation(
+    val lessonsByOrder: Map<Int, Lesson>,
+    val allTags: Set<String>,
+    val titles: List<String>
+)
+
+fun buildNavigation(source: Iterable<Lesson>): Navigation {
+    val lessons = source.toList()
+
+    val byOrder = buildMap<Int, Lesson>(lessons.size) {
+        lessons.forEach { lesson ->
+            require(lesson.order > 0) { "Порядок должен быть положительным" }
+            require(lesson.order !in this) { "Повторяется порядок ${lesson.order}" }
+            put(
+                lesson.order,
+                lesson.copy(
+                    title = lesson.title.trim(),
+                    tags = lesson.tags.toSet()
+                )
+            )
+        }
+    }
+
+    val tags = buildSet {
+        byOrder.values.forEach { lesson -> addAll(lesson.tags) }
+    }
+
+    val titles = buildList(byOrder.size) {
+        byOrder.toSortedMap().values.forEach { lesson -> add(lesson.title) }
+    }
+
+    return Navigation(byOrder, tags, titles)
+}
+
+fun main() {
+    val navigation = buildNavigation(
+        listOf(
+            Lesson(47, " Создание коллекций ", setOf("kotlin", "collections")),
+            Lesson(46, "Collections", setOf("kotlin"))
+        )
+    )
+
+    println(navigation)
+}
+```
+
+Builders ограничивают mutation фазой construction, validate duplicate keys и возвращают только для чтения snapshots.
+
+## Итоги
+
+- `listOf`/`setOf`/`mapOf` создают только для чтения contracts;
+- mutable factories создают write-capable collections;
+- concrete `arrayListOf`, `hashSetOf`, `linkedMapOf` нужны при важной implementation;
+- Hash variants не обещают order;
+- Linked variants сохраняют insertion order;
+- sorted variants используют natural/comparator order и comparator equality;
+- duplicate set elements удаляются, duplicate map key оставляет последнее value;
+- `List(size)`/`MutableList(size)` вызывают initializer по indices;
+- conversions делают shallow structural copies;
+- capacity оптимизирует allocations, но не задаёт size;
+- `buildList`/`buildSet`/`buildMap` открывают mutation только внутри block;
+- receiver builder нельзя безопасно сохранять для последующей mutation;
+- immutable ownership требует также immutable elements.
+

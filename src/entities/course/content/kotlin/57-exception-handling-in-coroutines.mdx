@@ -1,0 +1,513 @@
+---
+title: "Обработка исключений в корутинах"
+description: "Обработка исключений в Kotlin coroutines: launch и async, CoroutineExceptionHandler, SupervisorJob, supervisorScope, CancellationException, recovery boundaries и паттерны для боевого кода."
+order: 57
+category: "Корутины"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Исключения в coroutine hierarchy
+
+В coroutines exception handling связан со structured concurrency.
+
+Общее правило:
+
+- `CancellationException` означает normal cancellation;
+- любое другое exception в child coroutine cancels parent;
+- parent cancellation cancels siblings;
+- `launch` reports uncaught exceptions;
+- `async` stores exception inside `Deferred`, но в обычном structured scope failure child все равно affects parent;
+- supervisor boundaries меняют propagation между siblings;
+- expected failures нужно обрабатывать там, где они expected.
+
+```kotlin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+suspend fun failFastExample() = coroutineScope {
+    launch {
+        delay(100)
+        error("Метаданные недоступны")
+    }
+
+    launch {
+        try {
+            delay(10_000)
+        } finally {
+            println("Sibling отменен из-за failure в первом child")
+        }
+    }
+}
+```
+
+<CatTip>
+Исключение в coroutine hierarchy — это громкое «мяу» вверх по дереву: parent слышит его и решает судьбу siblings.
+</CatTip>
+
+## `launch` exceptions
+
+`launch` возвращает `Job`, а не typed result. Если exception не пойман внутри `launch`, coroutine завершается с failure.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun launchFailureExample() = runBlocking {
+    val job = launch {
+        delay(100)
+        error("Ошибка в launch")
+    }
+
+    job.join()
+}
+```
+
+В `runBlocking` child failure cancels parent, поэтому такой код завершится exception.
+
+Для expected failure внутри `launch` используй local `try/catch`.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun launchLocalHandlingExample() = runBlocking {
+    launch {
+        try {
+            sendAnalytics()
+        } catch (exception: CancellationException) {
+            // Cancellation не превращаем в обычную ошибку.
+            throw exception
+        } catch (exception: RuntimeException) {
+            // Analytics optional, поэтому failure логируем локально.
+            println("Analytics не отправилась: ${exception.message}")
+        }
+    }
+}
+
+suspend fun sendAnalytics() {
+    error("Analytics endpoint недоступен")
+}
+```
+
+`launch` подходит для побочные эффекты. Если operation должна вернуть value, обычно нужен `async` или plain suspending function.
+
+## `async` exceptions
+
+`async` возвращает `Deferred<T>`. Result или exception читаются через `await`.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
+suspend fun asyncFailureExample(): Int = coroutineScope {
+    val answer = async {
+        error("Вычисление упало")
+    }
+
+    answer.await()
+}
+```
+
+В обычном `coroutineScope` failure inside `async` still fails scope. Нельзя считать, что exception «спрятан» навсегда.
+
+Если failure expected и не должен отменять siblings, нужна supervisor boundary.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
+
+suspend fun loadOptionalLessonBadge(slug: String): String? = supervisorScope {
+    val badge = async {
+        requestBadge(slug)
+    }
+
+    runCatching {
+        badge.await()
+    }.getOrNull()
+}
+
+suspend fun requestBadge(slug: String): String {
+    error("Бейдж для $slug временно недоступен")
+}
+```
+
+<MouseTrap>
+Не запускай `async` и не забывай `await`. Deferred без await похож на закрытую коробку с ошибкой: она может всплыть позже и сделать поведение менее очевидным.
+</MouseTrap>
+
+## `CoroutineExceptionHandler`
+
+`CoroutineExceptionHandler` получает uncaught exceptions на root/supervised boundaries. Он не заменяет `try/catch`.
+
+```kotlin
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun exceptionHandlerExample() = runBlocking {
+    val handler = CoroutineExceptionHandler { context, throwable ->
+        val name = context[CoroutineName]?.name ?: "unknown"
+
+        println("Coroutine $name завершилась с exception: ${throwable.message}")
+    }
+
+    val applicationScope = CoroutineScope(
+        SupervisorJob() +
+            Dispatchers.Default +
+            handler
+    )
+
+    val job = applicationScope.launch(CoroutineName("background-sync")) {
+        delay(100)
+        error("Sync failed")
+    }
+
+    job.join()
+    applicationScope.cancel()
+}
+```
+
+Когда handler invoked, coroutine already completed. Handler подходит для:
+
+- logging;
+- metrics;
+- crash reporting;
+- alerting;
+- emergency diagnostics.
+
+Handler не подходит для обычного recovery:
+
+- он не возвращает coroutine к жизни;
+- он не заменяет retry;
+- он не catch-ит expected business errors;
+- он не работает как local handler для child в обычном parent-child hierarchy;
+- для `async` exception обычно читается через `await`.
+
+## Handler в child coroutine
+
+Новички часто ставят handler на child и ожидают, что он поймает exception.
+
+```kotlin
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+
+suspend fun childHandlerDoesNotSaveScope() = coroutineScope {
+    val handler = CoroutineExceptionHandler { _, throwable ->
+        println("Этот handler не является recovery boundary: ${throwable.message}")
+    }
+
+    launch(handler) {
+        error("Child failure")
+    }
+}
+```
+
+В обычном tree child delegates exception to parent. Поэтому recovery boundary должна быть:
+
+- local `try/catch` внутри child;
+- `supervisorScope`;
+- owner scope с `SupervisorJob`;
+- explicit result model вроде `Result`;
+- domain error sealed hierarchy.
+
+## `SupervisorJob`
+
+`SupervisorJob` меняет propagation: failure child не cancels siblings и supervisor parent.
+
+```kotlin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun supervisorJobExample() = runBlocking {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val first = scope.launch {
+        delay(100)
+        error("Первый child упал")
+    }
+
+    val second = scope.launch {
+        repeat(3) { index ->
+            delay(100)
+            println("Второй child жив: $index")
+        }
+    }
+
+    first.join()
+    second.join()
+}
+```
+
+Каждый child внутри supervisor должен handle its own exceptions. Иначе они уйдут в handler/logging, но не станут нормальным result.
+
+## `supervisorScope`
+
+`supervisorScope` — scoped version supervision внутри suspending function.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
+
+suspend fun loadSidebar(slug: String): Sidebar = supervisorScope {
+    val comments = async { loadComments(slug) }
+    val recommendations = async { loadRecommendations(slug) }
+    val ads = async { loadAds(slug) }
+
+    Sidebar(
+        comments = runCatching { comments.await() }.getOrDefault(emptyList()),
+        recommendations = runCatching { recommendations.await() }.getOrDefault(emptyList()),
+        ads = runCatching { ads.await() }.getOrNull()
+    )
+}
+
+data class Sidebar(
+    val comments: List<String>,
+    val recommendations: List<String>,
+    val ads: String?
+)
+
+suspend fun loadComments(slug: String): List<String> {
+    return listOf("Комментарий к $slug")
+}
+
+suspend fun loadRecommendations(slug: String): List<String> {
+    error("Recommendation service недоступен")
+}
+
+suspend fun loadAds(slug: String): String {
+    return "Реклама для $slug"
+}
+```
+
+`supervisorScope` itself still waits for children. Если сам block throws exception, children are cancelled.
+
+## `CancellationException`
+
+`CancellationException` — специальное exception для cancellation.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+
+suspend fun loadLessonTitle(slug: String): String {
+    return try {
+        delay(100)
+        "Урок $slug"
+    } catch (exception: CancellationException) {
+        // Отмену не логируем как ошибку и не превращаем в fallback.
+        throw exception
+    }
+}
+```
+
+`CancellationException` transparent для handler-ов и не cancels parent как ordinary failure.
+
+Плохой `runCatching`:
+
+```kotlin
+import kotlinx.coroutines.delay
+
+suspend fun badRunCatching(slug: String): String {
+    return runCatching {
+        delay(100)
+        "Урок $slug"
+    }.getOrDefault("Fallback")
+}
+```
+
+Лучше написать helper, который rethrows cancellation.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+
+inline fun <T> runCatchingNonCancellation(block: () -> T): Result<T> {
+    return try {
+        Result.success(block())
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Throwable) {
+        Result.failure(exception)
+    }
+}
+```
+
+Для suspending block:
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+
+suspend inline fun <T> suspendRunCatchingNonCancellation(
+    crossinline block: suspend () -> T
+): Result<T> {
+    return try {
+        Result.success(block())
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Throwable) {
+        Result.failure(exception)
+    }
+}
+```
+
+## Recovery boundaries
+
+Recovery boundary — место, где error превращается в понятный result, retry, fallback или user-facing state.
+
+Хорошие boundaries:
+
+- HTTP handler layer;
+- сценарий использования/service method;
+- screen model;
+- worker iteration;
+- optional widget loader;
+- integration adapter.
+
+Плохие boundaries:
+
+- random low-level utility;
+- hidden `GlobalScope`;
+- `CoroutineExceptionHandler` для expected domain errors;
+- broad `catch (Throwable)` без rethrow cancellation;
+- `async` без await.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
+class LessonUseCase(
+    private val lessons: LessonRepository,
+    private val progress: ProgressRepository
+) {
+    suspend fun openLesson(userId: String, slug: String): OpenLessonResult =
+        try {
+            coroutineScope {
+                val lesson = async { lessons.loadLesson(slug) }
+                val progress = async { progress.loadProgress(userId) }
+
+                OpenLessonResult.Ready(
+                    lesson = lesson.await(),
+                    progress = progress.await()
+                )
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: LessonNotFoundException) {
+            OpenLessonResult.NotFound(slug)
+        } catch (exception: RuntimeException) {
+            OpenLessonResult.Failed("Не удалось открыть урок")
+        }
+}
+
+sealed interface OpenLessonResult {
+    data class Ready(
+        val lesson: Lesson,
+        val progress: Progress
+    ) : OpenLessonResult
+
+    data class NotFound(
+        val slug: String
+    ) : OpenLessonResult
+
+    data class Failed(
+        val message: String
+    ) : OpenLessonResult
+}
+
+class LessonNotFoundException(slug: String) : RuntimeException("Урок не найден: $slug")
+
+class LessonRepository {
+    suspend fun loadLesson(slug: String): Lesson {
+        if (slug.isBlank()) {
+            throw LessonNotFoundException(slug)
+        }
+
+        return Lesson("Урок $slug", "Текст")
+    }
+}
+
+class ProgressRepository {
+    suspend fun loadProgress(userId: String): Progress {
+        return Progress(userId, completedLessons = 12)
+    }
+}
+
+data class Lesson(
+    val title: String,
+    val body: String
+)
+
+data class Progress(
+    val userId: String,
+    val completedLessons: Int
+)
+```
+
+## Retry как recovery, а не handler
+
+Retry должен быть там, где known transient failure.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+
+suspend fun <T> retryTransient(
+    attempts: Int,
+    delayBetweenAttempts: Duration = 100.milliseconds,
+    block: suspend () -> T
+): T {
+    require(attempts > 0) { "attempts должен быть положительным" }
+
+    var lastFailure: Throwable? = null
+
+    repeat(attempts) { attemptIndex ->
+        try {
+            return block()
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: RuntimeException) {
+            lastFailure = exception
+
+            val hasNextAttempt = attemptIndex < attempts - 1
+
+            if (hasNextAttempt) {
+                delay(delayBetweenAttempts)
+            }
+        }
+    }
+
+    throw lastFailure ?: IllegalStateException("Retry завершился без результата")
+}
+```
+
+Такой helper:
+
+- rethrows cancellation;
+- retries only selected exception family;
+- has explicit attempt count;
+- не полагается на global exception handler;
+- сохраняет восстановление локальным и видимым.
+
+<CatTip>
+Хорошая обработка исключений похожа на чистый кошачий след: видно, где ошибка возникла, где стала result-ом, и почему cancellation не была проглочена.
+</CatTip>
+

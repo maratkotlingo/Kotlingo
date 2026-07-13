@@ -1,0 +1,801 @@
+---
+title: "События и одноразовые действия"
+description: "Разбираем события и одноразовые действия в Compose: user events, UI events, UDF, обратные вызовы, snackbar, navigation events, LaunchedEffect, state-driven effects, SharedFlow, Channel и почему SingleLiveEvent не нужен."
+order: 48
+category: "Compose: навигация и архитектура"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое event
+
+Event — это действие или факт, который происходит во времени. В UI чаще всего events создаются пользователем: нажатие кнопки, ввод текста, свайп, pull to refresh, выбор пункта меню, закрытие snackbar. Events могут приходить и не от пользователя: истекла сессия, завершилась синхронизация, пришло push-обновление, таймер дошел до нуля.
+
+State и event — разные вещи:
+
+- state существует постоянно и описывает, что UI должен показывать сейчас;
+- event происходит в конкретный момент и может изменить state;
+- UI читает state;
+- UI отправляет events владельцу state;
+- ViewModel или другой держатель состояния обрабатывает event и производит новый state.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class LoginUiState(
+    val email: String,
+    val password: String,
+    val loading: Boolean,
+    val errorMessage: String?,
+    val loginCompleted: Boolean
+)
+
+sealed interface LoginEvent {
+    data class EmailChanged(val value: String) : LoginEvent
+    data class PasswordChanged(val value: String) : LoginEvent
+    data object SubmitClicked : LoginEvent
+    data object ErrorShown : LoginEvent
+    data object LoginNavigationConsumed : LoginEvent
+}
+```
+
+`LoginUiState` — состояние экрана. `LoginEvent` — события, которые могут это состояние изменить или сообщить, что UI уже отреагировал на часть состояния.
+
+<CatTip>
+Хорошее правило: если информация должна пережить recomposition, rotation или временное исчезновение UI, моделируйте ее как state. Если это жест пользователя или команда, которая запускает изменение, моделируйте ее как event.
+</CatTip>
+
+## State down, events up
+
+В Compose UI обычно строится по UDF:
+
+- ViewModel отдает неизменяемое состояние вниз;
+- composable отображает state;
+- пользователь взаимодействует с UI;
+- composable вызывает обратный вызов;
+- ViewModel обрабатывает event;
+- ViewModel публикует новый state.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LoginScreen(
+    state: LoginUiState,
+    onEvent: (LoginEvent) -> Unit
+) {
+    Column {
+        OutlinedTextField(
+            value = state.email,
+            onValueChange = { value ->
+                onEvent(LoginEvent.EmailChanged(value))
+            },
+            label = {
+                Text(text = "Электронная почта")
+            },
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = state.password,
+            onValueChange = { value ->
+                onEvent(LoginEvent.PasswordChanged(value))
+            },
+            label = {
+                Text(text = "Пароль")
+            },
+            singleLine = true
+        )
+
+        if (state.errorMessage != null) {
+            Text(text = state.errorMessage)
+        }
+
+        Button(
+            onClick = {
+                onEvent(LoginEvent.SubmitClicked)
+            },
+            enabled = !state.loading
+        ) {
+            Text(text = "Войти")
+        }
+
+        if (state.loading) {
+            CircularProgressIndicator()
+        }
+    }
+}
+```
+
+Screen не знает, как именно выполняется login. Он сообщает наружу: email изменился, password изменился, пользователь нажал submit.
+
+## ViewModel как обработчик business events
+
+Если event требует бизнес-логики, его должен обработать ViewModel или domain layer. Например, login требует валидации, network call, сохранения token и обработки ошибки.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class LoginViewModel(
+    private val login: LoginUseCase
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(
+        LoginUiState(
+            email = "",
+            password = "",
+            loading = false,
+            errorMessage = null,
+            loginCompleted = false
+        )
+    )
+    val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
+
+    fun onEvent(event: LoginEvent) {
+        when (event) {
+            is LoginEvent.EmailChanged -> {
+                _uiState.update { state ->
+                    state.copy(
+                        email = event.value,
+                        errorMessage = null
+                    )
+                }
+            }
+
+            is LoginEvent.PasswordChanged -> {
+                _uiState.update { state ->
+                    state.copy(
+                        password = event.value,
+                        errorMessage = null
+                    )
+                }
+            }
+
+            LoginEvent.SubmitClicked -> {
+                submit()
+            }
+
+            LoginEvent.ErrorShown -> {
+                _uiState.update { state ->
+                    state.copy(errorMessage = null)
+                }
+            }
+
+            LoginEvent.LoginNavigationConsumed -> {
+                _uiState.update { state ->
+                    state.copy(loginCompleted = false)
+                }
+            }
+        }
+    }
+
+    private fun submit() {
+        val state = _uiState.value
+
+        if (state.email.isBlank() || state.password.isBlank()) {
+            _uiState.update { currentState ->
+                currentState.copy(
+                    errorMessage = "Введите почту и пароль"
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { currentState ->
+                currentState.copy(
+                    loading = true,
+                    errorMessage = null
+                )
+            }
+
+            val result = login(
+                email = state.email,
+                password = state.password
+            )
+
+            _uiState.update { currentState ->
+                if (result.isSuccess) {
+                    currentState.copy(
+                        loading = false,
+                        loginCompleted = true
+                    )
+                } else {
+                    currentState.copy(
+                        loading = false,
+                        errorMessage = result.exceptionOrNull()?.message ?: "Не удалось войти"
+                    )
+                }
+            }
+        }
+    }
+}
+
+class LoginUseCase {
+    suspend operator fun invoke(
+        email: String,
+        password: String
+    ): Result<Unit> {
+        return if (email.contains("@") && password.length >= 6) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalArgumentException("Проверьте почту и пароль"))
+        }
+    }
+}
+```
+
+`LoginViewModel` не знает, какой screen покажет ошибку и куда приложение перейдет после входа. Он только сообщает state: есть ошибка или login завершен.
+
+<MouseTrap>
+Не запускайте login прямо из `Button(onClick = { scope.launch { repository.login() } })` внутри screen. Если операция является бизнес-действием, отдайте ее ViewModel или сценарий использования. UI должен быть тонким.
+</MouseTrap>
+
+## Navigation events
+
+Навигация является UI behavior logic. Если пользователь нажал кнопку "Открыть помощь", route или вызывающий код может сразу выполнить navigation обратный вызов. Если сначала нужна бизнес-валидация, ViewModel обновляет state, а UI реагирует.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun LoginRoute(
+    viewModel: LoginViewModel,
+    onLoggedIn: () -> Unit
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(state.loginCompleted) {
+        if (state.loginCompleted) {
+            onLoggedIn()
+            viewModel.onEvent(LoginEvent.LoginNavigationConsumed)
+        }
+    }
+
+    LoginScreen(
+        state = state,
+        onEvent = viewModel::onEvent
+    )
+}
+```
+
+Почему нужен `LoginNavigationConsumed`: после navigation state должен вернуться в обычное состояние. Иначе при возвращении к этому route или пересоздании composition navigation может сработать повторно.
+
+## Snackbar как state-driven effect
+
+Snackbar кажется одноразовым событием, но надежнее моделировать его как часть state. UI показывает сообщение и сообщает ViewModel, что сообщение показано.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class UserMessage(
+    val id: Long,
+    val text: String
+)
+
+@Immutable
+data class FeedUiState(
+    val loading: Boolean,
+    val articles: List<ArticleListItemUi>,
+    val userMessage: UserMessage?
+)
+```
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
+class FeedViewModel : ViewModel() {
+
+    private var nextMessageId = 0L
+
+    private val _uiState = MutableStateFlow(
+        FeedUiState(
+            loading = false,
+            articles = emptyList(),
+            userMessage = null
+        )
+    )
+    val uiState: StateFlow<FeedUiState> = _uiState.asStateFlow()
+
+    fun refreshFailed() {
+        _uiState.update { state ->
+            state.copy(
+                userMessage = UserMessage(
+                    id = nextMessageId++,
+                    text = "Не удалось обновить ленту"
+                )
+            )
+        }
+    }
+
+    fun userMessageShown(messageId: Long) {
+        _uiState.update { state ->
+            if (state.userMessage?.id == messageId) {
+                state.copy(userMessage = null)
+            } else {
+                state
+            }
+        }
+    }
+}
+```
+
+```kotlin
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun FeedRoute(
+    viewModel: FeedViewModel
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+
+    val message = state.userMessage
+
+    if (message != null) {
+        LaunchedEffect(message.id) {
+            snackbarHostState.showSnackbar(message.text)
+            viewModel.userMessageShown(message.id)
+        }
+    }
+
+    FeedScreen(
+        state = state,
+        snackbarHostState = snackbarHostState,
+        onRefreshFailedDebugClick = viewModel::refreshFailed
+    )
+}
+```
+
+`message.id` важен. Если два раза подряд приходит одинаковый текст, `LaunchedEffect(message.text)` мог бы не перезапуститься, потому что key не изменился. Уникальный ID делает сообщение отдельным событием внутри state.
+
+## Очередь сообщений
+
+Если messages могут приходить пачкой, храните очередь.
+
+```kotlin
+@Immutable
+data class MessagesUiState(
+    val userMessages: List<UserMessage>
+)
+
+class MessagesViewModel : ViewModel() {
+
+    private var nextMessageId = 0L
+
+    private val _uiState = MutableStateFlow(
+        MessagesUiState(
+            userMessages = emptyList()
+        )
+    )
+    val uiState: StateFlow<MessagesUiState> = _uiState.asStateFlow()
+
+    fun enqueueMessage(text: String) {
+        _uiState.update { state ->
+            state.copy(
+                userMessages = state.userMessages + UserMessage(
+                    id = nextMessageId++,
+                    text = text
+                )
+            )
+        }
+    }
+
+    fun messageShown(messageId: Long) {
+        _uiState.update { state ->
+            state.copy(
+                userMessages = state.userMessages.filterNot { message ->
+                    message.id == messageId
+                }
+            )
+        }
+    }
+}
+```
+
+```kotlin
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun MessagesEffect(
+    messages: List<UserMessage>,
+    snackbarHostState: SnackbarHostState,
+    onMessageShown: (Long) -> Unit
+) {
+    val firstMessage = messages.firstOrNull()
+
+    if (firstMessage != null) {
+        LaunchedEffect(firstMessage.id) {
+            snackbarHostState.showSnackbar(firstMessage.text)
+            onMessageShown(firstMessage.id)
+        }
+    }
+}
+```
+
+Очередь сохраняет сообщения, если UI временно не успел их показать. Это надежнее, чем "выстрелить" событие в пустоту.
+
+## Когда UI обрабатывает event сам
+
+Не каждый event должен идти во ViewModel. Если event меняет только локальный UI element state, его можно обработать рядом с UI.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun ExpandableHelpBlock() {
+    var expanded by remember {
+        mutableStateOf(false)
+    }
+
+    Button(
+        onClick = {
+            // Это локальная UI logic: бизнес-слой не обязан знать о раскрытии подсказки.
+            expanded = !expanded
+        }
+    ) {
+        Text(
+            text = if (expanded) {
+                "Скрыть подсказку"
+            } else {
+                "Показать подсказку"
+            }
+        )
+    }
+
+    if (expanded) {
+        Text(text = "Пароль должен содержать не меньше шести символов.")
+    }
+}
+```
+
+Если раскрытие нужно сохранить при process death, поделиться с другим экраном или использовать в бизнес-правиле, owner state можно поднять выше.
+
+## SharedFlow для UI effects
+
+Иногда state-driven подход неудобен: например, нужно один раз запросить focus, прокрутить список к позиции или проиграть короткий тактильный отклик. Для таких UI effects можно использовать `SharedFlow`, но важно понимать tradeoff: effect, отправленный пока UI не собирает flow, может быть потерян, если вы так настроили buffer.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
+
+sealed interface EditorEffect {
+    data object FocusTitle : EditorEffect
+    data class ScrollToParagraph(val index: Int) : EditorEffect
+}
+
+class EditorViewModel : ViewModel() {
+
+    private val _effects = MutableSharedFlow<EditorEffect>(
+        extraBufferCapacity = 1
+    )
+    val effects: SharedFlow<EditorEffect> = _effects.asSharedFlow()
+
+    fun titleValidationFailed() {
+        _effects.tryEmit(EditorEffect.FocusTitle)
+    }
+
+    fun paragraphCreated(index: Int) {
+        viewModelScope.launch {
+            _effects.emit(
+                EditorEffect.ScrollToParagraph(index)
+            )
+        }
+    }
+}
+```
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+
+@Composable
+fun EditorEffects(
+    viewModel: EditorViewModel,
+    titleFocusRequester: FocusRequester,
+    listState: LazyListState
+) {
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                EditorEffect.FocusTitle -> {
+                    titleFocusRequester.requestFocus()
+                }
+
+                is EditorEffect.ScrollToParagraph -> {
+                    listState.animateScrollToItem(effect.index)
+                }
+            }
+        }
+    }
+}
+```
+
+`SharedFlow` хорошо подходит для process-local UI effects, которые не являются обязательной частью состояние экрана. Для user-facing сообщений, которые нельзя потерять, чаще выбирайте state.
+
+## Channel
+
+`Channel` иногда используют как очередь one-off effects. Он может быть полезен для строго последовательной доставки, но требует аккуратной работы с lifecycle, cancellation и backpressure.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
+
+sealed interface PaymentEffect {
+    data object CloseKeyboard : PaymentEffect
+    data object ScrollToCardForm : PaymentEffect
+}
+
+class PaymentViewModel : ViewModel() {
+
+    private val effectsChannel = Channel<PaymentEffect>(
+        capacity = Channel.BUFFERED
+    )
+    val effects: Flow<PaymentEffect> = effectsChannel.receiveAsFlow()
+
+    fun cardValidationFailed() {
+        viewModelScope.launch {
+            effectsChannel.send(PaymentEffect.CloseKeyboard)
+            effectsChannel.send(PaymentEffect.ScrollToCardForm)
+        }
+    }
+}
+```
+
+Не используйте `Channel` как универсальную замену UI-состояние. Если UI должен отображать факт "ошибка есть", этот факт должен быть в state.
+
+## Почему не SingleLiveEvent
+
+`SingleLiveEvent` появился как обходной путь для старого View-based UI. В Compose он обычно не нужен:
+
+- Compose уже имеет effects: `LaunchedEffect`, `DisposableEffect`, `SideEffect`;
+- coroutine Flow дает `StateFlow`, `SharedFlow` и `Channel`;
+- lifecycle-aware collection решает проблему активности UI;
+- state-driven effects делают одноразовые сообщения восстановимыми;
+- обратный вызов-based events хорошо подходят для user actions.
+
+`SingleLiveEvent` часто скрывает проблему модели: событие на самом деле является state, но его пытаются доставить как одноразовый сигнал.
+
+<MouseTrap>
+Не добавляйте event wrapper с флагом `hasBeenHandled` в UI-состояние. Такой wrapper смешивает данные и историю потребления, плохо масштабируется на несколько consumers и делает тесты хрупкими.
+</MouseTrap>
+
+## Боевой-пример: удаление статьи
+
+Соберем пример, где пользователь удаляет статью, видит snackbar с Undo, а ViewModel хранит состояние честно.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ArticleEditorUiState(
+    val articleId: String,
+    val title: String,
+    val deleting: Boolean,
+    val undoDeleteMessage: UserMessage?
+)
+
+sealed interface ArticleEditorEvent {
+    data object DeleteClicked : ArticleEditorEvent
+    data object UndoDeleteClicked : ArticleEditorEvent
+    data class DeleteMessageShown(val messageId: Long) : ArticleEditorEvent
+}
+```
+
+```kotlin
+class ArticleEditorViewModel(
+    private val repository: EditableArticlesRepository
+) : ViewModel() {
+
+    private var nextMessageId = 0L
+    private var pendingDeletedArticleId: String? = null
+
+    private val _uiState = MutableStateFlow(
+        ArticleEditorUiState(
+            articleId = "compose",
+            title = "Архитектура Compose",
+            deleting = false,
+            undoDeleteMessage = null
+        )
+    )
+    val uiState: StateFlow<ArticleEditorUiState> = _uiState.asStateFlow()
+
+    fun onEvent(event: ArticleEditorEvent) {
+        when (event) {
+            ArticleEditorEvent.DeleteClicked -> deleteArticle()
+            ArticleEditorEvent.UndoDeleteClicked -> undoDelete()
+            is ArticleEditorEvent.DeleteMessageShown -> clearDeleteMessage(event.messageId)
+        }
+    }
+
+    private fun deleteArticle() {
+        viewModelScope.launch {
+            val articleId = _uiState.value.articleId
+
+            _uiState.update { state ->
+                state.copy(deleting = true)
+            }
+
+            repository.markDeleted(articleId)
+            pendingDeletedArticleId = articleId
+
+            _uiState.update { state ->
+                state.copy(
+                    deleting = false,
+                    undoDeleteMessage = UserMessage(
+                        id = nextMessageId++,
+                        text = "Статья удалена"
+                    )
+                )
+            }
+        }
+    }
+
+    private fun undoDelete() {
+        val articleId = pendingDeletedArticleId ?: return
+
+        viewModelScope.launch {
+            repository.restore(articleId)
+            pendingDeletedArticleId = null
+
+            _uiState.update { state ->
+                state.copy(undoDeleteMessage = null)
+            }
+        }
+    }
+
+    private fun clearDeleteMessage(messageId: Long) {
+        _uiState.update { state ->
+            if (state.undoDeleteMessage?.id == messageId) {
+                pendingDeletedArticleId = null
+                state.copy(undoDeleteMessage = null)
+            } else {
+                state
+            }
+        }
+    }
+}
+
+interface EditableArticlesRepository {
+    suspend fun markDeleted(articleId: String)
+
+    suspend fun restore(articleId: String)
+}
+```
+
+```kotlin
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun ArticleEditorRoute(
+    viewModel: ArticleEditorViewModel
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+
+    val message = state.undoDeleteMessage
+
+    if (message != null) {
+        LaunchedEffect(message.id) {
+            val result = snackbarHostState.showSnackbar(
+                message = message.text,
+                actionLabel = "Отменить",
+                duration = SnackbarDuration.Short
+            )
+
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.onEvent(ArticleEditorEvent.UndoDeleteClicked)
+            } else {
+                viewModel.onEvent(
+                    ArticleEditorEvent.DeleteMessageShown(message.id)
+                )
+            }
+        }
+    }
+
+    ArticleEditorScreen(
+        state = state,
+        snackbarHostState = snackbarHostState,
+        onEvent = viewModel::onEvent
+    )
+}
+```
+
+Этот пример показывает важную мысль: snackbar является UI effect, но причина его показа хранится в state. Если UI пересоздастся до показа snackbar, сообщение не потеряется.
+
+## Типичные ошибки
+
+### Навигировать прямо из ViewModel
+
+ViewModel не должен хранить `NavController`. Он может exposed state, а route composable решит, какой navigation action выполнить.
+
+### Делать все one-off actions через SharedFlow
+
+Если сообщение, ошибка или диалог должны быть восстановимыми, моделируйте их как state. SharedFlow хорош для коротких UI-effects, которые допустимо не восстанавливать после process death.
+
+### Использовать Boolean для повторяющихся сообщений
+
+`showError = true` плохо различает две одинаковые ошибки подряд. Используйте message object с ID или очередь сообщений.
+
+### Не очищать consumed state
+
+Если state `loginCompleted = true` не сбросить после navigation, effect может сработать повторно.
+
+### Обрабатывать бизнес-события в screen
+
+Screen должен сообщать о событии, а не решать, как обновлять база данных или network.
+
+### Прятать event handling в глубокой карточке
+
+Карточка списка должна вызвать `onClick(id)`. ViewModel не нужно передавать внутрь каждой строки.
+
+## Итоги
+
+Events и one-off actions в Compose лучше строить явно:
+
+- state описывает текущий UI;
+- event описывает действие во времени;
+- пользовательские events поднимаются через обратные вызовы;
+- ViewModel обрабатывает events с бизнес-логикой;
+- локальная UI logic может оставаться в composable;
+- snackbar и user messages надежнее моделировать как state с consumption обратный вызов;
+- navigation выполняется route/вызывающий код-слоем, а не ViewModel;
+- `LaunchedEffect` подходит для реакции UI на state-driven effects;
+- `SharedFlow` и `Channel` полезны для узких process-local UI effects;
+- `SingleLiveEvent` и event wrapper с `hasBeenHandled` обычно не нужны.

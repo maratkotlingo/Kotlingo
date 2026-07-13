@@ -1,0 +1,775 @@
+---
+title: "Архитектурные слои с Compose"
+description: "Разбираем архитектурные слои Android-приложения на Compose: UI layer, состояние экрана, ViewModel, держатели состояния, domain layer, data layer, repositories, UDF, MVI/MVVM tradeoffs и границы ответственности."
+order: 47
+category: "Compose: навигация и архитектура"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Compose не отменяет архитектуру
+
+Jetpack Compose меняет способ описания UI, но не отменяет слои приложения. Декларативный UI делает связь state и экрана яснее, но данные все равно нужно получать, преобразовывать, кешировать, валидировать, сохранять и тестировать. Эти задачи не должны жить внутри composable-функций.
+
+Хорошая архитектура Compose-приложения обычно строится вокруг следующих слоев:
+
+- UI layer: composable screens, route composables, UI-состояние, UI events;
+- держатель состояния: ViewModel или plain держатель состояния, который управляет состояние экрана;
+- domain layer: сценарии использования, бизнес-правила и координация операций;
+- data layer: repositories, data sources, local база данных, network, preferences;
+- design system layer: тема, tokens, переиспользуемые UI-компоненты;
+- navigation layer: graph, typed routes, feature destinations.
+
+Compose особенно хорошо сочетается с unidirectional data flow:
+
+- state идет вниз;
+- events идут вверх;
+- держатель состояния обновляет state;
+- UI перерисовывается из нового state.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ArticleListUiState(
+    val loading: Boolean,
+    val articles: List<ArticleListItemUi>,
+    val errorMessage: String?
+)
+
+@Immutable
+data class ArticleListItemUi(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val bookmarked: Boolean
+)
+```
+
+UI-состояние описывает то, что экран должен показать. Он не обязан совпадать с база данных entity, network DTO или domain model.
+
+<CatTip>
+В Compose архитектура становится особенно заметной: если composable получает чистый state и обратные вызовы, его легко предпросмотр-ить, тестировать и переиспользовать. Если composable сам ходит в репозиторий, UI быстро становится липким и трудно проверяемым.
+</CatTip>
+
+## UI layer
+
+UI layer отвечает за отображение application data на экране и обработку взаимодействия пользователя. В Compose UI layer удобно делить на две части:
+
+- route composable;
+- screen composable.
+
+Route composable:
+
+- получает ViewModel;
+- собирает `StateFlow` через lifecycle-aware API;
+- читает navigation arguments;
+- запускает one-off UI effects;
+- передает обратные вызовы в screen;
+- знает о navigation.
+
+Screen composable:
+
+- получает immutable UI-состояние;
+- отображает layout;
+- вызывает обратные вызовы;
+- не знает о ViewModel, репозиторий и NavController;
+- имеет предпросмотр fixtures.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun ArticleListRoute(
+    viewModel: ArticleListViewModel,
+    onArticleClick: (String) -> Unit
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    ArticleListScreen(
+        state = state,
+        onRefresh = viewModel::refresh,
+        onArticleClick = onArticleClick,
+        onBookmarkClick = viewModel::toggleBookmark
+    )
+}
+```
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun ArticleListScreen(
+    state: ArticleListUiState,
+    onRefresh: () -> Unit,
+    onArticleClick: (String) -> Unit,
+    onBookmarkClick: (String) -> Unit
+) {
+    Column {
+        if (state.loading) {
+            CircularProgressIndicator()
+        }
+
+        if (state.errorMessage != null) {
+            Text(text = state.errorMessage)
+            Button(
+                onClick = onRefresh
+            ) {
+                Text(text = "Повторить")
+            }
+        }
+
+        LazyColumn {
+            items(
+                items = state.articles,
+                key = { article ->
+                    article.id
+                }
+            ) { article ->
+                ListItem(
+                    headlineContent = {
+                        Text(text = article.title)
+                    },
+                    supportingContent = {
+                        Text(text = article.subtitle)
+                    },
+                    trailingContent = {
+                        Button(
+                            onClick = {
+                                onBookmarkClick(article.id)
+                            }
+                        ) {
+                            Text(
+                                text = if (article.bookmarked) {
+                                    "Удалить"
+                                } else {
+                                    "Сохранить"
+                                }
+                            )
+                        }
+                    },
+                    modifier = Modifier.clickable {
+                        onArticleClick(article.id)
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Такой screen не зависит от Android framework, кроме Compose UI. Его можно открыть в предпросмотр с любой фикстурой.
+
+<MouseTrap>
+Не передавайте `ViewModel` вниз по дереву в карточки, строки списка и кнопки. Это привязывает UI-компоненты к конкретной реализации держатель состояния и ломает переиспользование.
+</MouseTrap>
+
+## ViewModel как business держатель состояния
+
+ViewModel в Android-приложении часто является держатель состояния для screen-level state. Он переживает configuration changes, хранит state pipeline и обрабатывает события, которые требуют бизнес-логики.
+
+ViewModel обычно:
+
+- получает сценарии использования или repositories через dependency injection;
+- читает navigation arguments через `SavedStateHandle`;
+- преобразует domain data в UI-состояние;
+- exposes immutable `StateFlow<UiState>`;
+- принимает events через методы;
+- запускает coroutine work в `viewModelScope`;
+- не хранит reference на `Context`, `NavController` или composable.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+class ArticleListViewModel(
+    observeArticles: ObserveArticlesUseCase,
+    private val toggleArticleBookmark: ToggleArticleBookmarkUseCase,
+    private val refreshArticles: RefreshArticlesUseCase
+) : ViewModel() {
+
+    private val refreshing = MutableStateFlow(false)
+    private val errorMessage = MutableStateFlow<String?>(null)
+
+    val uiState: StateFlow<ArticleListUiState> = combine(
+        observeArticles(),
+        refreshing,
+        errorMessage
+    ) { articles, isRefreshing, error ->
+        ArticleListUiState(
+            loading = isRefreshing,
+            articles = articles.map { article ->
+                ArticleListItemUi(
+                    id = article.id,
+                    title = article.title,
+                    subtitle = article.authorName,
+                    bookmarked = article.bookmarked
+                )
+            },
+            errorMessage = error
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = ArticleListUiState(
+            loading = true,
+            articles = emptyList(),
+            errorMessage = null
+        )
+    )
+
+    fun refresh() {
+        viewModelScope.launch {
+            refreshing.value = true
+            errorMessage.value = null
+
+            val result = refreshArticles()
+
+            refreshing.value = false
+            errorMessage.value = result.exceptionOrNull()?.message
+        }
+    }
+
+    fun toggleBookmark(articleId: String) {
+        viewModelScope.launch {
+            toggleArticleBookmark(articleId)
+        }
+    }
+}
+```
+
+ViewModel не вызывает navigation напрямую. Если после успешного действия нужно перейти на другой экран, ViewModel меняет state, а route composable реагирует на state через effect или переданный обратный вызов.
+
+## Domain layer
+
+Domain layer содержит сценарии использования: классы или функции, которые выражают бизнес-операции приложения. Этот слой необязателен для маленьких экранов, но полезен, когда:
+
+- операция используется несколькими ViewModel;
+- нужна координация нескольких repositories;
+- есть сложная валидация;
+- нужно отделить бизнес-правило от UI;
+- нужно упростить unit testing.
+
+```kotlin
+data class ArticleDomain(
+    val id: String,
+    val title: String,
+    val authorName: String,
+    val bookmarked: Boolean
+)
+
+class ObserveArticlesUseCase(
+    private val articlesRepository: ArticlesRepository
+) {
+    operator fun invoke(): kotlinx.coroutines.flow.Flow<List<ArticleDomain>> {
+        return articlesRepository.observeArticles()
+    }
+}
+
+class ToggleArticleBookmarkUseCase(
+    private val articlesRepository: ArticlesRepository
+) {
+    suspend operator fun invoke(articleId: String) {
+        val article = articlesRepository.getArticle(articleId)
+
+        if (article.bookmarked) {
+            articlesRepository.removeBookmark(articleId)
+        } else {
+            articlesRepository.addBookmark(articleId)
+        }
+    }
+}
+
+class RefreshArticlesUseCase(
+    private val articlesRepository: ArticlesRepository
+) {
+    suspend operator fun invoke(): Result<Unit> {
+        return runCatching {
+            articlesRepository.refreshArticles()
+        }
+    }
+}
+```
+
+Сценарий использования не знает о Compose. Он должен быть обычным Kotlin-кодом, который можно тестировать без Android UI.
+
+## Data layer
+
+Data layer отвечает за application data и бизнес-операции с данными. Обычно он состоит из repositories и data sources.
+
+Репозиторий:
+
+- скрывает источник данных от UI;
+- объединяет local и remote data sources;
+- решает конфликты;
+- exposes streams данных;
+- выполняет writes;
+- преобразует DTO/entity в domain model;
+- содержит data-level business logic.
+
+```kotlin
+interface ArticlesRepository {
+    fun observeArticles(): kotlinx.coroutines.flow.Flow<List<ArticleDomain>>
+
+    suspend fun getArticle(articleId: String): ArticleDomain
+
+    suspend fun refreshArticles()
+
+    suspend fun addBookmark(articleId: String)
+
+    suspend fun removeBookmark(articleId: String)
+}
+```
+
+```kotlin
+class OfflineFirstArticlesRepository(
+    private val localDataSource: ArticlesLocalDataSource,
+    private val remoteDataSource: ArticlesRemoteDataSource
+) : ArticlesRepository {
+
+    override fun observeArticles(): kotlinx.coroutines.flow.Flow<List<ArticleDomain>> {
+        return localDataSource.observeArticles()
+    }
+
+    override suspend fun getArticle(articleId: String): ArticleDomain {
+        return localDataSource.getArticle(articleId)
+    }
+
+    override suspend fun refreshArticles() {
+        val remoteArticles = remoteDataSource.fetchArticles()
+        localDataSource.upsertArticles(remoteArticles)
+    }
+
+    override suspend fun addBookmark(articleId: String) {
+        localDataSource.setBookmarked(
+            articleId = articleId,
+            bookmarked = true
+        )
+    }
+
+    override suspend fun removeBookmark(articleId: String) {
+        localDataSource.setBookmarked(
+            articleId = articleId,
+            bookmarked = false
+        )
+    }
+}
+
+interface ArticlesLocalDataSource {
+    fun observeArticles(): kotlinx.coroutines.flow.Flow<List<ArticleDomain>>
+
+    suspend fun getArticle(articleId: String): ArticleDomain
+
+    suspend fun upsertArticles(articles: List<ArticleDomain>)
+
+    suspend fun setBookmarked(
+        articleId: String,
+        bookmarked: Boolean
+    )
+}
+
+interface ArticlesRemoteDataSource {
+    suspend fun fetchArticles(): List<ArticleDomain>
+}
+```
+
+Compose вообще не появляется в этом коде. Это важный маркер: data layer не должен зависеть от набор UI-инструментов.
+
+## UI-состояние не равен domain model
+
+Domain model описывает предметную область. UI-состояние описывает экран. Иногда они похожи, но у них разные причины меняться.
+
+```kotlin
+data class UserDomain(
+    val id: String,
+    val displayName: String,
+    val avatarUrl: String?,
+    val premium: Boolean,
+    val followersCount: Int
+)
+
+@Immutable
+data class UserProfileUiState(
+    val title: String,
+    val avatarUrl: String?,
+    val premiumBadgeVisible: Boolean,
+    val followersText: String,
+    val followButtonVisible: Boolean,
+    val loading: Boolean,
+    val errorMessage: String?
+)
+
+fun UserDomain.toProfileUiState(
+    viewerIsCurrentUser: Boolean
+): UserProfileUiState {
+    return UserProfileUiState(
+        title = displayName,
+        avatarUrl = avatarUrl,
+        premiumBadgeVisible = premium,
+        followersText = "$followersCount подписчиков",
+        followButtonVisible = !viewerIsCurrentUser,
+        loading = false,
+        errorMessage = null
+    )
+}
+```
+
+`followersText` — UI-specific форматирование. `followButtonVisible` зависит от текущего viewer. Такие поля не должны загрязнять domain model.
+
+## UI logic и business logic
+
+UI logic отвечает на вопрос "как показать". Business logic отвечает на вопрос "что означает действие".
+
+Примеры UI logic:
+
+- раскрыта ли карточка;
+- какой tab выбран внутри экрана;
+- показан ли dropdown;
+- где находится scroll;
+- открыт ли sheet;
+- какой item находится в focus.
+
+Примеры business logic:
+
+- добавить товар в корзину;
+- оплатить заказ;
+- сохранить настройку;
+- обновить список из сети;
+- валидировать email;
+- применить промокод.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
+@Composable
+fun ExpandableArticleSummary(
+    title: String,
+    summary: String
+) {
+    var expanded by remember {
+        mutableStateOf(false)
+    }
+
+    ArticleSummaryCard(
+        title = title,
+        summary = summary,
+        expanded = expanded,
+        onExpandedChange = { nextExpanded ->
+            // Раскрытие карточки является локальной UI logic.
+            expanded = nextExpanded
+        }
+    )
+}
+```
+
+```kotlin
+class SettingsViewModel(
+    private val settingsRepository: SettingsRepository
+) : ViewModel() {
+
+    fun setAnalyticsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            // Сохранение настройки является business/data operation.
+            settingsRepository.setAnalyticsEnabled(enabled)
+        }
+    }
+}
+
+interface SettingsRepository {
+    suspend fun setAnalyticsEnabled(enabled: Boolean)
+}
+```
+
+## UDF: state down, events up
+
+Unidirectional data flow в Compose выглядит так:
+
+1. ViewModel exposes `uiState`.
+2. Route collects `uiState`.
+3. Screen получает `state`.
+4. Пользователь нажимает кнопку.
+5. Screen вызывает обратный вызов.
+6. Route передает event во ViewModel или navigation обратный вызов.
+7. ViewModel обновляет state.
+8. Compose перерисовывает UI.
+
+```kotlin
+sealed interface ArticleListEvent {
+    data object RefreshClicked : ArticleListEvent
+    data class BookmarkClicked(val articleId: String) : ArticleListEvent
+}
+
+class EventBasedArticleListViewModel(
+    private val refreshArticles: RefreshArticlesUseCase,
+    private val toggleArticleBookmark: ToggleArticleBookmarkUseCase
+) : ViewModel() {
+
+    fun onEvent(event: ArticleListEvent) {
+        when (event) {
+            ArticleListEvent.RefreshClicked -> refresh()
+            is ArticleListEvent.BookmarkClicked -> toggleBookmark(event.articleId)
+        }
+    }
+
+    private fun refresh() {
+        viewModelScope.launch {
+            refreshArticles()
+        }
+    }
+
+    private fun toggleBookmark(articleId: String) {
+        viewModelScope.launch {
+            toggleArticleBookmark(articleId)
+        }
+    }
+}
+```
+
+`onEvent` полезен в MVI-like стиле. В MVVM стиле можно оставить явные методы `refresh()` и `toggleBookmark(articleId)`. Оба подхода нормальны, если границы ответственности ясны.
+
+## MVVM, MVI и практичный компромисс
+
+MVVM в Compose обычно выглядит так:
+
+- ViewModel exposes `StateFlow<UiState>`;
+- screen получает `UiState`;
+- screen вызывает конкретные методы: `onRefresh`, `onSaveClick`;
+- ViewModel обновляет state.
+
+MVI-like стиль часто выглядит так:
+
+- есть один `UiState`;
+- есть sealed `UiEvent`;
+- есть `onEvent(event)`;
+- иногда есть reducer;
+- побочные эффекты обрабатываются отдельно.
+
+Практичный компромисс:
+
+- для простых экранов используйте явные обратные вызовы;
+- для сложных экранов с большим количеством событий используйте sealed events;
+- не вводите reducer, если команда не выигрывает от этой строгости;
+- не превращайте every click в глобальную event bus систему;
+- сохраняйте screen stateless.
+
+## Ошибки и загрузка
+
+UI должен видеть загрузка и error как часть state. Не заставляйте composable угадывать, что происходит.
+
+```kotlin
+@Immutable
+sealed interface LoadableUiState<out T> {
+    data object Loading : LoadableUiState<Nothing>
+
+    data class Content<T>(
+        val value: T
+    ) : LoadableUiState<T>
+
+    data class Error(
+        val message: String,
+        val retryAvailable: Boolean
+    ) : LoadableUiState<Nothing>
+}
+```
+
+```kotlin
+@Composable
+fun <T> LoadableContent(
+    state: LoadableUiState<T>,
+    onRetry: () -> Unit,
+    content: @Composable (T) -> Unit
+) {
+    when (state) {
+        LoadableUiState.Loading -> {
+            CircularProgressIndicator()
+        }
+
+        is LoadableUiState.Content -> {
+            content(state.value)
+        }
+
+        is LoadableUiState.Error -> {
+            Column {
+                Text(text = state.message)
+                if (state.retryAvailable) {
+                    Button(
+                        onClick = onRetry
+                    ) {
+                        Text(text = "Повторить")
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+Такой wrapper может быть частью `core:ui`, если проект часто показывает одинаковые загрузка/error/content states.
+
+## Предпросмотр fixtures
+
+Screen composable должен иметь предпросмотр без ViewModel.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+
+private val ArticleListPreviewState = ArticleListUiState(
+    loading = false,
+    articles = listOf(
+        ArticleListItemUi(
+            id = "compose",
+            title = "Jetpack Compose: практическая архитектура",
+            subtitle = "Команда Android",
+            bookmarked = true
+        ),
+        ArticleListItemUi(
+            id = "navigation",
+            title = "Type-safe navigation",
+            subtitle = "Navigation team",
+            bookmarked = false
+        )
+    ),
+    errorMessage = null
+)
+
+@Preview(showBackground = true)
+@Composable
+private fun ArticleListScreenPreview() {
+    ArticleListScreen(
+        state = ArticleListPreviewState,
+        onRefresh = {},
+        onArticleClick = {},
+        onBookmarkClick = {}
+    )
+}
+```
+
+Если предпросмотр требует ViewModel, значит screen слишком сильно связан с держатель состояния. Создайте route для ViewModel и screen для чистого UI.
+
+## Testing boundaries
+
+Архитектурные слои тестируются по-разному:
+
+- composable screen: UI test или screenshot test на фиксированном state;
+- ViewModel: unit test state transitions и events;
+- сценарий использования: unit test business rules;
+- репозиторий: integration test с фиктивный data sources;
+- data source: база данных/network tests;
+- navigation graph: тест, что обратные вызовы вызывают правильные navigation actions.
+
+```kotlin
+class ToggleArticleBookmarkUseCaseTest {
+
+    @org.junit.Test
+    fun addsBookmarkWhenArticleIsNotBookmarked() = kotlinx.coroutines.test.runTest {
+        val repository = FakeArticlesRepository(
+            initialArticle = ArticleDomain(
+                id = "compose",
+                title = "Compose",
+                authorName = "Android",
+                bookmarked = false
+            )
+        )
+        val useCase = ToggleArticleBookmarkUseCase(repository)
+
+        useCase(articleId = "compose")
+
+        kotlin.test.assertTrue(
+            repository.getArticle("compose").bookmarked
+        )
+    }
+}
+
+class FakeArticlesRepository(
+    initialArticle: ArticleDomain
+) : ArticlesRepository {
+    private var article = initialArticle
+
+    override fun observeArticles(): kotlinx.coroutines.flow.Flow<List<ArticleDomain>> {
+        return kotlinx.coroutines.flow.flowOf(listOf(article))
+    }
+
+    override suspend fun getArticle(articleId: String): ArticleDomain {
+        return article
+    }
+
+    override suspend fun refreshArticles() {
+        article = article.copy(title = article.title)
+    }
+
+    override suspend fun addBookmark(articleId: String) {
+        article = article.copy(bookmarked = true)
+    }
+
+    override suspend fun removeBookmark(articleId: String) {
+        article = article.copy(bookmarked = false)
+    }
+}
+```
+
+Тест сценарий использования не запускает Compose, Activity или NavHost. Это признак хорошей изоляции.
+
+## Типичные ошибки
+
+### Загружать данные внутри composable
+
+Composable может выполняться много раз. Сетевые запросы, база данных writes и аналитика побочные эффекты не должны происходить в теле composable без эффекта и владельца lifecycle.
+
+### Использовать domain model как UI-состояние
+
+Это кажется быстрым, но UI начинает зависеть от полей, которые не являются частью экрана, а domain model получает UI-специфичные свойства.
+
+### Передавать NavController во ViewModel
+
+ViewModel не должна знать о Navigation UI. Она может exposed state "loginSuccess", а route решит, куда перейти.
+
+### Смешивать репозиторий и ViewModel responsibilities
+
+Репозиторий не должен знать, какая кнопка нажата на экране. ViewModel не должен знать, как устроен Retrofit endpoint. Каждый слой держит свою ответственность.
+
+### Делать сценарий использования для каждого простого вызова
+
+Сценарий использования полезен, когда есть реальная бизнес-операция или переиспользование. Для простого pass-through `repository.getUser()` дополнительный класс может быть шумом.
+
+### Терять неизменяемое состояние
+
+Screen должен получать неизменяемое состояние. Если UI получает mutable list и кто-то меняет ее на месте, Compose может не увидеть изменение или recomposition станет непредсказуемой.
+
+## Итоги
+
+Архитектура Compose-приложения держится на ясных границах:
+
+- Compose отвечает за декларативный UI, а не за всю архитектуру;
+- route composable связывает ViewModel, navigation и screen;
+- screen composable получает state и обратные вызовы;
+- ViewModel хранит состояние экрана и обрабатывает business events;
+- domain layer содержит сценарии использования и бизнес-правила;
+- data layer содержит repositories и data sources;
+- UI-состояние отличается от domain model;
+- UDF делает поток данных предсказуемым: state вниз, events вверх;
+- MVVM и MVI являются инструментами, а не самоцелью;
+- предпросмотр и тесты становятся проще, когда screen не зависит от ViewModel и NavController.

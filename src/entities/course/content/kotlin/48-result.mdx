@@ -1,0 +1,389 @@
+---
+title: "Result"
+description: "Result в Kotlin: success/failure, runCatching, getOrThrow, getOrNull, exceptionOrNull, fold, map, mapCatching, recover, recoverCatching, onSuccess/onFailure и осторожность в публичных API."
+order: 48
+category: "Стандартная библиотека"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## `Result` хранит успех или ошибку
+
+`Result` — стандартный value class, который инкапсулирует либо успешное значение, либо failure с `Throwable`.
+
+```kotlin
+fun parsePercent(raw: String): Result<Int> {
+    return runCatching {
+        val value = raw.removeSuffix("%").toInt()
+
+        require(value in 0..100) {
+            "Процент должен быть от 0 до 100"
+        }
+
+        value
+    }
+}
+
+println(parsePercent("42%"))  // Success(42)
+println(parsePercent("кот"))  // Failure(java.lang.NumberFormatException...)
+```
+
+`Result` не заменяет исключения во всем коде. Он полезен, когда ошибка является ожидаемым вариантом результата и вызывающий код должен явно решить, что с ней делать.
+
+<CatTip>
+`Result` — это переноска с двумя отделениями: в одном лежит удачный результат, в другом свернулся пойманный exception. Caller открывает переноску и сам выбирает дальнейший путь.
+</CatTip>
+
+## `Result.success` и `Result.failure`
+
+Можно создать result вручную.
+
+```kotlin
+fun validateSlug(slug: String): Result<String> {
+    val normalized = slug.trim()
+
+    if (normalized.isEmpty()) {
+        return Result.failure(IllegalArgumentException("Slug не должен быть пустым"))
+    }
+
+    if (!normalized.matches(Regex("""[a-z0-9]+(?:-[a-z0-9]+)*"""))) {
+        return Result.failure(IllegalArgumentException("Slug имеет неверный формат"))
+    }
+
+    return Result.success(normalized)
+}
+```
+
+Ручное создание хорошо подходит для validation, где ты сам формируешь доменную ошибку. Для выполнения блока, который может бросить exception, обычно удобнее `runCatching`.
+
+## `runCatching`
+
+`runCatching { ... }` выполняет block и возвращает `Result`.
+
+```kotlin
+fun readLessonOrder(raw: String): Result<Int> {
+    return runCatching {
+        // toInt может бросить NumberFormatException.
+        raw.toInt()
+    }
+}
+```
+
+Есть receiver-форма.
+
+```kotlin
+fun String.parseOrder(): Result<Int> {
+    return runCatching {
+        // В receiver-форме this — строка, на которой вызван runCatching.
+        trim().toInt()
+    }
+}
+```
+
+`runCatching` ловит `Throwable`, поэтому будь осторожен с cancellation и фатальными ошибками. В coroutine-коде не стоит проглатывать `CancellationException`.
+
+```kotlin
+inline fun <T> runCatchingNonCancellation(block: () -> T): Result<T> {
+    return try {
+        Result.success(block())
+    } catch (exception: kotlinx.coroutines.CancellationException) {
+        // Отмена coroutine должна распространяться дальше.
+        throw exception
+    } catch (exception: Throwable) {
+        Result.failure(exception)
+    }
+}
+```
+
+<MouseTrap>
+Не превращай каждый exception в `Result`, особенно в слоях, где cancellation, out-of-memory или programming error должны прервать выполнение. `Result` хорош для ожидаемых ошибок, а не для замазывания всего подряд.
+</MouseTrap>
+
+## `isSuccess` и `isFailure`
+
+Properties позволяют проверить состояние.
+
+```kotlin
+val parsed = parsePercent("80%")
+
+if (parsed.isSuccess) {
+    println("Можно сохранить прогресс")
+}
+
+if (parsed.isFailure) {
+    println("Нужно показать ошибку")
+}
+```
+
+Обычно после проверки все равно нужно достать value или exception. Для этого есть extraction methods.
+
+## `getOrThrow`
+
+`getOrThrow()` возвращает value или бросает сохраненный exception.
+
+```kotlin
+val percent = parsePercent("90%").getOrThrow()
+
+println(percent) // 90
+```
+
+Используй `getOrThrow`, когда на текущем уровне failure не должен обрабатываться и exception нужно пробросить дальше.
+
+```kotlin
+fun requirePercent(raw: String): Int {
+    return parsePercent(raw).getOrThrow()
+}
+```
+
+## `getOrNull`
+
+`getOrNull()` возвращает success value или `null` при failure.
+
+```kotlin
+val maybePercent: Int? = parsePercent("кот").getOrNull()
+
+println(maybePercent) // null
+```
+
+Этот метод удобен, если details ошибки не важны.
+
+```kotlin
+fun parseOptionalPercent(raw: String?): Int? {
+    if (raw == null) {
+        return null
+    }
+
+    return parsePercent(raw).getOrNull()
+}
+```
+
+<MouseTrap>
+`getOrNull` стирает причину ошибки. Не используй его там, где user, log или вызывающий код должны понять, что именно пошло не так.
+</MouseTrap>
+
+## `exceptionOrNull`
+
+`exceptionOrNull()` возвращает `Throwable?`.
+
+```kotlin
+val error = parsePercent("кот").exceptionOrNull()
+
+if (error != null) {
+    println("Ошибка разбора: ${error.message}")
+}
+```
+
+Это хороший способ логировать failure без принудительного throw.
+
+```kotlin
+fun logIfFailed(result: Result<*>) {
+    val exception = result.exceptionOrNull() ?: return
+
+    println("Операция завершилась ошибкой: ${exception::class.simpleName}")
+}
+```
+
+## `getOrDefault` и `getOrElse`
+
+`getOrDefault(defaultValue)` возвращает default при failure.
+
+```kotlin
+val percent = parsePercent("не число").getOrDefault(0)
+
+println(percent) // 0
+```
+
+`getOrElse { exception -> ... }` вычисляет fallback с доступом к exception.
+
+```kotlin
+val safePercent = parsePercent("150").getOrElse { exception ->
+    // Здесь можно залогировать конкретную причину.
+    println("Используем fallback из-за ошибки: ${exception.message}")
+    0
+}
+```
+
+## `fold`
+
+`fold` превращает оба состояния в один общий result type.
+
+```kotlin
+fun renderPercent(raw: String): String {
+    return parsePercent(raw).fold(
+        onSuccess = { percent ->
+            "Прогресс: $percent%"
+        },
+        onFailure = { exception ->
+            "Некорректный прогресс: ${exception.message}"
+        }
+    )
+}
+```
+
+`fold` полезен на границе UI/API, где success и failure должны стать одной моделью ответа.
+
+## `map`
+
+`map` трансформирует success value. Failure проходит без изменений.
+
+```kotlin
+val labelResult: Result<String> = parsePercent("80").map { percent ->
+    "Прогресс: $percent%"
+}
+```
+
+Если transform в `map` бросит exception, этот exception не будет автоматически завернут в failure. Для catching-transform нужен `mapCatching`.
+
+```kotlin
+val risky = Result.success("42").map { raw ->
+    // Если здесь будет exception, он выйдет наружу.
+    raw.toInt()
+}
+```
+
+## `mapCatching`
+
+`mapCatching` трансформирует success value и ловит exception внутри transform.
+
+```kotlin
+val parsedNumber: Result<Int> = Result.success("42").mapCatching { raw ->
+    // NumberFormatException станет Failure.
+    raw.toInt()
+}
+```
+
+Используй `map`, когда transform pure и не должен падать. Используй `mapCatching`, когда transform сам выполняет risky work.
+
+## `recover`
+
+`recover` превращает failure в success value. Если result уже success, он не меняется.
+
+```kotlin
+val percentWithFallback = parsePercent("кот").recover { exception ->
+    // Подставляем безопасный default.
+    0
+}
+
+println(percentWithFallback) // Success(0)
+```
+
+`recover` не ловит exception, который бросает recovery-transform. Для этого есть `recoverCatching`.
+
+## `recoverCatching`
+
+`recoverCatching` ловит exception внутри recovery-transform.
+
+```kotlin
+fun loadFallbackPercent(): Int {
+    // Представим, что fallback тоже может упасть.
+    return System.getenv("DEFAULT_PERCENT").toInt()
+}
+
+val recovered = parsePercent("кот").recoverCatching {
+    loadFallbackPercent()
+}
+```
+
+Если fallback упадет, результат останется failure, но уже с новой причиной.
+
+## `onSuccess` и `onFailure`
+
+`onSuccess` и `onFailure` выполняют побочный эффект и возвращают исходный `Result` без изменения.
+
+```kotlin
+val result = parsePercent("80")
+    .onSuccess { percent ->
+        println("Успешно разобрали: $percent")
+    }
+    .onFailure { exception ->
+        println("Не удалось разобрать: ${exception.message}")
+    }
+```
+
+Они удобны для logging, metrics, tracing, но не должны быть основным способом transformation.
+
+```kotlin
+val label = result.map { percent ->
+    "Прогресс: $percent%"
+}
+```
+
+## Боевой-пример: слой чтения настроек
+
+```kotlin
+data class CourseSettings(
+    val defaultLessonLimit: Int,
+    val showAdvancedTopics: Boolean
+)
+
+class SettingsReader(
+    private val values: Map<String, String>
+) {
+    fun read(): Result<CourseSettings> {
+        return runCatching {
+            val limit = values.getValue("defaultLessonLimit").toInt()
+
+            require(limit in 1..100) {
+                "defaultLessonLimit должен быть от 1 до 100"
+            }
+
+            val showAdvanced = values["showAdvancedTopics"]?.toBooleanStrictOrNull()
+                ?: false
+
+            CourseSettings(
+                defaultLessonLimit = limit,
+                showAdvancedTopics = showAdvanced
+            )
+        }
+    }
+}
+
+fun renderSettingsStatus(reader: SettingsReader): String {
+    return reader.read().fold(
+        onSuccess = { settings ->
+            "Настройки загружены: лимит ${settings.defaultLessonLimit}"
+        },
+        onFailure = { exception ->
+            "Настройки некорректны: ${exception.message}"
+        }
+    )
+}
+```
+
+Этот код явно показывает границу: внутри reader может быть exception-based код, наружу выходит `Result`.
+
+## Public API considerations
+
+`Result` хорош для Kotlin-only API, где вызывающий код ожидает functional-style handling.
+
+```kotlin
+interface LessonParser {
+    fun parse(raw: String): Result<Lesson>
+}
+```
+
+Но в публичных библиотеках учитывай:
+
+- Java callers работают с `Result` менее удобно;
+- `Result` хранит `Throwable`, а не typed domain error;
+- для recoverable business errors часто лучше sealed hierarchy;
+- для coroutine cancellation нельзя бездумно ловить все `Throwable`;
+- для API, где failure должен быть обязательной частью модели, sealed class обычно выразительнее.
+
+```kotlin
+sealed interface LessonParseOutcome {
+    data class Success(val lesson: Lesson) : LessonParseOutcome
+    data class InvalidFormat(val reason: String) : LessonParseOutcome
+    data class UnsupportedVersion(val version: Int) : LessonParseOutcome
+}
+```
+
+`Result` отвечает на вопрос «успех или exception». Sealed outcome отвечает на вопрос «какие именно доменные исходы возможны».
+
+<CatTip>
+Хорошая эвристика: если вызывающий код должен показать пользователю разные сообщения для разных ошибок, подумай о typed error model. Если нужно просто безопасно обернуть risky operation, `Result` будет purr-fect.
+</CatTip>
+
+

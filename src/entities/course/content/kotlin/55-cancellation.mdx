@@ -1,0 +1,585 @@
+---
+title: "Отмена"
+description: "Cancellation в Kotlin coroutines: cooperative cancellation, Job.cancel, isActive, ensureActive, yield, withTimeout, withTimeoutOrNull, awaitCancellation, cleanup через finally и NonCancellable."
+order: 55
+category: "Корутины"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Отмена — это часть нормального lifecycle
+
+Cancellation — штатный способ остановить coroutine, когда результат больше не нужен.
+
+Типичные причины:
+
+- пользователь ушел со страницы;
+- HTTP request был отменен client-ом;
+- timeout истек;
+- parent scope закрывается;
+- application завершает работу;
+- одна обязательная child coroutine упала, и siblings больше не имеют смысла;
+- UI component уничтожен, а обновлять его уже нельзя.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    val job = launch {
+        repeat(10) { index ->
+            delay(200)
+            println("Загружаю часть ${index + 1}")
+        }
+    }
+
+    delay(550)
+
+    // Просим coroutine остановиться.
+    job.cancel()
+
+    // Ждем, пока coroutine действительно завершится.
+    job.join()
+
+    println("Загрузка остановлена")
+}
+```
+
+Отмена в coroutines не убивает thread. Она передается через `Job` и проявляется как `CancellationException` в точках, где coroutine проверяет cancellation.
+
+<CatTip>
+Отмена — это не пинок из корзинки, а вежливый сигнал: «хватит охотиться, возвращайся, результат уже не нужен».
+</CatTip>
+
+## Cooperative cancellation
+
+Cancellation в Kotlin cooperative. Coroutine должна сотрудничать с runtime:
+
+- вызывать cancellable suspending functions;
+- периодически проверять `isActive`;
+- вызывать `ensureActive`;
+- использовать `yield`, если долго занимает thread;
+- не проглатывать `CancellationException`;
+- освобождать ресурсы в `finally`.
+
+```kotlin
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun cooperativeExample() = runBlocking {
+    val job = launch {
+        while (true) {
+            // delay является cancellation point.
+            delay(100)
+            println("Работаю и регулярно даю runtime шанс отменить меня")
+        }
+    }
+
+    delay(350)
+    job.cancelAndJoin()
+}
+```
+
+Если code не suspends и не checks cancellation, он может продолжать работу после `cancel`.
+
+```kotlin
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun nonCooperativeExample() = runBlocking {
+    val job = launch {
+        var number = 0L
+
+        while (number < Long.MAX_VALUE) {
+            // Нет suspension point и нет проверки cancellation.
+            number++
+        }
+    }
+
+    job.cancelAndJoin()
+}
+```
+
+<MouseTrap>
+`cancel()` не прерывает произвольный CPU loop магически. Если внутри coroutine tight loop, ты обязан встроить проверку cancellation.
+</MouseTrap>
+
+## `isActive`
+
+`isActive` — property из `CoroutineScope`, которая показывает, что текущий `Job` еще active.
+
+Она удобна, когда можно мягко выйти из loop без exception.
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+
+suspend fun indexLessons(slugs: List<String>): Int = withContext(Dispatchers.Default) {
+    var indexed = 0
+
+    for (slug in slugs) {
+        if (!isActive) {
+            // Возвращаем частичный результат, если business-сценарий это допускает.
+            return@withContext indexed
+        }
+
+        rebuildSearchIndexFor(slug)
+        indexed++
+    }
+
+    indexed
+}
+
+fun rebuildSearchIndexFor(slug: String) {
+    // CPU-bound работа: токенизация, нормализация, построение локального индекса.
+    slug.lowercase().split("-").filter { token -> token.isNotBlank() }
+}
+```
+
+`isActive` особенно полезен для:
+
+- CPU-bound loops;
+- polling loops;
+- best-effort background processing;
+- long-running batch jobs, где graceful partial result нормален.
+
+## `ensureActive`
+
+`ensureActive()` проверяет cancellation и сразу throws `CancellationException`, если current coroutine уже canceled.
+
+Это лучше, когда partial result нельзя возвращать.
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+
+suspend fun buildStrictLessonIndex(slugs: List<String>): LessonIndexSnapshot =
+    withContext(Dispatchers.Default) {
+        val entries = mutableListOf<String>()
+
+        for (slug in slugs) {
+            // Если scope отменен, дальше строить snapshot нельзя.
+            ensureActive()
+
+            entries += normalizeSlug(slug)
+        }
+
+        LessonIndexSnapshot(entries)
+    }
+
+data class LessonIndexSnapshot(
+    val entries: List<String>
+)
+
+fun normalizeSlug(slug: String): String {
+    return slug.trim().lowercase()
+}
+```
+
+Главная разница:
+
+- `isActive` дает boolean, ты сам решаешь, как выйти;
+- `ensureActive` immediately throws cancellation exception;
+- `yield` suspends, проверяет cancellation и дает другим coroutines шанс выполниться.
+
+## `yield`
+
+`yield()` suspends current coroutine, проверяет cancellation и освобождает thread для других coroutines в том же dispatcher.
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
+
+suspend fun tokenizeManyLessons(lessons: List<String>): List<List<String>> =
+    withContext(Dispatchers.Default) {
+        coroutineScope {
+            lessons.map { lesson ->
+                async {
+                    tokenizeWithYield(lesson)
+                }
+            }.awaitAll()
+        }
+    }
+
+suspend fun tokenizeWithYield(text: String): List<String> {
+    val tokens = mutableListOf<String>()
+
+    text.splitToSequence(" ").forEachIndexed { index, token ->
+        if (index % 500 == 0) {
+            // Даем dispatcher шанс выполнить другие coroutines и проверить cancellation.
+            yield()
+        }
+
+        if (token.isNotBlank()) {
+            tokens += token.lowercase()
+        }
+    }
+
+    return tokens
+}
+```
+
+`yield` не нужен в обычном code, который часто вызывает cancellable suspending functions вроде `delay`, `withContext`, `await`, `receive`, база данных client calls with proper coroutine support.
+
+## `cancel`, `join`, `cancelAndJoin`
+
+`cancel()` просит coroutine завершиться.
+
+`join()` ожидает завершения.
+
+`cancelAndJoin()` делает оба действия последовательно.
+
+```kotlin
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun cancelAndJoinExample() = runBlocking {
+    val job = launch {
+        try {
+            while (true) {
+                delay(100)
+                println("Синхронизирую прогресс")
+            }
+        } finally {
+            println("Синхронизация получила cancellation и закрывает ресурсы")
+        }
+    }
+
+    delay(250)
+    job.cancelAndJoin()
+
+    println("Теперь cleanup точно завершен")
+}
+```
+
+Если вызвать только `cancel`, вызывающий код продолжит работу немедленно. Это может быть нормально, но часто shutdown code должен дождаться cleanup.
+
+## `CancellationException`
+
+Отмена сопрограммы представлена ​​`CancellationException`.
+
+Важные правила:
+
+- `CancellationException` не считается failure parent-а;
+- exception handlers обычно ignore cancellation;
+- если ты поймал `CancellationException`, почти всегда нужно rethrow;
+- `runCatching` ловит `CancellationException`, поэтому может случайно сломать cancellation propagation;
+- не превращай cancellation в обычный fallback без осознанной причины.
+
+Плохой пример:
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+
+suspend fun loadTitleBad(slug: String): String {
+    return try {
+        delay(100)
+        "Урок $slug"
+    } catch (exception: Exception) {
+        // Плохо: сюда попадает CancellationException, и отмена превращается в обычный title.
+        "Без названия"
+    }
+}
+```
+
+Хороший вариант:
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+
+suspend fun loadTitle(slug: String): String {
+    return try {
+        delay(100)
+        "Урок $slug"
+    } catch (exception: CancellationException) {
+        // Отмену всегда пропускаем выше.
+        throw exception
+    } catch (exception: RuntimeException) {
+        // Обычные expected failures можно превратить в fallback.
+        "Без названия"
+    }
+}
+```
+
+<MouseTrap>
+`catch (Exception)` в suspending code почти всегда должен иметь отдельную ветку для `CancellationException`. Иначе приложение может «не отменяться» в моменты, когда пользователь уже ушел.
+</MouseTrap>
+
+## Cleanup через `finally`
+
+`finally` выполняется при normal completion, failure и cancellation.
+
+```kotlin
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun finallyCleanupExample() = runBlocking {
+    val job = launch {
+        val connection = FakeConnection()
+
+        try {
+            connection.open()
+
+            // Coroutine будет висеть, пока ее не отменят.
+            awaitCancellation()
+        } finally {
+            // Cleanup выполняется даже при cancellation.
+            connection.close()
+        }
+    }
+
+    job.cancel()
+    job.join()
+}
+
+class FakeConnection {
+    fun open() {
+        println("Connection открыт")
+    }
+
+    fun close() {
+        println("Connection закрыт")
+    }
+}
+```
+
+Если cleanup сам suspending, cancellation уже активна, поэтому обычный `delay`, network call или suspending close могут сразу выбросить `CancellationException`.
+
+Для короткого обязательного suspending cleanup используют `NonCancellable`.
+
+```kotlin
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+
+fun nonCancellableCleanupExample() = runBlocking {
+    val job = launch {
+        try {
+            awaitCancellation()
+        } finally {
+            withContext(NonCancellable) {
+                // Этот suspending cleanup должен завершиться даже после cancellation.
+                delay(50)
+                println("Flush audit log завершен")
+            }
+        }
+    }
+
+    job.cancel()
+    job.join()
+}
+```
+
+`NonCancellable` должен быть маленьким и bounded. Не запускай внутри него долгую бизнес-операцию.
+
+## `withTimeout` и `withTimeoutOrNull`
+
+`withTimeout` отменяет block, если он не завершился за заданное время, и throws `TimeoutCancellationException`.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.milliseconds
+
+suspend fun loadWithStrictTimeout(slug: String): String {
+    return withTimeout(300.milliseconds) {
+        delay(100)
+        "Урок $slug"
+    }
+}
+```
+
+`withTimeoutOrNull` returns `null` вместо exception.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
+
+suspend fun loadOptionalBadge(slug: String): String? {
+    return withTimeoutOrNull(150.milliseconds) {
+        delay(300)
+        "Бейдж для $slug"
+    }
+}
+```
+
+Выбор:
+
+- `withTimeout` подходит, когда timeout — failure сценарий;
+- `withTimeoutOrNull` подходит, когда timeout — обычное отсутствие optional data;
+- в обоих случаях block отменяется cooperative cancellation.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
+
+suspend fun loadRecommendationsSafely(slug: String): List<String> {
+    return withTimeoutOrNull(200.milliseconds) {
+        try {
+            delay(500)
+            listOf("82-dispatchers", "83-exception-handling-in-coroutines")
+        } catch (exception: CancellationException) {
+            // Timeout тоже приходит как cancellation, поэтому rethrow.
+            throw exception
+        }
+    } ?: emptyList()
+}
+```
+
+<CatTip>
+Timeout — это автоматическая миска с таймером: если операция не успела, scope не ждет бесконечно и аккуратно убирает незавершенную работу.
+</CatTip>
+
+## `awaitCancellation`
+
+`awaitCancellation()` приостанавливается навсегда, пока сопрограмма не будет отменена.
+
+Он полезен для long-running services, обратные вызовы и loops, где сама работа идет через listeners.
+
+```kotlin
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun listenerLifetimeExample() = runBlocking {
+    val listener = LessonEventListener()
+
+    val job = launch {
+        listener.start()
+
+        try {
+            awaitCancellation()
+        } finally {
+            listener.stop()
+        }
+    }
+
+    job.cancel()
+    job.join()
+}
+
+class LessonEventListener {
+    fun start() {
+        println("Listener запущен")
+    }
+
+    fun stop() {
+        println("Listener остановлен")
+    }
+}
+```
+
+## Blocking code и `runInterruptible`
+
+На JVM cancellation coroutine не обязана interrupt-ить thread. Если внутри `Thread.sleep`, blocking queue или old Java API, обычная cancellation может ждать, пока blocking call вернется сам.
+
+Для interruptible blocking calls используется `runInterruptible`.
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
+import java.util.concurrent.BlockingQueue
+
+suspend fun takeNextLessonId(queue: BlockingQueue<String>): String =
+    runInterruptible(Dispatchers.IO) {
+        // Если coroutine отменят, thread interruption поможет выйти из blocking take.
+        queue.take()
+    }
+```
+
+Не все blocking APIs корректно реагируют на interruption. Для таких APIs нужен dedicated timeout, закрытие resource, socket timeout или другой cancellation mechanism на уровне библиотеки.
+
+## Боевой pattern: отменяем импорт уроков
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
+
+class LessonImportService(
+    private val parser: LessonParser,
+    private val repository: LessonStorage
+) {
+    suspend fun importAll(files: List<String>): ImportReport =
+        withTimeout(30.seconds) {
+            withContext(Dispatchers.Default) {
+                val imported = mutableListOf<String>()
+
+                try {
+                    for (file in files) {
+                        ensureActive()
+
+                        val lesson = parser.parse(file)
+                        repository.save(lesson)
+                        imported += lesson.slug
+                    }
+                } catch (exception: CancellationException) {
+                    // Отмену логируем на границе операции и обязательно пропускаем выше.
+                    println("Импорт отменен после ${imported.size} уроков")
+                    throw exception
+                }
+
+                ImportReport(imported)
+            }
+        }
+}
+
+data class ParsedLesson(
+    val slug: String,
+    val title: String
+)
+
+data class ImportReport(
+    val importedSlugs: List<String>
+)
+
+class LessonParser {
+    fun parse(file: String): ParsedLesson {
+        return ParsedLesson(
+            slug = file.substringBeforeLast(".").lowercase(),
+            title = "Урок из $file"
+        )
+    }
+}
+
+class LessonStorage {
+    fun save(lesson: ParsedLesson) {
+        println("Сохраняем ${lesson.slug}")
+    }
+}
+```
+
+Этот service:
+
+- имеет общий timeout;
+- выполняет CPU-bound parsing на `Dispatchers.Default`;
+- проверяет cancellation между файлами;
+- не проглатывает `CancellationException`;
+- возвращает report только если импорт завершился корректно.
+

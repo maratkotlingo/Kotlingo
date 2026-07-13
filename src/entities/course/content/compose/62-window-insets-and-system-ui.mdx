@@ -1,0 +1,628 @@
+---
+title: "Окно, insets и системный UI"
+description: "Разбираем окно, edge-to-edge и system UI в Jetpack Compose: enableEdgeToEdge, WindowInsets, systemBars, statusBars, navigationBars, imePadding, display cutouts, Scaffold contentWindowInsets, caption bar, foldables posture и типичные migration pitfalls."
+order: 62
+category: "Compose: интероперабельность и миграция"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему insets стали обязательной темой
+
+Современное Android-приложение не живет в аккуратном прямоугольнике ниже строка состояния и выше панель навигации. Экран может быть edge-to-edge, клавиатура может появляться поверх content, device может иметь cutout, gesture navigation оставляет system gesture zones, tablet может перейти в desktop windowing, а foldable может разделить окно hinge-областью.
+
+Insets отвечают на вопрос: какие части окна заняты или потенциально перекрываются системным UI.
+
+К системному UI относятся:
+
+- строка состояния;
+- панель навигации;
+- caption bar в desktop windowing;
+- IME, то есть экранная клавиатура;
+- display cutout;
+- system gesture areas;
+- waterfall edges;
+- hinge/folding feature, если используется WindowManager;
+- safe drawing и safe content области.
+
+В Android 15 edge-to-edge становится особенно важным, потому что приложения, target SDK которых дошел до актуального уровня, должны корректно работать с контентом под системные панели.
+
+```kotlin
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+
+        setContent {
+            AppRoot()
+        }
+    }
+}
+```
+
+`enableEdgeToEdge()` настраивает окно так, чтобы приложение могло рисовать за системные панели. После этого уже UI обязан не прятать важные controls под status/панель навигации.
+
+<CatTip>
+Edge-to-edge не означает "все рисуем под системными панелями и надеемся". Это означает: фон может продолжаться до краев, а важный контент и touch targets учитывают insets.
+</CatTip>
+
+## `WindowInsets`
+
+`WindowInsets` в Compose описывает области, которых нужно избегать или которые нужно учитывать.
+
+Часто используемые insets:
+
+- `WindowInsets.statusBars`;
+- `WindowInsets.navigationBars`;
+- `WindowInsets.systemBars`;
+- `WindowInsets.ime`;
+- `WindowInsets.displayCutout`;
+- `WindowInsets.safeDrawing`;
+- `WindowInsets.safeContent`;
+- `WindowInsets.captionBar`;
+- `WindowInsets.waterfall`;
+- `WindowInsets.systemGestures`;
+- `WindowInsets.mandatorySystemGestures`.
+
+Самый простой вариант защитить весь экран:
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun SafeDrawingScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .safeDrawingPadding()
+    ) {
+        Text(text = "Важный контент не попадает под системный UI")
+    }
+}
+```
+
+`safeDrawingPadding()` добавляет padding для области, где безопасно рисовать важный UI. Но это не всегда правильный ответ для всего экрана: hero image или фон часто должны идти под системные панели.
+
+## Фон до краев, контент в безопасной области
+
+Обычный боевой pattern: background full-bleed, content protected.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun EdgeToEdgeProfileScreen(
+    onEditClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier
+                .safeDrawingPadding()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Профиль",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            Text(text = "Контент защищен от status/navigation bar")
+            Button(onClick = onEditClick) {
+                Text(text = "Редактировать")
+            }
+        }
+    }
+}
+```
+
+Так экран использует всю площадь окна визуально, но не кладет кнопку под панель навигации.
+
+## Status bar и панель навигации padding
+
+Если нужно учитывать только конкретную панель, используйте специализированные modifiers:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun SystemBarsPaddingExample() {
+    Column(
+        modifier = Modifier.statusBarsPadding()
+    ) {
+        Text(text = "Отступ сверху учитывает status bar")
+    }
+
+    Column(
+        modifier = Modifier.navigationBarsPadding()
+    ) {
+        Text(text = "Отступ снизу учитывает navigation bar")
+    }
+}
+```
+
+Эти modifiers удобны для отдельных surfaces: top app bar, bottom bar, плавающее действие area.
+
+## `Scaffold` и insets
+
+Material 3 `Scaffold` умеет учитывать insets, но важно понимать, что `innerPadding` нужно применить к content.
+
+```kotlin
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LessonsScaffold(
+    lessons: List<String>
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(text = "Уроки")
+                }
+            )
+        }
+    ) { innerPadding: PaddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            items(lessons) { lesson ->
+                Text(text = lesson)
+            }
+        }
+    }
+}
+```
+
+Если забыть `Modifier.padding(innerPadding)`, content может оказаться под app bar или системные панели.
+
+<MouseTrap>
+`Scaffold` не телепортирует контент в безопасное место. Он передает `innerPadding`, а вы обязаны применить его к нужному контейнеру.
+</MouseTrap>
+
+## Когда переопределять `contentWindowInsets`
+
+Иногда экран сам управляет insets. Например, full-screen media screen хочет рисовать за системные панели, но controls защищать вручную.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
+@Composable
+fun FullBleedMediaScreen() {
+    Scaffold(
+        contentWindowInsets = WindowInsets(0)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            VideoSurface(
+                modifier = Modifier.fillMaxSize()
+            )
+
+            Text(
+                text = "Controls",
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .safeDrawingPadding()
+            )
+        }
+    }
+}
+```
+
+`WindowInsets(0)` говорит `Scaffold`, что content будет сам решать, где нужны отступы.
+
+## IME и `imePadding`
+
+Экранная клавиатура — самый заметный динамический inset. Если поле ввода находится внизу, оно не должно прятаться за IME.
+
+Для корректной работы:
+
+- Activity должна получать resize при появлении IME;
+- в manifest обычно нужен `android:windowSoftInputMode="adjustResize"`;
+- Compose content должен использовать `imePadding()` или иной IME-aware layout;
+- scrollable form должна уметь прокручиваться.
+
+```xml
+<!-- Фрагмент AndroidManifest.xml для Activity с интерфейсом на Compose -->
+<activity
+    android:name=".MainActivity"
+    android:windowSoftInputMode="adjustResize"
+    android:exported="true" />
+```
+
+Compose form:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun MessageForm(
+    message: String,
+    onMessageChange: (String) -> Unit,
+    onSend: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = message,
+            onValueChange = onMessageChange,
+            label = {
+                Text(text = "Сообщение")
+            }
+        )
+
+        Button(onClick = onSend) {
+            Text(text = "Отправить")
+        }
+    }
+}
+```
+
+`imePadding()` добавляет нижний отступ, когда клавиатура открыта. Если форма не scrollable, на маленьких высотах все равно можно потерять доступ к верхним полям.
+
+## Consuming insets
+
+Иногда parent уже применил insets, а child не должен применять их повторно. Для этого есть consumption model.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun ConsumedInsetsScreen() {
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
+        ) {
+            Text(text = "Child modifiers не должны добавить тот же padding второй раз")
+        }
+    }
+}
+```
+
+Двойные insets часто выглядят как "почему у меня огромный пустой отступ снизу". Это не баг Compose, а два слоя, которые оба решили защититься от одной и той же области.
+
+## `WindowInsetsSides` и частичные отступы
+
+Можно применить только нужные стороны.
+
+```kotlin
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun BottomControlsSurface(
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = Modifier.windowInsetsPadding(
+            WindowInsets.systemBars.only(
+                WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+            )
+        )
+    ) {
+        content()
+    }
+}
+```
+
+Так bottom controls защищаются от панель навигации и horizontal safe areas, но не получают лишний top padding.
+
+## Display cutouts
+
+Cutout — это область камеры/сенсоров, которая может заходить в экран. В edge-to-edge режиме content может оказаться рядом с cutout.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun CutoutAwareOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.displayCutout)
+    ) {
+        Text(text = "Overlay не попадает в cutout")
+    }
+}
+```
+
+Большинство экранов может использовать `safeDrawingPadding()`, но media/camera/game экраны часто работают с cutout отдельно.
+
+## System bar style
+
+`enableEdgeToEdge` можно настроить через `SystemBarStyle`, если нужно явно управлять контрастом system icons.
+
+```kotlin
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.core.graphics.ColorUtils
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                lightScrim = android.graphics.Color.TRANSPARENT,
+                darkScrim = android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                lightScrim = ColorUtils.setAlphaComponent(
+                    android.graphics.Color.BLACK,
+                    0x33
+                ),
+                darkScrim = android.graphics.Color.TRANSPARENT
+            )
+        )
+        super.onCreate(savedInstanceState)
+    }
+}
+```
+
+В большинстве приложений достаточно поведение по умолчанию. Ручная настройка нужна, если фон под системные панели нестандартный и контраст иконок становится плохим.
+
+## Caption bar в desktop windowing
+
+В desktop windowing Android может добавить caption/header bar с controls окна. Compose дает `WindowInsets.captionBar`.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.captionBar
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun CaptionBarBackground() {
+    Spacer(
+        modifier = Modifier
+            .fillMaxWidth()
+            .windowInsetsTopHeight(WindowInsets.captionBar)
+            .background(MaterialTheme.colorScheme.surface)
+    )
+}
+```
+
+Не хардкодьте высоту caption bar. В desktop windowing, freeform windows и будущих form factors размеры системных областей могут отличаться.
+
+## Foldables и posture
+
+Insets не описывают всю foldable реальность. Hinge, fold bounds, tabletop posture и book posture обычно приходят через Jetpack WindowManager или Material 3 Adaptive APIs.
+
+На уровне UI правило простое:
+
+- не кладите важные controls прямо на hinge;
+- не считайте экран непрерывным прямоугольником;
+- tabletop posture делит сценарии на верхнюю и нижнюю половину;
+- book posture подходит для двухстраничного чтения;
+- при resize и fold/unfold state должен сохраняться.
+
+```kotlin
+data class FoldAwareLayoutState(
+    val isTabletop: Boolean,
+    val isBook: Boolean,
+    val hasSeparatingHinge: Boolean
+)
+```
+
+Экран получает уже подготовленную модель:
+
+```kotlin
+import androidx.compose.runtime.Composable
+
+@Composable
+fun FoldAwareReader(
+    state: FoldAwareLayoutState
+) {
+    when {
+        state.isBook -> TwoPageReader()
+        state.isTabletop -> TabletopReaderControls()
+        else -> SinglePaneReader()
+    }
+}
+```
+
+Не заставляйте каждый leaf component разбираться в `FoldingFeature`. Лучше мапить platform info в понятную UI model выше.
+
+## Insets в mixed View/Compose экранах
+
+Если экран смешивает Views и Compose, нужно решить, кто consume-ит insets.
+
+Проблемные сценарии:
+
+- View parent применяет padding, Compose child тоже делает `safeDrawingPadding`;
+- Compose root consume-ит insets, sibling View их больше не получает;
+- Fragment container и Compose content оба считают себя root;
+- RecyclerView item с `ComposeView` неожиданно получает system padding;
+- bottom sheet content применяет IME padding дважды.
+
+Interop screen должен иметь один слой, отвечающий за window-level insets. Остальные компоненты получают уже безопасные constraints или конкретные padding values.
+
+## Testing edge-to-edge
+
+Проверяйте insets не только на одном телефоне:
+
+- gesture navigation;
+- 3-button navigation;
+- light/dark theme;
+- Android 15 target behavior;
+- landscape;
+- IME open/close;
+- display cutout emulator;
+- foldable emulator;
+- tablet split-screen;
+- desktop windowing;
+- font scale;
+- TalkBack focus.
+
+Compose UI tests могут проверить наличие content, но многие edge-to-edge ошибки видны только screenshot/manual testing.
+
+```kotlin
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import org.junit.Rule
+import org.junit.Test
+
+class InsetsContentTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun importantAction_exists() {
+        composeRule.setContent {
+            EdgeToEdgeProfileScreen(
+                onEditClick = {}
+            )
+        }
+
+        composeRule
+            .onNodeWithText("Редактировать")
+            .assertExists()
+    }
+}
+```
+
+Этот тест не доказывает, что кнопка не под панель навигации. Для этого нужны screenshot checks или visual inspection на разных window configurations.
+
+## Типичные ошибки
+
+### Включить edge-to-edge и не обработать insets
+
+Контент может оказаться под status/панель навигации, особенно на Android 15+.
+
+### Применять `safeDrawingPadding` ко всему экрану
+
+Фон перестает быть edge-to-edge, а экран получает странные отступы.
+
+### Забыть `innerPadding` у `Scaffold`
+
+Список уходит под app bar или bottom bar.
+
+### Дважды применить панель навигации padding
+
+Низ экрана получает огромную пустую область.
+
+### Не настроить `adjustResize`
+
+IME insets могут не доходить до Compose так, как ожидается.
+
+### Хардкодить строка состояния height
+
+System UI отличается между устройствами, режимами и form factors.
+
+### Игнорировать caption bar
+
+В desktop windowing top controls могут перекрыть пользовательский toolbar.
+
+## Итоги
+
+Window, insets и system UI в Compose требуют явной модели:
+
+- `enableEdgeToEdge()` включает edge-to-edge на Activity уровне;
+- важный UI должен учитывать `WindowInsets`;
+- background может идти до краев, controls должны быть защищены;
+- `Scaffold` передает `innerPadding`, который нужно применить;
+- `contentWindowInsets = WindowInsets(0)` уместен, когда screen сам управляет safe areas;
+- `imePadding()` защищает формы от клавиатуры;
+- `consumeWindowInsets` помогает избежать двойных отступов;
+- `displayCutout` и `captionBar` важны для cutouts и desktop windowing;
+- foldables требуют не только insets, но и posture/display feature model;
+- mixed View/Compose экраны должны иметь один понятный owner для window-level insets.

@@ -1,0 +1,1138 @@
+---
+title: "Настройка компонентов Material"
+description: "Разбираем кастомизацию Material 3 компонентов в Compose: Значения по умолчанию objects, ButtonDefaults, CardDefaults, TextFieldDefaults, colors, elevation, shapes, semantic tokens и стабильные дизайн-системные обертки."
+order: 45
+category: "Compose: компоненты Material 3 и структура приложения"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем кастомизировать Material-компоненты
+
+Material 3 в Compose дает готовые компоненты, которые уже знают о цветовой схеме, типографике, формах, elevation, состояниях enabled/disabled, ripple, accessibility и layout constraints. Кастомизация нужна не для того, чтобы вручную переписать Material с нуля, а для того, чтобы аккуратно привести стандартные компоненты к визуальному языку конкретного приложения.
+
+Правильная кастомизация отвечает на несколько вопросов:
+
+- какой смысл у компонента в продукте;
+- какую роль цвета он использует из `ColorScheme`;
+- какая форма соответствует `Shapes`;
+- как компонент выглядит в состояниях enabled, disabled, selected, error, pressed и focused;
+- какие параметры можно менять снаружи;
+- какие параметры должны быть зафиксированы дизайн-системой;
+- как сохранить доступность и ожидаемое Material-поведение;
+- как не превратить каждый экран в набор случайных цветов и размеров.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun BrandedPrimaryButton(
+    title: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(
+            // Берем семантические роли из темы, а не случайный цвет из макета.
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        contentPadding = ButtonDefaults.ContentPadding
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+    }
+}
+```
+
+В этом примере кнопка остается обычной Material-кнопкой: она сохраняет минимальные размеры, ripple, semantics, корректный отключенное состояние и поддержку темы. Мы меняем только те параметры, которые действительно относятся к визуальной системе приложения.
+
+<CatTip>
+Самый надежный путь кастомизации в Compose: сначала настройте `MaterialTheme`, затем используйте `Defaults` конкретного компонента, и только потом создавайте собственные обертки. Чем ниже уровень кастомизации, тем больше ответственности вы берете на себя.
+</CatTip>
+
+## Уровни кастомизации
+
+Кастомизацию Material-компонентов удобно разделять на четыре уровня.
+
+Первый уровень: глобальная тема. Здесь задаются `colorScheme`, `typography` и `shapes` внутри `MaterialTheme`. Это влияет на весь UI и формирует базовый язык приложения.
+
+Второй уровень: параметры конкретного компонента. Например, `Button` принимает `colors`, `shape`, `elevation`, `border`, `contentPadding` и `interactionSource`. Такой подход подходит, когда компонент на одном экране слегка отличается от обычного.
+
+Третий уровень: дизайн-системная обертка. Например, `AppButton`, `StatusCard`, `AppTextField`. Такая обертка фиксирует продуктовые варианты и не дает экранам бесконтрольно менять визуальный стиль.
+
+Четвертый уровень: собственный компонент на Foundation или Canvas. Он нужен, когда Material-компонент принципиально не подходит по поведению, разметке или interaction model.
+
+<MouseTrap>
+Не начинайте с полного копирования Material-компонента в свой проект. В большинстве случаев достаточно настроить тему, передать `Defaults` и создать тонкую composable-обертку. Полное переписывание быстро ломает accessibility, touch targets, состояния и совместимость с будущими версиями Material.
+</MouseTrap>
+
+## Что такое Значения по умолчанию objects
+
+Во многих Material 3 компонентах есть объект с суффиксом `Defaults`. Он содержит значения и фабрики, которые согласованы с Material Design:
+
+- цвета для разных состояний;
+- elevation для разных состояний;
+- размеры и отступы;
+- формы;
+- border;
+- interaction значения по умолчанию;
+- вспомогательные composable для индикаторов или drag handle.
+
+Часто встречающиеся `Defaults`:
+
+- `ButtonDefaults`: цвета, elevation, border и отступы семейства кнопок;
+- `CardDefaults`: цвета, elevation и border карточек;
+- `TextFieldDefaults`: цвета, shape и вспомогательные значения для `TextField`;
+- `OutlinedTextFieldDefaults`: цвета и border-поведение для `OutlinedTextField`;
+- `IconButtonDefaults`: цвета обычных, filled, tonal и outlined icon buttons;
+- `CheckboxDefaults`: цвета `Checkbox`;
+- `RadioButtonDefaults`: цвета `RadioButton`;
+- `SwitchDefaults`: цвета thumb, track, border и icon;
+- `SliderDefaults`: цвета slider, thumb и track;
+- `FilterChipDefaults`: цвета, border, elevation и размеры filter chip;
+- `InputChipDefaults`: цвета, border, avatar и leading icon sizes;
+- `SuggestionChipDefaults`: цвета, border и elevation suggestion chip;
+- `AssistChipDefaults`: цвета, border и elevation assist chip;
+- `NavigationBarItemDefaults`: цвета selected/unselected navigation items;
+- `NavigationRailItemDefaults`: цвета rail items;
+- `NavigationDrawerItemDefaults`: цвета drawer items и badge;
+- `TopAppBarDefaults`: цвета top app bar и scroll behavior;
+- `SearchBarDefaults`: input field, цвета и elevation search surfaces;
+- `ListItemDefaults`: цвета `ListItem`;
+- `FloatingActionButtonDefaults`: elevation и container shape для FAB;
+- `BadgeDefaults`: цвета badge;
+- `TooltipDefaults`: позиционирование и цвета tooltip.
+
+`Defaults` важны по двум причинам. Во-первых, они сохраняют внутреннюю Material-логику состояний. Во-вторых, они делают код выразительным: по имени видно, что мы меняем именно настройки компонента, а не рисуем отдельный UI вручную.
+
+## Цвета компонентов
+
+Material 3 строится вокруг семантических ролей цвета. Вместо "синий", "серый", "темный фон" лучше мыслить так:
+
+- `primary`: главный брендовый акцент;
+- `onPrimary`: контент поверх `primary`;
+- `primaryContainer`: более мягкая акцентная поверхность;
+- `onPrimaryContainer`: контент поверх `primaryContainer`;
+- `secondary`: вторичный акцент;
+- `tertiary`: дополнительный акцент;
+- `surface`: основная поверхность;
+- `surfaceVariant`: альтернативная поверхность;
+- `onSurface`: основной контент на поверхности;
+- `onSurfaceVariant`: вторичный контент на поверхности;
+- `error`: состояние ошибки;
+- `onError`: контент поверх `error`;
+- `outline`: границы и контуры;
+- `outlineVariant`: более мягкие границы.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun DangerButton(
+    title: String,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            // Ошибочные и разрушительные действия используют error-роли темы.
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError
+        )
+    ) {
+        Text(text = title)
+    }
+}
+```
+
+Такой код не привязан к конкретному оттенку. Если дизайнер обновит тему, компонент автоматически подстроится под светлый режим, темный режим, dynamic color и новый брендовый набор цветов.
+
+## ButtonDefaults
+
+Семейство кнопок включает `Button`, `ElevatedButton`, `FilledTonalButton`, `OutlinedButton`, `TextButton`, `IconButton`, `FloatingActionButton`, `ExtendedFloatingActionButton` и segmented buttons. У каждого типа есть своя визуальная роль.
+
+`ButtonDefaults.buttonColors` настраивает обычную filled-кнопку:
+
+- `containerColor`: фон enabled-кнопки;
+- `contentColor`: цвет текста и иконок;
+- `disabledContainerColor`: фон disabled-кнопки;
+- `disabledContentColor`: цвет disabled-контента.
+
+`ButtonDefaults.elevatedButtonColors` используется для `ElevatedButton`.
+
+`ButtonDefaults.filledTonalButtonColors` используется для `FilledTonalButton`.
+
+`ButtonDefaults.outlinedButtonColors` используется для `OutlinedButton`.
+
+`ButtonDefaults.textButtonColors` используется для `TextButton`.
+
+`ButtonDefaults.buttonElevation` и `ButtonDefaults.elevatedButtonElevation` описывают elevation по состояниям:
+
+- `defaultElevation`: обычное состояние;
+- `pressedElevation`: нажатие;
+- `focusedElevation`: фокус;
+- `hoveredElevation`: pointer hover;
+- `disabledElevation`: отключенное состояние.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ElevatedButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun PaymentActions(
+    canPay: Boolean,
+    onPayClick: () -> Unit,
+    onDetailsClick: () -> Unit,
+    onCancelClick: () -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Button(
+            onClick = onPayClick,
+            enabled = canPay,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(
+                // Главное действие использует primary-роли.
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        ) {
+            Text(text = "Оплатить")
+        }
+
+        ElevatedButton(
+            onClick = onDetailsClick,
+            modifier = Modifier.fillMaxWidth(),
+            elevation = ButtonDefaults.elevatedButtonElevation(
+                // ElevatedButton визуально отделяется от поверхности за счет elevation.
+                defaultElevation = 2.dp,
+                pressedElevation = 4.dp,
+                disabledElevation = 0.dp
+            )
+        ) {
+            Text(text = "Посмотреть детали")
+        }
+
+        OutlinedButton(
+            onClick = onCancelClick,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(
+                // Вторичное действие оставляем без плотного фона.
+                contentColor = MaterialTheme.colorScheme.error
+            )
+        ) {
+            Text(text = "Отменить")
+        }
+    }
+}
+```
+
+## CardDefaults
+
+Карточки в Material 3 бывают разными по смыслу:
+
+- `Card`: обычная кликабельная или статичная поверхность;
+- `ElevatedCard`: поверхность, которая должна сильнее отделяться от фона;
+- `OutlinedCard`: поверхность с контуром вместо elevation.
+
+`CardDefaults.cardColors` задает цвета обычной карточки:
+
+- `containerColor`: фон карточки;
+- `contentColor`: цвет контента;
+- `disabledContainerColor`: фон disabled-карточки;
+- `disabledContentColor`: цвет disabled-контента.
+
+`CardDefaults.elevatedCardColors` задает цвета `ElevatedCard`.
+
+`CardDefaults.outlinedCardColors` задает цвета `OutlinedCard`.
+
+`CardDefaults.cardElevation`, `CardDefaults.elevatedCardElevation` и `CardDefaults.outlinedCardElevation` задают elevation по состояниям.
+
+`CardDefaults.outlinedCardBorder` возвращает border, согласованный с темой.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AccountStatusCard(
+    title: String,
+    description: String,
+    isWarning: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            // Warning-состояние получает мягкий container, чтобы не спорить с error-кнопками.
+            containerColor = if (isWarning) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            contentColor = if (isWarning) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 0.dp,
+            pressedElevation = 1.dp,
+            focusedElevation = 1.dp,
+            hoveredElevation = 1.dp
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+```
+
+<MouseTrap>
+Не используйте `Card` только как декоративную рамку вокруг каждого блока. Если карточка не представляет отдельную сущность, действие или группу данных, часто лучше подойдет обычный layout с отступами и разделителями.
+</MouseTrap>
+
+## TextFieldDefaults
+
+Текстовые поля особенно чувствительны к состояниям. У них есть фокус, ошибка, отключенное состояние, label, supporting text, prefix, suffix, leading icon, trailing icon и cursor.
+
+`TextFieldDefaults.colors` обычно задает:
+
+- `focusedTextColor`;
+- `unfocusedTextColor`;
+- `disabledTextColor`;
+- `errorTextColor`;
+- `focusedContainerColor`;
+- `unfocusedContainerColor`;
+- `disabledContainerColor`;
+- `errorContainerColor`;
+- `cursorColor`;
+- `errorCursorColor`;
+- `focusedIndicatorColor`;
+- `unfocusedIndicatorColor`;
+- `disabledIndicatorColor`;
+- `errorIndicatorColor`;
+- `focusedLabelColor`;
+- `unfocusedLabelColor`;
+- `disabledLabelColor`;
+- `errorLabelColor`;
+- `focusedLeadingIconColor`;
+- `unfocusedLeadingIconColor`;
+- `disabledLeadingIconColor`;
+- `errorLeadingIconColor`;
+- `focusedTrailingIconColor`;
+- `unfocusedTrailingIconColor`;
+- `disabledTrailingIconColor`;
+- `errorTrailingIconColor`;
+- `focusedSupportingTextColor`;
+- `unfocusedSupportingTextColor`;
+- `disabledSupportingTextColor`;
+- `errorSupportingTextColor`;
+- `focusedPrefixColor`;
+- `unfocusedPrefixColor`;
+- `disabledPrefixColor`;
+- `errorPrefixColor`;
+- `focusedSuffixColor`;
+- `unfocusedSuffixColor`;
+- `disabledSuffixColor`;
+- `errorSuffixColor`.
+
+`OutlinedTextFieldDefaults.colors` решает ту же задачу для outlined-поля, но визуально важнее становится border.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun EmailTextField(
+    value: String,
+    isError: Boolean,
+    errorText: String?,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            isError = isError,
+            singleLine = true,
+            label = {
+                Text(text = "Электронная почта")
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.Mail,
+                    contentDescription = null
+                )
+            },
+            supportingText = {
+                if (errorText != null) {
+                    Text(text = errorText)
+                } else {
+                    Text(text = "Мы отправим письмо с подтверждением")
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                errorBorderColor = MaterialTheme.colorScheme.error,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                errorLabelColor = MaterialTheme.colorScheme.error,
+                cursorColor = MaterialTheme.colorScheme.primary,
+                errorCursorColor = MaterialTheme.colorScheme.error
+            )
+        )
+    }
+}
+```
+
+Важно: `isError` не только меняет цвет. Он также сообщает семантике поля, что состояние ошибочное. Поэтому не заменяйте ошибку одним красным текстом под полем.
+
+## IconButtonDefaults
+
+Icon buttons часто используются в панели приложения, списках и карточках. У них есть несколько Material-вариантов:
+
+- `IconButton`: минимальная кнопка без плотного фона;
+- `FilledIconButton`: сильный акцент;
+- `FilledTonalIconButton`: мягкий акцент;
+- `OutlinedIconButton`: кнопка с контуром;
+- `IconToggleButton`: кнопка с selected state;
+- `FilledIconToggleButton`;
+- `FilledTonalIconToggleButton`;
+- `OutlinedIconToggleButton`.
+
+```kotlin
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material3.FilledTonalIconToggleButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun BookmarkToggle(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.padding(8.dp)
+    ) {
+        FilledTonalIconToggleButton(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Icon(
+                imageVector = if (checked) {
+                    Icons.Filled.Bookmark
+                } else {
+                    Icons.Outlined.BookmarkBorder
+                },
+                contentDescription = if (checked) {
+                    "Удалить из закладок"
+                } else {
+                    "Добавить в закладки"
+                }
+            )
+        }
+    }
+}
+```
+
+Для toggle-кнопок особенно важно различать `contentDescription` в selected и unselected состояниях. Программа чтения с экрана должен озвучить действие, которое произойдет после нажатия.
+
+## Selection controls
+
+Selection controls настраиваются через собственные `Defaults`, но их не стоит превращать в декоративные элементы. Пользователь ожидает привычное поведение checkbox, switch, radio button и chips.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun NotificationSettingsControls(
+    emailEnabled: Boolean,
+    pushEnabled: Boolean,
+    quietModeSelected: Boolean,
+    onEmailChange: (Boolean) -> Unit,
+    onPushChange: (Boolean) -> Unit,
+    onQuietModeChange: (Boolean) -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Checkbox(
+            checked = emailEnabled,
+            onCheckedChange = onEmailChange,
+            colors = CheckboxDefaults.colors(
+                checkedColor = MaterialTheme.colorScheme.primary,
+                uncheckedColor = MaterialTheme.colorScheme.outline,
+                checkmarkColor = MaterialTheme.colorScheme.onPrimary
+            )
+        )
+
+        Switch(
+            checked = pushEnabled,
+            onCheckedChange = onPushChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        )
+
+        FilterChip(
+            selected = quietModeSelected,
+            onClick = {
+                onQuietModeChange(!quietModeSelected)
+            },
+            label = {
+                Text(text = "Тихий режим")
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = quietModeSelected,
+                borderColor = MaterialTheme.colorScheme.outline,
+                selectedBorderColor = MaterialTheme.colorScheme.secondary
+            ),
+            elevation = FilterChipDefaults.filterChipElevation(
+                elevation = 0.dp,
+                pressedElevation = 1.dp
+            )
+        )
+    }
+}
+```
+
+## Stable API wrappers
+
+Дизайн-системная обертка должна уменьшать количество решений на экране. Если каждый экран сам выбирает `containerColor`, `shape`, `elevation`, `contentPadding` и disabled colors, продукт быстро теряет единый стиль.
+
+Хорошая обертка:
+
+- принимает доменные варианты, а не сырые цвета;
+- сохраняет `modifier`;
+- не скрывает важные обратные вызовы;
+- явно поддерживает `enabled`;
+- использует Material-компонент внутри;
+- оставляет escape hatch только там, где он действительно нужен;
+- не хранит состояние, если состояние принадлежит экрану.
+
+```kotlin
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Immutable
+enum class AppButtonStyle {
+    Primary,
+    Secondary,
+    Danger,
+    Ghost
+}
+
+@Composable
+fun AppButton(
+    text: String,
+    style: AppButtonStyle,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    fullWidth: Boolean = false
+) {
+    val resolvedModifier = if (fullWidth) {
+        modifier.fillMaxWidth()
+    } else {
+        modifier
+    }
+
+    val shape = RoundedCornerShape(10.dp)
+    val contentPadding = PaddingValues(
+        horizontal = 18.dp,
+        vertical = 12.dp
+    )
+
+    when (style) {
+        AppButtonStyle.Primary -> {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = resolvedModifier,
+                shape = shape,
+                contentPadding = contentPadding,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Text(text = text)
+            }
+        }
+
+        AppButtonStyle.Secondary -> {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = resolvedModifier,
+                shape = shape,
+                contentPadding = contentPadding,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Text(text = text)
+            }
+        }
+
+        AppButtonStyle.Danger -> {
+            OutlinedButton(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = resolvedModifier,
+                shape = shape,
+                contentPadding = contentPadding,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = if (enabled) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        Color.Unspecified
+                    }
+                )
+            ) {
+                Text(text = text)
+            }
+        }
+
+        AppButtonStyle.Ghost -> {
+            TextButton(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = resolvedModifier,
+                shape = shape,
+                contentPadding = contentPadding
+            ) {
+                Text(text = text)
+            }
+        }
+    }
+}
+```
+
+Обратите внимание на `Color.Unspecified` в disabled danger-кнопке. Это означает: если кнопка отключена, пусть Material-компонент использует стандартный disabled color, а не принудительно красит отключенное состояние в error-цвет.
+
+<CatTip>
+Enum для вариантов кнопки лучше, чем параметр `containerColor`, если приложение хочет контролировать дизайн-систему. Экран говорит "мне нужна опасная кнопка", а не "поставь мне вот такой оттенок".
+</CatTip>
+
+## Собственные tokens поверх MaterialTheme
+
+Иногда Material-токенов недостаточно. Например, продукт может иметь отдельные цвета для успеха, предупреждения, информационного статуса и специальных поверхностей. В таком случае можно добавить собственный набор tokens через `CompositionLocal`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+
+@Immutable
+data class AppStatusColors(
+    val successContainer: Color,
+    val onSuccessContainer: Color,
+    val warningContainer: Color,
+    val onWarningContainer: Color,
+    val infoContainer: Color,
+    val onInfoContainer: Color
+)
+
+val LocalAppStatusColors = staticCompositionLocalOf {
+    AppStatusColors(
+        successContainer = Color(0xFFE3F7E8),
+        onSuccessContainer = Color(0xFF0F4D24),
+        warningContainer = Color(0xFFFFF3D6),
+        onWarningContainer = Color(0xFF5B4100),
+        infoContainer = Color(0xFFDDEFFF),
+        onInfoContainer = Color(0xFF053B63)
+    )
+}
+
+object AppTheme {
+    val statusColors: AppStatusColors
+        @Composable
+        get() = LocalAppStatusColors.current
+}
+```
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SuccessMessageCard(
+    title: String,
+    body: String
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = AppTheme.statusColors.successContainer,
+            contentColor = AppTheme.statusColors.onSuccessContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+```
+
+Собственные tokens не должны конкурировать с `MaterialTheme`. Они дополняют тему там, где продуктовая семантика шире стандартного Material-набора.
+
+## Shape customization
+
+Форма компонента отвечает за характер поверхности: строгая, мягкая, компактная, промо-ориентированная, системная. В Material 3 формы обычно идут через:
+
+- `MaterialTheme.shapes.extraSmall`;
+- `MaterialTheme.shapes.small`;
+- `MaterialTheme.shapes.medium`;
+- `MaterialTheme.shapes.large`;
+- `MaterialTheme.shapes.extraLarge`.
+
+Можно передать shape напрямую:
+
+```kotlin
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun TicketCodeChip(
+    code: String,
+    onClick: () -> Unit
+) {
+    AssistChip(
+        onClick = onClick,
+        label = {
+            Text(text = code)
+        },
+        shape = CutCornerShape(
+            topStart = 8.dp,
+            bottomEnd = 8.dp
+        )
+    )
+}
+```
+
+Но если такая форма повторяется в продукте, лучше вынести ее в тему или дизайн-системную обертку. Иначе один и тот же смысл будет выглядеть по-разному на разных экранах.
+
+## Elevation и tonal elevation
+
+В Material 3 elevation бывает не только shadow-based. Некоторые компоненты используют tonal elevation: поверхность получает цветовой наложение, чтобы визуально отделиться от фона. Поэтому не стоит воспринимать elevation только как тень.
+
+Ключевые правила:
+
+- elevation помогает показать иерархию поверхностей;
+- слишком много elevation создает шум;
+- в темной теме tonal elevation может быть заметнее, чем shadow;
+- pressed elevation должен соответствовать интерактивности;
+- disabled elevation обычно равен нулю;
+- для outlined-компонентов часто важнее border, чем elevation.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ElevatedMetricCard(
+    label: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    ElevatedCard(
+        onClick = onClick,
+        elevation = CardDefaults.elevatedCardElevation(
+            defaultElevation = 1.dp,
+            pressedElevation = 3.dp,
+            focusedElevation = 2.dp,
+            hoveredElevation = 2.dp,
+            disabledElevation = 0.dp
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineSmall
+            )
+        }
+    }
+}
+```
+
+## InteractionSource при кастомизации
+
+`interactionSource` позволяет наблюдать взаимодействия: press, focus, hover, drag. Большинству компонентов не нужно передавать собственный `MutableInteractionSource`, но он полезен, если внешний UI должен реагировать на состояние внутреннего компонента.
+
+```kotlin
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+
+@Composable
+fun PressAwareButton(
+    text: String,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember {
+        MutableInteractionSource()
+    }
+    val pressed by interactionSource.collectIsPressedAsState()
+
+    Button(
+        onClick = onClick,
+        interactionSource = interactionSource
+    ) {
+        Text(
+            text = if (pressed) {
+                "Отпустите, чтобы подтвердить"
+            } else {
+                text
+            },
+            color = MaterialTheme.colorScheme.onPrimary
+        )
+    }
+}
+```
+
+`interactionSource` нужно помнить через `remember`, иначе при recomposition компонент будет получать новый источник взаимодействий, а pressed/focused state может сбрасываться.
+
+## Боевой-пример: дизайн-системная карточка статуса
+
+Теперь соберем компонент, который показывает статус заказа и при этом не раскрывает наружу низкоуровневые Material-детали.
+
+```kotlin
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+
+@Immutable
+enum class OrderStatusTone {
+    Success,
+    Warning,
+    Error,
+    Info
+}
+
+private data class OrderStatusVisuals(
+    val containerColor: Color,
+    val contentColor: Color,
+    val icon: ImageVector,
+    val iconDescription: String
+)
+
+@Composable
+private fun orderStatusVisuals(
+    tone: OrderStatusTone
+): OrderStatusVisuals {
+    return when (tone) {
+        OrderStatusTone.Success -> OrderStatusVisuals(
+            containerColor = AppTheme.statusColors.successContainer,
+            contentColor = AppTheme.statusColors.onSuccessContainer,
+            icon = Icons.Filled.CheckCircle,
+            iconDescription = "Успешный статус"
+        )
+
+        OrderStatusTone.Warning -> OrderStatusVisuals(
+            containerColor = AppTheme.statusColors.warningContainer,
+            contentColor = AppTheme.statusColors.onWarningContainer,
+            icon = Icons.Filled.Warning,
+            iconDescription = "Предупреждение"
+        )
+
+        OrderStatusTone.Error -> OrderStatusVisuals(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            icon = Icons.Filled.Error,
+            iconDescription = "Ошибка"
+        )
+
+        OrderStatusTone.Info -> OrderStatusVisuals(
+            containerColor = AppTheme.statusColors.infoContainer,
+            contentColor = AppTheme.statusColors.onInfoContainer,
+            icon = Icons.Filled.Info,
+            iconDescription = "Информационный статус"
+        )
+    }
+}
+
+@Composable
+fun OrderStatusCard(
+    title: String,
+    message: String,
+    tone: OrderStatusTone,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    val visuals = orderStatusVisuals(tone)
+
+    val content: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = visuals.icon,
+                contentDescription = visuals.iconDescription,
+                tint = visuals.contentColor
+            )
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = visuals.contentColor
+                )
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = visuals.contentColor
+                )
+            }
+        }
+    }
+
+    if (onClick == null) {
+        Card(
+            modifier = modifier,
+            colors = CardDefaults.cardColors(
+                containerColor = visuals.containerColor,
+                contentColor = visuals.contentColor
+            )
+        ) {
+            content()
+        }
+    } else {
+        Card(
+            onClick = onClick,
+            modifier = modifier,
+            colors = CardDefaults.cardColors(
+                containerColor = visuals.containerColor,
+                contentColor = visuals.contentColor
+            ),
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = 0.dp,
+                pressedElevation = 1.dp
+            )
+        ) {
+            content()
+        }
+    }
+}
+```
+
+Этот компонент демонстрирует несколько боевой-принципов:
+
+- внешний API говорит языком продукта: `OrderStatusTone`, `title`, `message`;
+- Material-цвета и собственные tokens используются внутри;
+- экран не может случайно передать плохую пару `containerColor` и `contentColor`;
+- кликабельная и некликабельная версии сохраняют одинаковый контент;
+- `modifier` остается снаружи;
+- иконка получает осмысленный `contentDescription`.
+
+## Типичные ошибки
+
+### Хардкодить цвета прямо на экранах
+
+Цвет `Color(0xFF1565C0)` может выглядеть нормально в одном режиме, но сломаться в темной теме, dynamic color и high contrast сценариях. Предпочитайте роли темы и собственные semantic tokens.
+
+### Менять только включенное состояние
+
+Компонент должен выглядеть корректно в disabled, pressed, focused, hovered, selected и error состояниях. Если вы задали только `containerColor`, проверьте, что остальные состояния все еще читаемы.
+
+### Передавать слишком много параметров в обертку
+
+Если `AppButton` принимает все возможные цвета, формы, elevation, border и typography, он перестает быть дизайн-системной оберткой и становится более длинной записью обычного `Button`.
+
+### Игнорировать accessibility
+
+Кастомизация не должна убирать `enabled`, `role`, `contentDescription`, `stateDescription`, минимальные размеры касания и стандартное поведение input-компонентов.
+
+### Использовать shape как случайное украшение
+
+Форма должна иметь правило. Например, все primary actions имеют 10 dp, chips имеют full rounded shape, а карточки данных имеют medium shape. Случайные формы делают интерфейс менее предсказуемым.
+
+## Итоги
+
+Кастомизация Material-компонентов в Compose строится вокруг темы, `Defaults` и аккуратных оберток:
+
+- `MaterialTheme` задает глобальные цвета, типографику и формы;
+- `Defaults` дают безопасные фабрики цветов, elevation, border и размеров;
+- `ButtonDefaults`, `CardDefaults`, `TextFieldDefaults` и другие объекты сохраняют Material-поведение;
+- цвет лучше выбирать через semantic roles, а не через хардкод;
+- состояние компонента включает enabled, disabled, selected, error, pressed, focused и hovered;
+- дизайн-системные обертки должны принимать продуктовые варианты, а не все низкоуровневые параметры;
+- собственные tokens через `CompositionLocal` дополняют MaterialTheme, когда продуктовой семантики больше, чем стандартных ролей;
+- кастомизация не должна ломать accessibility, touch targets, ripple и ожидаемую interaction model.

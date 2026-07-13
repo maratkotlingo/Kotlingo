@@ -1,0 +1,750 @@
+---
+title: "Формы, обрезка и тени"
+description: "Разбираем Shape в Jetpack Compose: RoundedCornerShape, CutCornerShape, CircleShape, RectangleShape, GenericShape, пользовательский Shape, Outline, clip, background(shape), border(shape), shadow, dropShadow, innerShadow и порядок modifier-ов."
+order: 54
+category: "Compose: графика, Canvas и рисование"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое `Shape`
+
+`Shape` — это описание геометрии границы composable. Shape не рисует сам по себе. Он отвечает на вопрос: какую форму имеет поверхность, clipping mask, border, ripple bounds или shadow outline.
+
+В Compose shape используется в разных API:
+
+- `Modifier.clip(shape)`;
+- `Modifier.background(color, shape)`;
+- `Modifier.background(brush, shape)`;
+- `Modifier.border(width, color, shape)`;
+- `Modifier.border(BorderStroke(width, brush), shape)`;
+- `Modifier.shadow(elevation, shape)`;
+- `Modifier.graphicsLayer { this.shape = shape; clip = true }`;
+- `Surface(shape = shape)`;
+- `Card(shape = shape)`;
+- `Button(shape = shape)`;
+- `TextFieldDefaults.shape` и другие Material APIs.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun RoundedSurfaceExample() {
+    Box(
+        modifier = Modifier
+            .size(
+                width = 160.dp,
+                height = 96.dp
+            )
+            .background(
+                color = Color(0xFFE3F2FD),
+                shape = RoundedCornerShape(20.dp)
+            )
+    )
+}
+```
+
+Здесь shape влияет только на background. Сам layout `Box` остается прямоугольной областью с размером `160.dp` на `96.dp`.
+
+<CatTip>
+Shape — это не layout. Он меняет визуальную и hit/semantics-обвязку только через конкретные modifiers или components, которые этот shape используют.
+</CatTip>
+
+## Как `Shape` работает внутри
+
+Интерфейс `Shape` создает `Outline`. Compose передает ему:
+
+- `size`: фактический размер области в пикселях;
+- `layoutDirection`: `Ltr` или `Rtl`;
+- `density`: доступ к dp/sp conversion.
+
+`Outline` бывает трех основных видов:
+
+- `Outline.Rectangle`: прямоугольник;
+- `Outline.Rounded`: rounded rectangle;
+- `Outline.Generic`: arbitrary path.
+
+Rounded outline обычно дешевле generic path. Поэтому простые формы лучше выражать built-in shape-ами, а пользовательский path использовать там, где он действительно нужен.
+
+## Built-in shapes
+
+Основные shapes:
+
+- `RectangleShape`: прямоугольник без скругления;
+- `CircleShape`: овал, который становится кругом при равной ширине и высоте;
+- `RoundedCornerShape`: скругленные углы;
+- `AbsoluteRoundedCornerShape`: скругленные углы без зеркалирования start/end в RTL;
+- `CutCornerShape`: срезанные углы;
+- `AbsoluteCutCornerShape`: срезанные углы без RTL-зеркалирования;
+- `GenericShape`: shape на основе path builder;
+- Material shapes из `MaterialTheme.shapes`: токены формы дизайн-системы.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ShapeGalleryRow() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .background(
+                    color = Color(0xFFBBDEFB),
+                    shape = RoundedCornerShape(14.dp)
+                )
+        )
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .background(
+                    color = Color(0xFFC8E6C9),
+                    shape = CircleShape
+                )
+        )
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .background(
+                    color = Color(0xFFFFECB3),
+                    shape = CutCornerShape(12.dp)
+                )
+        )
+    }
+}
+```
+
+`CircleShape` использует доступную область. Если область прямоугольная, получится овал.
+
+## `RoundedCornerShape`
+
+`RoundedCornerShape` может принимать одинаковый радиус для всех углов или отдельные значения.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun MessageBubbleShape(
+    fromCurrentUser: Boolean
+) {
+    val shape = if (fromCurrentUser) {
+        RoundedCornerShape(
+            topStart = 20.dp,
+            topEnd = 20.dp,
+            bottomStart = 20.dp,
+            bottomEnd = 4.dp
+        )
+    } else {
+        RoundedCornerShape(
+            topStart = 20.dp,
+            topEnd = 20.dp,
+            bottomStart = 4.dp,
+            bottomEnd = 20.dp
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .size(
+                width = 180.dp,
+                height = 72.dp
+            )
+            .background(
+                color = if (fromCurrentUser) {
+                    Color(0xFFDCF8C6)
+                } else {
+                    Color.White
+                },
+                shape = shape
+            )
+    )
+}
+```
+
+`topStart` и `topEnd` зависят от `LayoutDirection`. Для интерфейсов с RTL это обычно правильно. Если нужна абсолютная геометрия, используйте `AbsoluteRoundedCornerShape`.
+
+## Percent shapes
+
+`RoundedCornerShape(percent = 50)` задает радиус как процент от размера. Это удобно для pills.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun PillLabel(
+    text: String
+) {
+    Box(
+        modifier = Modifier
+            .background(
+                color = Color(0xFFE0F2F1),
+                shape = RoundedCornerShape(percent = 50)
+            )
+            .padding(
+                horizontal = 14.dp,
+                vertical = 7.dp
+            )
+    ) {
+        Text(
+            text = text,
+            color = Color(0xFF00695C)
+        )
+    }
+}
+```
+
+Для pill shape процент часто стабильнее, чем конкретный `Dp`, потому что высота может меняться при font scale.
+
+## `clip`
+
+`Modifier.clip(shape)` обрезает drawing content по shape. Он не добавляет background, border или shadow.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun CircularAvatar() {
+    Image(
+        painter = painterResource(id = R.drawable.avatar),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(64.dp)
+            .clip(CircleShape)
+    )
+}
+```
+
+Если добавить `background` после `clip`, он тоже будет нарисован внутри clipped layer только если modifier order это поддерживает. Обычно shape лучше передавать прямо в `background`.
+
+<MouseTrap>
+Самая частая ошибка: ожидать, что `clip(shape)` автоматически добавит фон или border. `clip` только обрезает пиксели. Для цвета нужен `background`, для рамки нужен `border`.
+</MouseTrap>
+
+## Порядок `clip`, `background` и `border`
+
+Modifier chain выполняется последовательно. Визуально это особенно важно для shape-ов.
+
+```kotlin
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AvatarWithBorder() {
+    val borderWidth = 3.dp
+
+    Image(
+        painter = painterResource(id = R.drawable.avatar),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(72.dp)
+            .border(
+                border = BorderStroke(
+                    width = borderWidth,
+                    color = androidx.compose.ui.graphics.Color.White
+                ),
+                shape = CircleShape
+            )
+            .padding(borderWidth)
+            .clip(CircleShape)
+    )
+}
+```
+
+Здесь border рисуется снаружи, затем `padding` освобождает место, затем изображение обрезается кругом.
+
+## `shadow`
+
+`Modifier.shadow` рисует elevation-based shadow. Он хорошо подходит для Material surfaces, когда вам достаточно elevation и shape.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ElevatedPanel() {
+    val shape = RoundedCornerShape(18.dp)
+
+    Box(
+        modifier = Modifier
+            .size(
+                width = 180.dp,
+                height = 110.dp
+            )
+            .shadow(
+                elevation = 8.dp,
+                shape = shape,
+                clip = false
+            )
+            .background(
+                color = Color.White,
+                shape = shape
+            )
+    )
+}
+```
+
+`clip = false` позволяет тени рисоваться за пределами content. Если включить clipping, тень может быть обрезана.
+
+## `dropShadow`
+
+`dropShadow` дает больше контроля, чем elevation-based `shadow`: radius, spread, color и offset задаются явно.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SoftDropShadowCard() {
+    val shape = RoundedCornerShape(24.dp)
+
+    Box(
+        modifier = Modifier
+            .width(260.dp)
+            .height(150.dp)
+            .dropShadow(
+                shape = shape,
+                shadow = Shadow(
+                    radius = 18.dp,
+                    spread = 2.dp,
+                    color = Color.Black.copy(alpha = 0.20f),
+                    offset = DpOffset(
+                        x = 0.dp,
+                        y = 8.dp
+                    )
+                )
+            )
+            .background(
+                color = Color.White,
+                shape = shape
+            )
+    )
+}
+```
+
+`dropShadow` должен стоять до `background`, потому что shadow рисуется behind surface. После shadow обычно рисуют саму surface тем же shape.
+
+## `innerShadow`
+
+`innerShadow` рисует тень внутри shape и создает ощущение углубления.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.innerShadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun PressedInputSurface() {
+    val shape = RoundedCornerShape(16.dp)
+
+    Box(
+        modifier = Modifier
+            .width(280.dp)
+            .height(56.dp)
+            .background(
+                color = Color(0xFFF5F7FA),
+                shape = shape
+            )
+            .innerShadow(
+                shape = shape,
+                shadow = Shadow(
+                    radius = 10.dp,
+                    spread = 1.dp,
+                    color = Color.Black.copy(alpha = 0.16f),
+                    offset = DpOffset(
+                        x = 2.dp,
+                        y = 3.dp
+                    )
+                )
+            )
+    )
+}
+```
+
+`innerShadow` обычно ставится после `background`, иначе фон может закрыть внутреннюю тень.
+
+## Пользовательский `Shape`
+
+Пользовательский shape нужен, когда built-in shapes не выражают нужную геометрию. Реализуйте `Shape` и возвращайте `Outline`.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+
+class TicketShape(
+    private val notchFraction: Float = 0.18f
+) : Shape {
+
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val notchRadius = size.height * notchFraction
+        val centerY = size.height / 2f
+
+        val path = Path().apply {
+            moveTo(0f, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width, centerY - notchRadius)
+            quadraticBezierTo(
+                x1 = size.width - notchRadius,
+                y1 = centerY,
+                x2 = size.width,
+                y2 = centerY + notchRadius
+            )
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            lineTo(0f, centerY + notchRadius)
+            quadraticBezierTo(
+                x1 = notchRadius,
+                y1 = centerY,
+                x2 = 0f,
+                y2 = centerY - notchRadius
+            )
+            close()
+        }
+
+        return Outline.Generic(path)
+    }
+}
+
+@Composable
+fun TicketSurface() {
+    Box(
+        modifier = Modifier
+            .size(
+                width = 260.dp,
+                height = 96.dp
+            )
+            .background(
+                color = Color(0xFFFFF8E1),
+                shape = TicketShape()
+            )
+    )
+}
+```
+
+Пользовательский shape должен быть deterministic: один и тот же `size` и `layoutDirection` должны давать одну и ту же геометрию.
+
+## `GenericShape`
+
+`GenericShape` удобен для локальных shape-ов без отдельного класса.
+
+```kotlin
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun DiagonalBadge() {
+    val diagonalShape = remember {
+        GenericShape { size, _ ->
+            moveTo(0f, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width * 0.82f, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(
+                width = 120.dp,
+                height = 44.dp
+            )
+            .background(
+                color = Color(0xFF1E88E5),
+                shape = diagonalShape
+            )
+    )
+}
+```
+
+`GenericShape` хорош для небольших статичных форм. Если shape используется во многих местах, отдельный класс лучше документирует намерение.
+
+## Shapes и `graphicsLayer`
+
+`clip(shape)` внутри себя использует layer-подход. Через `graphicsLayer` можно управлять shape и clipping явно.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun LayerClippedImage() {
+    Image(
+        painter = painterResource(id = R.drawable.cover),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(
+                width = 180.dp,
+                height = 120.dp
+            )
+            .graphicsLayer {
+                shape = RoundedCornerShape(22.dp)
+                clip = true
+            }
+    )
+}
+```
+
+`graphicsLayer` полезен, когда shape clipping совмещается с alpha, scale, rotation или render effect.
+
+## Interaction-driven shadows
+
+Тени часто меняются при нажатии. Для этого удобно hoist-ить `MutableInteractionSource`.
+
+```kotlin
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun PressableShadowSurface(
+    onClick: () -> Unit
+) {
+    val interactionSource = remember {
+        MutableInteractionSource()
+    }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val transition = updateTransition(
+        targetState = pressed,
+        label = "shadow press"
+    )
+
+    val radius by transition.animateDp(
+        label = "shadow radius"
+    ) { isPressed ->
+        if (isPressed) {
+            8.dp
+        } else {
+            18.dp
+        }
+    }
+
+    val yOffset by transition.animateDp(
+        label = "shadow y offset"
+    ) { isPressed ->
+        if (isPressed) {
+            2.dp
+        } else {
+            8.dp
+        }
+    }
+
+    val shadowColor by transition.animateColor(
+        label = "shadow color"
+    ) { isPressed ->
+        if (isPressed) {
+            Color.Black.copy(alpha = 0.12f)
+        } else {
+            Color.Black.copy(alpha = 0.22f)
+        }
+    }
+
+    val shape = RoundedCornerShape(22.dp)
+
+    Box(
+        modifier = Modifier
+            .width(220.dp)
+            .height(76.dp)
+            .dropShadow(
+                shape = shape,
+                shadow = Shadow(
+                    radius = radius,
+                    spread = 1.dp,
+                    color = shadowColor,
+                    offset = DpOffset(
+                        x = 0.dp,
+                        y = yOffset
+                    )
+                )
+            )
+            .background(
+                color = Color.White,
+                shape = shape
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+    )
+}
+```
+
+Если вы отключаете ripple через `indication = null`, обязательно оставьте другой понятный pressed обратная связь.
+
+## Performance и качество
+
+Shape, clipping и shadows могут влиять на performance:
+
+- простые rounded shapes обычно дешевле arbitrary path;
+- clipping по сложному path может потребовать больше GPU work;
+- shadow с большим radius и spread дороже маленькой тени;
+- `innerShadow` и несколько chained shadows дороже обычного elevation;
+- не используйте complex shadow в каждой строке lazy list без измерения;
+- shape должен соответствовать background, border, ripple и shadow;
+- большие скругления могут обрезать важный content;
+- не полагайтесь только на shape для передачи смысла.
+
+## Типичные ошибки
+
+### Разные shapes для background и click обратная связь
+
+Если surface скруглена, ripple и semantics должны восприниматься как та же surface. Для компоненты Material передавайте shape в компонент.
+
+### Ставить `innerShadow` перед `background`
+
+Фон закроет внутреннюю тень. Сначала рисуйте background, затем inner shadow.
+
+### Ожидать, что shadow меняет layout bounds
+
+Тень рисуется визуально, но не увеличивает layout size. Parent может обрезать ее, если clipping включен выше.
+
+### Использовать пользовательский `Shape` без учета RTL
+
+Если форма содержит start/end-смысл, используйте `layoutDirection`.
+
+### Делать shape только ради украшения
+
+Форма должна поддерживать иерархию интерфейса. Слишком много разных скруглений, срезов и теней делает UI шумным.
+
+## Итоги
+
+Shapes управляют геометрией поверхностей:
+
+- `Shape` возвращает `Outline` для конкретного size;
+- built-in shapes покрывают большинство задач;
+- `clip` только обрезает drawing;
+- `background(shape)` рисует фон нужной формы;
+- `border(shape)` рисует рамку нужной формы;
+- `shadow` подходит для Material elevation;
+- `dropShadow` дает radius, spread, color и offset;
+- `innerShadow` рисуется поверх surface и зависит от порядка modifiers;
+- пользовательский shape нужен для специфической геометрии;
+- сложные shapes и shadows нужно проверять на performance.

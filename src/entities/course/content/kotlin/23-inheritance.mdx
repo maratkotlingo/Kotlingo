@@ -1,0 +1,669 @@
+---
+title: "Наследование"
+description: "Изучаем final, open и abstract классы, override методов и свойств, super, инициализацию базовой части объекта, полиморфизм и безопасное проектирование иерархий."
+order: 23
+category: "Классы и объекты"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Наследование и отношение «является»
+
+Наследование создаёт subtype: экземпляр производного класса можно использовать там, где ожидается базовый тип.
+
+```kotlin
+open class LearningContent(val title: String) {
+    open fun durationMinutes(): Int = 0
+}
+
+class VideoLesson(
+    title: String,
+    private val duration: Int
+) : LearningContent(title) {
+    override fun durationMinutes(): Int = duration
+}
+
+fun printDuration(content: LearningContent) {
+    println("${content.title}: ${content.durationMinutes()} мин.")
+}
+
+fun main() {
+    printDuration(VideoLesson("Наследование", 45))
+}
+```
+
+`VideoLesson` **является** `LearningContent`. Функция принимает базовый тип, а virtual call выполняет реализацию subclass.
+
+Наследование подходит, когда:
+
+- существует устойчивое semantic отношение is-a;
+- общий контракт полезен клиентам;
+- subclasses действительно соблюдают правила базового типа;
+- runtime polymorphism уменьшает branching;
+- иерархия проектируется как extension point.
+
+## Классы final по умолчанию
+
+Обычный класс Kotlin нельзя наследовать:
+
+```kotlin
+class Lesson(val title: String)
+```
+
+Это эквивалентно `final class Lesson`. Для разрешения наследования нужен `open` или `abstract`:
+
+```kotlin
+open class Lesson(val title: String)
+```
+
+Final-by-default предотвращает случайное создание хрупких subclasses и позволяет классу сохранять invariants без неизвестных overrides.
+
+<CatTip title="Котосовет: открывай класс как осознанный API">
+`open` означает обещание поддерживать наследников. Нужно документировать invariants, lifecycle, допустимые overrides и порядок вызовов. Не добавляй `open` только ради одного теста или mock framework.
+</CatTip>
+
+## Наследование constructor
+
+Subclass обязан инициализировать базовый класс.
+
+```kotlin
+open class Content(
+    val id: Int,
+    val title: String
+)
+
+class Article(
+    id: Int,
+    title: String,
+    val wordCount: Int
+) : Content(id, title)
+```
+
+Аргументы `id` и `title` parameters subclass constructor передаются base primary constructor.
+
+Если subclass не имеет primary constructor, каждый secondary constructor должен вызвать `super(...)` или делегировать другому `this(...)`, который в итоге это делает:
+
+```kotlin
+open class Content(val title: String)
+
+class ImportedArticle : Content {
+    val source: String
+
+    constructor(title: String, source: String) : super(title) {
+        this.source = source
+    }
+}
+```
+
+## Порядок инициализации base и subclass
+
+При создании derived object сначала инициализируется базовая часть, затем производная.
+
+```kotlin
+open class BaseLesson(title: String) {
+    val normalizedTitle: String = title.trim().also {
+        println("1. Свойство базового класса")
+    }
+
+    init {
+        println("2. init базового класса")
+    }
+}
+
+class DetailedLesson(title: String) : BaseLesson(title) {
+    val slug: String = title.trim().lowercase().replace(' ', '-').also {
+        println("3. Свойство производного класса")
+    }
+
+    init {
+        println("4. init производного класса")
+    }
+}
+```
+
+Общая последовательность:
+
+1. вычисляются arguments base constructor, необходимые из вызова subclass;
+2. выполняются base property initializers и `init` blocks сверху вниз;
+3. выполняются subclass property initializers и `init` blocks сверху вниз;
+4. выполняется body secondary constructor, если он использовался.
+
+Subclass state ещё не готов во время base initialization.
+
+## Open member и override
+
+Member базового класса также final по умолчанию, даже если class open.
+
+```kotlin
+open class Renderer {
+    fun stablePrefix(): String = "Урок"
+
+    open fun render(title: String): String {
+        return "${stablePrefix()}: $title"
+    }
+}
+```
+
+Только `render` можно override:
+
+```kotlin
+class MarkdownRenderer : Renderer() {
+    override fun render(title: String): String {
+        return "## ${super.render(title)}"
+    }
+}
+```
+
+`override` обязателен. Он защищает от случайного shadowing из-за опечатки или изменения base API.
+
+## `super`
+
+`super` обращается к реализации непосредственного базового типа.
+
+```kotlin
+open class LessonFormatter {
+    open fun format(title: String): String {
+        return title.trim()
+    }
+}
+
+class NumberedFormatter(private val order: Int) : LessonFormatter() {
+    override fun format(title: String): String {
+        val baseText = super.format(title)
+        return "$order. $baseText"
+    }
+}
+```
+
+Вызов base реализации не обязателен. Override может полностью заменить поведение, если contract это допускает.
+
+`super` нельзя сохранить как обычное value или передать; это специальный receiver для обращения к base implementation.
+
+## Runtime dispatch
+
+Выбор override выполняется по runtime-типу объекта.
+
+```kotlin
+open class Content {
+    open fun kind(): String = "content"
+}
+
+class Quiz : Content() {
+    override fun kind(): String = "quiz"
+}
+
+fun main() {
+    val content: Content = Quiz()
+    println(content.kind())
+}
+```
+
+Статический тип variable — `Content`, runtime type — `Quiz`, поэтому вызывается `Quiz.kind`.
+
+Это отличается от extension functions и перегрузка resolution, которые выбираются статически.
+
+## Override properties
+
+Property может быть open и override.
+
+```kotlin
+open class Content {
+    open val title: String = "Материал"
+}
+
+class Lesson : Content() {
+    override val title: String = "Наследование"
+}
+```
+
+Base `val` можно override как `val` или `var`: mutable property предоставляет как минимум требуемое чтение.
+
+```kotlin
+open class ProgressView {
+    open val percent: Int = 0
+}
+
+class MutableProgress : ProgressView() {
+    override var percent: Int = 0
+        private set
+
+    fun update(value: Int) {
+        require(value in 0..100) { "Процент должен быть от 0 до 100" }
+        percent = value
+    }
+}
+```
+
+Base `var` нельзя override как `val`, потому что клиент base type ожидает setter.
+
+### Override в primary constructor
+
+```kotlin
+open class Content(open val title: String)
+
+class TextLesson(
+    override val title: String,
+    val body: String
+) : Content(title)
+```
+
+`override val` одновременно объявляет constructor property и реализацию open property.
+
+## Override accessor
+
+```kotlin
+open class Content {
+    open val estimatedMinutes: Int
+        get() = 0
+}
+
+class Article(private val words: Int) : Content() {
+    override val estimatedMinutes: Int
+        get() = (words / 200.0).let(kotlin.math::ceil).toInt().coerceAtLeast(1)
+}
+```
+
+Client видит единый property contract, реализации вычисляют значение по-разному.
+
+Не вызывай open property из constructor по тем же причинам, что open function.
+
+## Опасность open-вызовов в constructor
+
+Virtual dispatch работает даже во время base initialization. Override subclass может выполниться до инициализации subclass properties.
+
+```kotlin
+open class UnsafeContent {
+    init {
+        println(description())
+    }
+
+    open fun description(): String = "Материал"
+}
+
+class UnsafeLesson : UnsafeContent() {
+    private val title: String = "Наследование"
+
+    override fun description(): String = title
+}
+```
+
+Во время base `init` property `title` ещё не получила initializer. Результат зависит от platform/состояние по умолчанию и может нарушить non-null assumptions.
+
+Правило: constructors, property initializers и `init` base class не должны обращаться к open members.
+
+Безопасные варианты:
+
+- private/final helper;
+- передать готовое значение base constructor;
+- factory завершает создание, затем вызывает lifecycle method;
+- lazy computation после initialization;
+- composition вместо inheritance.
+
+```kotlin
+open class SafeContent(val description: String)
+
+class SafeLesson(title: String) : SafeContent(description = title.trim())
+```
+
+<MouseTrap title="Мышеловка: virtual dispatch начинается до готовности subclass">
+Open method/property в base constructor способен вызвать код наследника на частично созданном объекте. Это одна из самых опасных ошибок inheritance design.
+</MouseTrap>
+
+## `abstract` class
+
+Abstract class нельзя instantiate. Она может содержать abstract members без реализации и concrete common behaviour.
+
+```kotlin
+abstract class LearningItem(
+    val id: Int,
+    val title: String
+) {
+    init {
+        require(id > 0) { "Идентификатор должен быть положительным" }
+        require(title.isNotBlank()) { "Название обязательно" }
+    }
+
+    abstract val type: String
+
+    abstract fun estimateMinutes(): Int
+
+    fun label(): String {
+        return "[$type] $id. $title"
+    }
+}
+
+class ReadingItem(
+    id: Int,
+    title: String,
+    private val words: Int
+) : LearningItem(id, title) {
+    override val type: String = "Статья"
+
+    override fun estimateMinutes(): Int {
+        return (words / 200.0).let(kotlin.math::ceil).toInt().coerceAtLeast(1)
+    }
+}
+```
+
+Abstract member implicitly open. Писать `open abstract` не нужно.
+
+Abstract class может иметь constructor и state, хотя напрямую создать её нельзя: constructor инициализирует base часть concrete subclass.
+
+## Final override
+
+Override остаётся open для дальнейшего переопределения, если subclass сам open. Его можно закрыть через `final`.
+
+```kotlin
+open class BaseValidator {
+    open fun validate(value: String): Boolean = value.isNotBlank()
+}
+
+open class TrimmedValidator : BaseValidator() {
+    final override fun validate(value: String): Boolean {
+        return value.trim().isNotEmpty()
+    }
+}
+
+class SpecializedValidator : TrimmedValidator()
+```
+
+`SpecializedValidator` уже не может override `validate`. Final override фиксирует invariant на определённом уровне hierarchy.
+
+## Visibility и inheritance
+
+- private members не видны subclasses;
+- protected предназначены class/subclass;
+- internal доступ определяется module независимо от inheritance;
+- public contract нельзя сузить в override.
+
+```kotlin
+open class BaseRepository {
+    private fun connect(): String = "connection"
+
+    protected fun connectionForSubclass(): String {
+        return connect()
+    }
+}
+
+class LessonRepository : BaseRepository() {
+    fun status(): String = connectionForSubclass()
+}
+```
+
+Protected wrapper сохраняет private implementation.
+
+## Overload и override вместе
+
+```kotlin
+open class Formatter {
+    open fun format(value: Any): String = "Объект: $value"
+    fun format(value: String): String = "Строка: $value"
+}
+
+class DetailedFormatter : Formatter() {
+    override fun format(value: Any): String = "Подробно: $value"
+}
+
+fun main() {
+    val formatter: Formatter = DetailedFormatter()
+    val asAny: Any = "Kotlin"
+
+    println(formatter.format("Kotlin"))
+    println(formatter.format(asAny))
+}
+```
+
+Сначала compile-time перегрузка resolution выбирает signature. Затем runtime override dispatch применяется только к выбранной open signature.
+
+## Covariant return type
+
+Override может вернуть более конкретный subtype, если он совместим с base result.
+
+```kotlin
+open class ContentFactory {
+    open fun create(): LearningContent {
+        return LearningContent("Материал")
+    }
+}
+
+class VideoFactory : ContentFactory() {
+    override fun create(): VideoLesson {
+        return VideoLesson("Видео", duration = 30)
+    }
+}
+```
+
+Client `VideoFactory` видит `VideoLesson`, client base type — `LearningContent`.
+
+Параметры override нельзя произвольно сделать уже/шире: сигнатура должна действительно переопределять base member. Variance generic-types рассматривается отдельно.
+
+## Полиморфная коллекция
+
+```kotlin
+abstract class CourseItem(val title: String) {
+    abstract fun completionRule(): String
+}
+
+class Theory(title: String) : CourseItem(title) {
+    override fun completionRule(): String = "Прочитать материал"
+}
+
+class Practice(title: String) : CourseItem(title) {
+    override fun completionRule(): String = "Отправить решение"
+}
+
+fun main() {
+    val items: List<CourseItem> = listOf(
+        Theory("Наследование"),
+        Practice("Спроектировать иерархию")
+    )
+
+    items.forEach { item ->
+        println("${item.title}: ${item.completionRule()}")
+    }
+}
+```
+
+Нет `when` по type: каждый subtype предоставляет behavior.
+
+## Liskov substitution и contracts
+
+Subclass должен быть взаимозаменяем с base type:
+
+- не требовать более строгих preconditions для override;
+- не ослаблять обещанные postconditions;
+- сохранять invariants base class;
+- не менять неожиданно semantics effects;
+- соблюдать error contract настолько, насколько он документирован.
+
+Плохой пример — subclass `ReadOnlyList` от mutable base, который бросает исключение на каждом mutation method: клиент base contract ожидает mutation.
+
+Если subtype не может честно выполнить contract, отношение is-a выбрано неверно.
+
+## Наследование или composition
+
+Composition хранит dependency как property и делегирует ей работу.
+
+```kotlin
+interface TitleFormatter {
+    fun format(title: String): String
+}
+
+class PlainTitleFormatter : TitleFormatter {
+    override fun format(title: String): String = title.trim()
+}
+
+class LessonCardRenderer(
+    private val formatter: TitleFormatter
+) {
+    fun render(title: String): String {
+        return "Карточка: ${formatter.format(title)}"
+    }
+}
+```
+
+Преимущества composition:
+
+- dependency явна в constructor;
+- behavior можно заменить без subclass;
+- нет fragile base initialization;
+- можно комбинировать несколько независимых strategies;
+- class не раскрывает protected internals.
+
+Inheritance лучше, когда polymorphic base contract является самостоятельной domain abstraction, а не способом повторно использовать несколько строк кода.
+
+<CatTip title="Котосовет: composition для повторного использования, inheritance для substitutability">
+Если главная мотивация — «мне нужен этот helper», наследование почти наверняка слишком сильная связь. Передай helper/service или вынеси функцию.
+</CatTip>
+
+## Sealed иерархии
+
+`sealed class`/`sealed interface` ограничивают прямых наследников compile-time известной областью и позволяют exhaustive `when`.
+
+```kotlin
+sealed class LoadResult {
+    data class Success(val title: String) : LoadResult()
+    data class Failure(val reason: String) : LoadResult()
+}
+
+fun message(result: LoadResult): String = when (result) {
+    is LoadResult.Success -> result.title
+    is LoadResult.Failure -> "Ошибка: ${result.reason}"
+}
+```
+
+Sealed hierarchies подробно рассматриваются позже. Здесь важно: это альтернатива полностью open hierarchy, когда набор вариантов контролируется автором model.
+
+## Практический пример: разные типы учебных заданий
+
+```kotlin
+abstract class Assignment(
+    val id: Int,
+    val title: String,
+    val maximumScore: Int
+) {
+    init {
+        require(id > 0) { "Идентификатор должен быть положительным" }
+        require(title.isNotBlank()) { "Название обязательно" }
+        require(maximumScore > 0) { "Максимальный балл должен быть положительным" }
+    }
+
+    abstract fun evaluate(submission: Submission): Evaluation
+
+    protected fun checkedScore(score: Int, feedback: String): Evaluation {
+        require(score in 0..maximumScore) {
+            "Результат должен быть от 0 до $maximumScore"
+        }
+        return Evaluation(score, maximumScore, feedback)
+    }
+}
+
+data class Submission(
+    val text: String,
+    val selectedAnswer: Int?
+)
+
+data class Evaluation(
+    val score: Int,
+    val maximumScore: Int,
+    val feedback: String
+)
+
+class TextAssignment(
+    id: Int,
+    title: String,
+    maximumScore: Int,
+    private val minimumLength: Int
+) : Assignment(id, title, maximumScore) {
+    init {
+        require(minimumLength > 0) { "Минимальная длина должна быть положительной" }
+    }
+
+    override fun evaluate(submission: Submission): Evaluation {
+        val length = submission.text.trim().length
+        val passed = length >= minimumLength
+        return if (passed) {
+            checkedScore(maximumScore, "Текст соответствует минимальной длине")
+        } else {
+            checkedScore(0, "Нужно минимум $minimumLength символов, получено $length")
+        }
+    }
+}
+
+class ChoiceAssignment(
+    id: Int,
+    title: String,
+    maximumScore: Int,
+    private val correctAnswer: Int
+) : Assignment(id, title, maximumScore) {
+    init {
+        require(correctAnswer >= 0) { "Индекс ответа не может быть отрицательным" }
+    }
+
+    override fun evaluate(submission: Submission): Evaluation {
+        return if (submission.selectedAnswer == correctAnswer) {
+            checkedScore(maximumScore, "Ответ верный")
+        } else {
+            checkedScore(0, "Ответ неверный")
+        }
+    }
+}
+
+fun evaluateAll(
+    assignments: List<Assignment>,
+    submissions: Map<Int, Submission>
+): List<Evaluation> {
+    return assignments.map { assignment ->
+        val submission = submissions[assignment.id]
+            ?: Submission(text = "", selectedAnswer = null)
+        assignment.evaluate(submission)
+    }
+}
+
+fun main() {
+    val assignments: List<Assignment> = listOf(
+        TextAssignment(1, "Объясни open", 10, minimumLength = 20),
+        ChoiceAssignment(2, "Выбери модификатор", 5, correctAnswer = 1)
+    )
+
+    val submissions = mapOf(
+        1 to Submission(
+            text = "Open разрешает наследование и переопределение.",
+            selectedAnswer = null
+        ),
+        2 to Submission(text = "", selectedAnswer = 1)
+    )
+
+    evaluateAll(assignments, submissions).forEach(::println)
+}
+```
+
+Design decisions:
+
+- abstract base хранит общие invariants;
+- protected final helper централизует range check;
+- subclasses реализуют только различающийся algorithm;
+- client зависит от `Assignment` и получает runtime dispatch;
+- base constructor не вызывает open `evaluate`;
+- subtype preconditions не усиливают public `evaluate` contract;
+- composition всё ещё можно применить, если algorithms должны меняться независимо от assignment type.
+
+## Итоги
+
+- classes и members final по умолчанию;
+- `open` явно разрешает inheritance/override;
+- subclass обязан вызвать base constructor;
+- base initialization завершается до subclass initialization;
+- `override` обязателен и участвует в runtime dispatch;
+- `super` вызывает base implementation;
+- base `val` можно override как `val` или `var`, base `var` требует mutable contract;
+- open members нельзя безопасно вызывать из constructors/init;
+- abstract class объединяет state, concrete behavior и abstract requirements;
+- `final override` закрывает дальнейшее переопределение;
+- перегрузка выбирается compile time, override — runtime;
+- subclass обязан соблюдать substitutability base contract;
+- inheritance выражает is-a, composition лучше простого code reuse;
+- sealed hierarchy подходит контролируемому набору вариантов.
+

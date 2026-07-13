@@ -1,0 +1,494 @@
+---
+title: "Pull-to-refresh"
+description: "Разбираем pull-to-refresh в Material 3 Compose: PullToRefreshBox, isRefreshing, onRefresh, rememberPullToRefreshState, кастомный indicator, refresh ownership, ViewModel integration и боевой-состояния."
+order: 44
+category: "Compose: компоненты Material 3 и структура приложения"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое pull-to-refresh
+
+Pull-to-refresh — жест, при котором пользователь тянет список вниз от начала контента, чтобы запросить обновление данных.
+
+В Material 3 Compose для этого используется `PullToRefreshBox`.
+
+Он:
+
+- оборачивает scrollable content;
+- отслеживает drag-жест сверху;
+- вызывает `onRefresh`;
+- показывает indicator;
+- получает controlled state `isRefreshing`;
+- не загружает данные сам.
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun BasicPullToRefreshList(
+    items: List<String>,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(
+                items = items,
+                key = { item ->
+                    item
+                }
+            ) { item ->
+                ListItem(
+                    headlineContent = {
+                        Text(text = item)
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+`isRefreshing` должен приходить от владельца состояния. `PullToRefreshBox` не должен сам решать, завершилась ли загрузка.
+
+<CatTip>
+Жест pull-to-refresh означает "пользователь просит обновить". Реальное обновление данных должно жить в ViewModel, репозиторий или другом держатель состояния.
+</CatTip>
+
+## Основные параметры PullToRefreshBox
+
+Ключевые параметры:
+
+- `isRefreshing`: показывает, идет ли обновление;
+- `onRefresh`: вызывается, когда пользователь инициирует refresh;
+- `modifier`: modifier контейнера;
+- `state`: state жеста pull-to-refresh;
+- `indicator`: slot для кастомного индикатора;
+- `content`: scrollable content.
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun PullToRefreshWithState(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit
+) {
+    val pullToRefreshState = rememberPullToRefreshState()
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        state = pullToRefreshState,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            item {
+                Text(text = "Контент списка")
+            }
+        }
+    }
+}
+```
+
+State нужен, если вы кастомизируете indicator или хотите читать прогресс жеста.
+
+## Refresh ownership
+
+Правильная схема:
+
+1. Пользователь тянет список.
+2. `PullToRefreshBox` вызывает `onRefresh`.
+3. ViewModel запускает обновление.
+4. ViewModel выставляет `isRefreshing = true`.
+5. Репозиторий обновляет данные.
+6. ViewModel выставляет `isRefreshing = false`.
+7. UI скрывает indicator.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+data class FeedUiState(
+    val items: List<String> = emptyList(),
+    val isRefreshing: Boolean = false,
+    val errorMessage: String? = null
+)
+
+class FeedViewModel(
+    private val repository: FeedRepository
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(FeedUiState())
+    val uiState: StateFlow<FeedUiState> = _uiState.asStateFlow()
+
+    fun refresh() {
+        if (_uiState.value.isRefreshing) {
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isRefreshing = true,
+                errorMessage = null
+            )
+
+            val result = repository.refreshFeed()
+
+            _uiState.value = if (result.isSuccess) {
+                FeedUiState(
+                    items = result.getOrDefault(emptyList()),
+                    isRefreshing = false,
+                    errorMessage = null
+                )
+            } else {
+                _uiState.value.copy(
+                    isRefreshing = false,
+                    errorMessage = "Не удалось обновить ленту"
+                )
+            }
+        }
+    }
+}
+
+interface FeedRepository {
+    suspend fun refreshFeed(): Result<List<String>>
+}
+```
+
+UI:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun FeedRoute(
+    viewModel: FeedViewModel
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    FeedScreen(
+        state = state,
+        onRefresh = viewModel::refresh
+    )
+}
+```
+
+## Screen implementation
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun FeedScreen(
+    state: FeedUiState,
+    onRefresh: () -> Unit
+) {
+    PullToRefreshBox(
+        isRefreshing = state.isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column {
+            if (state.errorMessage != null) {
+                Text(text = state.errorMessage)
+            }
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(
+                    items = state.items,
+                    key = { item ->
+                        item
+                    }
+                ) { item ->
+                    ListItem(
+                        headlineContent = {
+                            Text(text = item)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+```
+
+В этом примере error показан над списком. В реальном layout лучше учитывать, что `Column` с вложенным `LazyColumn` требует аккуратного распределения размера через `Modifier.weight(1f)`, если сверху есть фиксированные элементы.
+
+<MouseTrap>
+Не сбрасывайте `isRefreshing` локально через задержку внутри composable. Indicator должен отражать реальную загрузку, а не таймер UI.
+</MouseTrap>
+
+## Кастомный indicator
+
+Для кастомизации indicator нужен state.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
+@Composable
+fun PullToRefreshWithColoredIndicator(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit
+) {
+    val state = rememberPullToRefreshState()
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        state = state,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                modifier = Modifier.align(Alignment.TopCenter),
+                isRefreshing = isRefreshing,
+                state = state,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn {
+                item {
+                    Text(text = "Контент")
+                }
+            }
+        }
+    }
+}
+```
+
+Indicator должен использовать тот же `state`, что и `PullToRefreshBox`, чтобы жест и визуальная обратная связь были согласованы.
+
+## Empty state с pull-to-refresh
+
+Пустой экран тоже можно обновлять жестом, но контент должен быть scrollable или иметь достаточно пространства для жеста.
+
+```kotlin
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+
+@Composable
+fun EmptyRefreshableFeed(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit
+) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            item {
+                Box(
+                    modifier = Modifier.fillParentMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "Лента пока пуста. Потяните вниз, чтобы обновить.")
+                }
+            }
+        }
+    }
+}
+```
+
+Если сделать просто `Box` без scrollable поведения, жест может не работать так, как ожидает пользователь.
+
+## Ошибка при refresh
+
+Refresh error не должен скрывать старые данные без необходимости. Часто лучше оставить старый content и показать snackbar или inline message.
+
+```kotlin
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun FeedRouteWithRefreshError(
+    viewModel: FeedViewModel
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+
+    val errorMessage = state.errorMessage
+
+    if (errorMessage != null) {
+        LaunchedEffect(errorMessage) {
+            snackbarHostState.showSnackbar(errorMessage)
+        }
+    }
+
+    FeedScreen(
+        state = state,
+        onRefresh = viewModel::refresh
+    )
+}
+```
+
+В боевой коде нужен обратный вызов вроде `onErrorShown`, чтобы не показывать snackbar повторно после configuration change, если это не желаемое поведение.
+
+## Pull-to-refresh и paging
+
+Если используется Paging 3, refresh обычно должен идти через `LazyPagingItems.refresh()`.
+
+```kotlin
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
+
+@Composable
+fun PagingPullToRefresh(
+    items: LazyPagingItems<String>
+) {
+    val isRefreshing = items.loadState.refresh is LoadState.Loading
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            items.refresh()
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(
+                count = items.itemCount,
+                key = items.itemKey { item ->
+                    item
+                }
+            ) { index ->
+                val item = items[index]
+
+                if (item != null) {
+                    ListItem(
+                        headlineContent = {
+                            Text(text = item)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+```
+
+Здесь source of truth для refresh загрузка — `loadState.refresh`.
+
+## Когда не использовать pull-to-refresh
+
+Не используйте жест обновления, если:
+
+- контент не является прокручиваемым;
+- refresh разрушает пользовательский ввод;
+- обновление запускает дорогую операцию без явного контроля;
+- есть более понятная кнопка "Повторить";
+- экран уже обновляется live-stream способом;
+- пользователь может случайно запускать операцию слишком часто.
+
+## Типичные ошибки
+
+### Локальный isRefreshing без связи с загрузкой
+
+Indicator должен отражать состояние реального обновления.
+
+### Запускать несколько refresh одновременно
+
+ViewModel должна игнорировать refresh, если уже идет обновление, или отменять предыдущую работу осознанно.
+
+### Не сохранять старый контент при ошибке
+
+Если refresh не удался, старые данные часто лучше оставить видимыми.
+
+### Оборачивать non-scrollable content
+
+Жест ожидаемо работает со scrollable content.
+
+### Делать refresh единственным способом retry
+
+Для accessibility и discoverability часто нужна явная кнопка "Повторить".
+
+## Итоги
+
+Pull-to-refresh в Compose строится вокруг controlled state:
+
+- `PullToRefreshBox` оборачивает scrollable content;
+- `isRefreshing` приходит от владельца состояния;
+- `onRefresh` только сообщает о намерении обновить;
+- `rememberPullToRefreshState` нужен для кастомного indicator;
+- `PullToRefreshDefaults.Indicator` дает стандартный indicator с настройками;
+- ViewModel или paging state должны владеть загрузкой;
+- ошибки refresh лучше показывать без потери старых данных;
+- empty state должен оставаться refreshable через scrollable container.

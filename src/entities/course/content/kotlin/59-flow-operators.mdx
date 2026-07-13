@@ -1,0 +1,726 @@
+---
+title: "Операторы Flow"
+description: "Flow operators: map, filter, transform, take, drop, debounce, sample, combine, zip, flatMapConcat, flatMapMerge, flatMapLatest, catch, retry, onEach, onStart, onCompletion и collectLatest."
+order: 59
+category: "Корутины"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Operators собирают pipeline
+
+Flow operators позволяют описать stream processing без ручного управления coroutine lifecycle.
+
+Есть три группы:
+
+- creation operators: `flow`, `flowOf`, `asFlow`;
+- intermediate operators: `map`, `filter`, `transform`, `take`, `drop`, `debounce`, `combine`, `catch`;
+- terminal operators: `collect`, `toList`, `first`, `single`, `fold`, `reduce`, `launchIn`.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+fun operatorPipelineExample() = runBlocking {
+    val titles = listOf("flow", "operators", "stateflow")
+        .asFlow()
+        .filter { word -> word.length > 4 }
+        .map { word -> word.replaceFirstChar { char -> char.uppercase() } }
+        .toList()
+
+    println(titles)
+}
+```
+
+Трубопровод ленив до терминального оператора.
+
+<CatTip>
+Операторы Flow — это кошачья тропинка: каждый шаг понятен отдельно, а вместе они ведут значение от источника к collector-у.
+</CatTip>
+
+## `map`
+
+`map` превращает each value into another value.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+fun mapExample() = runBlocking {
+    val cards = listOf("84-flow", "85-flow-operators")
+        .asFlow()
+        .map { slug ->
+            LessonCard(
+                slug = slug,
+                title = slug.substringAfter("-").replace("-", " ")
+            )
+        }
+        .toList()
+
+    println(cards)
+}
+
+data class LessonCard(
+    val slug: String,
+    val title: String
+)
+```
+
+Сценарии использования:
+
+- DTO к домену;
+- domain to UI-состояние;
+- text normalization;
+- extracting fields;
+- formatting values.
+
+## `filter`
+
+`filter` пропускает только values, которые satisfy predicate.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+fun filterExample() = runBlocking {
+    val advanced = listOf(
+        LessonMeta("84-flow", difficulty = "Продвинутый"),
+        LessonMeta("01-introduction", difficulty = "Начальный")
+    )
+        .asFlow()
+        .filter { lesson -> lesson.difficulty == "Продвинутый" }
+        .toList()
+
+    println(advanced)
+}
+
+data class LessonMeta(
+    val slug: String,
+    val difficulty: String
+)
+```
+
+Related filtering operators:
+
+- `filterNot` — inverse predicate;
+- `filterIsInstance` — оставить values конкретного runtime type;
+- `filterNotNull` — убрать null values;
+- `dropWhile` — пропускать values while predicate true;
+- `takeWhile` — брать values while predicate true.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+fun filterNotNullExample() = runBlocking {
+    val slugs = listOf("84-flow", null, "85-flow-operators")
+        .asFlow()
+        .filterNotNull()
+        .toList()
+
+    println(slugs)
+}
+```
+
+## `transform`
+
+`transform` is more general than `map`: для одного input value можно emit zero, one or many output values.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.transform
+import kotlinx.coroutines.runBlocking
+
+fun transformExample() = runBlocking {
+    val lines = listOf("84-flow", "85-flow-operators")
+        .asFlow()
+        .transform { slug ->
+            emit("Начинаем $slug")
+            emit("Готово $slug")
+        }
+        .toList()
+
+    println(lines)
+}
+```
+
+Используй `transform`, когда:
+
+- надо emit состояние загрузки before data;
+- надо skip some values without separate `filter`;
+- надо emit multiple domain events per input;
+- надо call suspending function and conditionally emit.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.transform
+
+fun lessonCards(slugs: List<String>): Flow<LessonUiEvent> =
+    slugs.asFlow().transform { slug ->
+        emit(LessonUiEvent.Loading(slug))
+
+        val card = loadCard(slug)
+
+        emit(LessonUiEvent.Ready(card))
+    }
+
+sealed interface LessonUiEvent {
+    data class Loading(
+        val slug: String
+    ) : LessonUiEvent
+
+    data class Ready(
+        val card: LessonCard
+    ) : LessonUiEvent
+}
+
+suspend fun loadCard(slug: String): LessonCard {
+    return LessonCard(slug, "Урок $slug")
+}
+```
+
+## `take` и `drop`
+
+`take(n)` берет первые `n` values and then cancels upstream collection.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+fun takeExample() = runBlocking {
+    val firstTwo = (1..10)
+        .asFlow()
+        .take(2)
+        .toList()
+
+    println(firstTwo)
+}
+```
+
+`drop(n)` skips first `n` values.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+fun dropExample() = runBlocking {
+    val withoutIntro = listOf("loading", "84-flow", "85-flow-operators")
+        .asFlow()
+        .drop(1)
+        .toList()
+
+    println(withoutIntro)
+}
+```
+
+`take` часто применяют с hot streams, чтобы terminal operator мог завершиться.
+
+```kotlin
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+
+fun takeFromHotFlowExample() = runBlocking {
+    val events = MutableSharedFlow<String>()
+
+    val collector = launch {
+        val firstTwo = events.take(2).toList()
+        println(firstTwo)
+    }
+
+    events.emit("opened")
+    events.emit("completed")
+
+    collector.join()
+}
+```
+
+## `debounce`
+
+`debounce` ожидает периода молчания и выдает последнее значение.
+
+Это идеально для search input.
+
+```kotlin
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapLatest
+import kotlin.time.Duration.Companion.milliseconds
+
+@OptIn(FlowPreview::class)
+fun searchResults(queryChanges: Flow<String>): Flow<List<String>> =
+    queryChanges
+        .debounce(300.milliseconds)
+        .distinctUntilChanged()
+        .mapLatest { query ->
+            searchLessons(query)
+        }
+
+suspend fun searchLessons(query: String): List<String> {
+    delay(100)
+    return listOf("Результат для $query")
+}
+
+fun fakeQueryChanges(): Flow<String> = flow {
+    emit("f")
+    emit("fl")
+    emit("flo")
+    emit("flow")
+}
+```
+
+Если пользователь печатает быстро, intermediate values suppressed.
+
+## `sample`
+
+`sample` emits latest value periodically.
+
+Подходит для telemetry, прогресс bars and high-frequency updates, где не нужно каждое значение.
+
+```kotlin
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.sample
+import kotlin.time.Duration.Companion.seconds
+
+@OptIn(FlowPreview::class)
+fun sampledProgress(progress: Flow<Int>): Flow<Int> {
+    return progress.sample(1.seconds)
+}
+```
+
+Разница:
+
+- `debounce` ожидает тишины;
+- `sample` выдает последнее значение по расписанию;
+- `conflate` пропускает промежуточные значения, когда сборщик работает медленно;
+- `collectLatest` отменяет предыдущую обработку при поступлении нового значения.
+
+## `combine`
+
+`combine` объединяет latest values from multiple flows. Когда любой source emits, transform получает latest values всех sources.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.runBlocking
+
+fun combineExample() = runBlocking {
+    val title = MutableStateFlow("Flow")
+    val completed = MutableStateFlow(false)
+
+    val uiState: Flow<LessonHeaderState> =
+        combine(title, completed) { currentTitle, isCompleted ->
+            LessonHeaderState(
+                title = currentTitle,
+                badge = if (isCompleted) "Завершено" else "В процессе"
+            )
+        }
+
+    title.value = "Flow operators"
+    completed.value = true
+}
+
+data class LessonHeaderState(
+    val title: String,
+    val badge: String
+)
+```
+
+Сценарии использования:
+
+- UI-состояние from multiple держатели состояния;
+- filters + query + sorting;
+- authenticated user + permissions + data;
+- settings + remote config.
+
+## `zip`
+
+`zip` объединяет значения по позиции: первое с первым, второе со вторым.
+
+```kotlin
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.zip
+import kotlinx.coroutines.runBlocking
+
+fun zipExample() = runBlocking {
+    val slugs = listOf("84-flow", "85-flow-operators").asFlow()
+    val titles = listOf("Flow", "Flow operators").asFlow()
+
+    val cards = slugs.zip(titles) { slug, title ->
+        LessonCard(slug, title)
+    }.toList()
+
+    println(cards)
+}
+```
+
+Используй `zip`, когда потоки логически синхронизированы по позиции. Для UI-состояния чаще нужен `combine`, потому что изменения состояния основаны на последнем значении.
+
+<MouseTrap>
+Не заменяй `combine` на `zip` в UI-состояние. `zip` ждет парные значения и может «застрять», если один поток обновляется чаще другого.
+</MouseTrap>
+
+## `flatMapConcat`
+
+`flatMapConcat` превращает each value into inner flow and collects inner flows sequentially.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.flatMapConcat
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+fun flatMapConcatExample() = runBlocking {
+    val events = listOf("84-flow", "85-flow-operators")
+        .asFlow()
+        .flatMapConcat { slug -> lessonEvents(slug) }
+        .toList()
+
+    println(events)
+}
+
+fun lessonEvents(slug: String): Flow<String> = flow {
+    emit("start:$slug")
+    emit("finish:$slug")
+}
+```
+
+Последовательная собственность имеет значение, когда необходимо сохранить порядок.
+
+## `flatMapMerge`
+
+`flatMapMerge` collects multiple inner flows concurrently.
+
+```kotlin
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.flatMapMerge
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+
+@OptIn(ExperimentalCoroutinesApi::class)
+fun flatMapMergeExample() = runBlocking {
+    val loaded = listOf("84-flow", "85-flow-operators", "86-stateflow-and-sharedflow")
+        .asFlow()
+        .flatMapMerge(concurrency = 2) { slug ->
+            flow {
+                delay(100)
+                emit("loaded:$slug")
+            }
+        }
+        .toList()
+
+    println(loaded)
+}
+```
+
+Используйте, когда независимые операции могут выполняться одновременно и порядок выполнения приемлем.
+
+## `flatMapLatest`
+
+`flatMapLatest` отменяет предыдущий внутренний поток при поступлении нового восходящего значения.
+
+```kotlin
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+
+@OptIn(ExperimentalCoroutinesApi::class)
+fun liveSearch(queryChanges: Flow<String>): Flow<List<String>> =
+    queryChanges.flatMapLatest { query ->
+        flow {
+            emit(searchLessons(query))
+        }
+    }
+```
+
+Сценарии использования:
+
+- search suggestions;
+- selected tab changes;
+- user id changes;
+- route parameter changes;
+- триггер обновления, где важен только последний запрос.
+
+## `catch`
+
+`catch` обрабатывает исключения восходящего потока и может выдавать резервный вариант.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
+
+fun lessonStream(): Flow<String> =
+    flow {
+        emit("84-flow")
+        error("Источник уроков недоступен")
+    }.catch { exception ->
+        emit("fallback:${exception.message}")
+    }
+```
+
+`catch` не перехватывает нисходящие исключения.
+
+```kotlin
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+
+fun catchBoundaryExample() =
+    flowOf("84-flow")
+        .catch {
+            emit("fallback")
+        }
+        .map {
+            error("Этот exception downstream от catch")
+        }
+```
+
+## `retry` и `retryWhen`
+
+`retry` перезапускает восходящий поток в случае исключения.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.retry
+
+fun lessonFeedWithRetry(): Flow<String> =
+    flow {
+        emit(loadFeedPage())
+    }.retry(retries = 3) { exception ->
+        delay(100)
+        exception is RuntimeException
+    }
+
+suspend fun loadFeedPage(): String {
+    return "Страница ленты"
+}
+```
+
+`retryWhen` gives attempt number.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.retryWhen
+
+fun retryWhenExample(): Flow<String> =
+    flow {
+        emit(loadFeedPage())
+    }.retryWhen { cause, attempt ->
+        val canRetry = cause is RuntimeException && attempt < 3
+
+        if (canRetry) {
+            delay(100L * (attempt + 1))
+        }
+
+        canRetry
+    }
+```
+
+Не повторяйте попытку отмены.
+
+```kotlin
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.retry
+
+fun safeRetry(source: Flow<String>): Flow<String> =
+    source.retry(retries = 3) { exception ->
+        exception !is CancellationException && exception is RuntimeException
+    }
+```
+
+## `onEach`, `onStart`, `onCompletion`
+
+`onEach` performs побочный эффект for each value and passes value downstream.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onEach
+
+fun logEachLesson(source: Flow<String>): Flow<String> =
+    source.onEach { slug ->
+        println("Получен урок $slug")
+    }
+```
+
+`onStart` emits or performs побочный эффект before upstream starts.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onStart
+
+fun withLoading(source: Flow<LessonLoadState>): Flow<LessonLoadState> =
+    source.onStart {
+        emit(LessonLoadState.Loading)
+    }
+
+sealed interface LessonLoadState {
+    data object Loading : LessonLoadState
+
+    data class Ready(
+        val title: String
+    ) : LessonLoadState
+}
+```
+
+`onCompletion` наблюдает за обычным завершением, исключением или отменой.
+
+```kotlin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onCompletion
+
+fun observeCompletion(source: Flow<String>): Flow<String> =
+    source.onCompletion { cause ->
+        if (cause == null) {
+            println("Flow завершился успешно")
+        } else {
+            println("Flow завершился с cause: ${cause.message}")
+        }
+    }
+```
+
+## `collectLatest`
+
+`collectLatest` отменяет предыдущий блок коллектора при поступлении нового значения.
+
+```kotlin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+
+suspend fun renderSearchResults(results: Flow<List<String>>) {
+    results.collectLatest { currentResults ->
+        // Если придут новые results, текущий rendering будет отменен.
+        delay(200)
+        println("Рендерим ${currentResults.size} результатов")
+    }
+}
+```
+
+Сценарии использования:
+
+- rendering latest UI-состояние;
+- image предпросмотр generation;
+- search result rendering;
+- прогресс display where old rendering is irrelevant.
+
+## Боевой pipeline: search UI
+
+```kotlin
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
+import kotlin.time.Duration.Companion.milliseconds
+
+class LessonSearchInteractor(
+    private val search: LessonSearchService
+) {
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    fun states(queryChanges: Flow<String>): Flow<SearchState> =
+        queryChanges
+            .map { query -> query.trim() }
+            .debounce(300.milliseconds)
+            .distinctUntilChanged()
+            .filter { query -> query.length >= 2 }
+            .flatMapLatest { query ->
+                flow {
+                    emit(SearchState.Loading(query))
+
+                    val results = search.search(query)
+
+                    emit(SearchState.Ready(query, results))
+                }.catch { exception ->
+                    emit(SearchState.Failed(query, "Поиск временно недоступен: ${exception.message}"))
+                }
+            }
+            .onStart {
+                emit(SearchState.Idle)
+            }
+}
+
+sealed interface SearchState {
+    data object Idle : SearchState
+
+    data class Loading(
+        val query: String
+    ) : SearchState
+
+    data class Ready(
+        val query: String,
+        val results: List<String>
+    ) : SearchState
+
+    data class Failed(
+        val query: String,
+        val message: String
+    ) : SearchState
+}
+
+class LessonSearchService {
+    suspend fun search(query: String): List<String> {
+        delay(100)
+        return listOf("Урок по запросу $query")
+    }
+}
+```
+
+Этот pipeline:
+
+- trims input;
+- waits until typing settles;
+- ignores duplicate query;
+- rejects too-short query;
+- отменяет предыдущий поиск при поступлении нового запроса;
+- emits загрузка, ready and failed states explicitly;
+- keeps cancellation behavior controlled by вызывающий код scope.
+
+<CatTip>
+Когда pipeline читается сверху вниз как история user intent, Flow работает особенно хорошо: событие вошло, лишний шум отфильтровался, актуальная работа запустилась, UI получил состояние.
+</CatTip>

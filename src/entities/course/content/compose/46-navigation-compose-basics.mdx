@@ -1,0 +1,806 @@
+---
+title: "Основы Navigation Compose"
+description: "Разбираем основы Navigation Compose: rememberNavController, NavHost, destinations, routes, navigate, popBackStack, navigateUp, back stack, NavOptions, launchSingleTop, popUpTo и границу route/screen."
+order: 46
+category: "Compose: навигация и архитектура"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Что такое Navigation Compose
+
+Navigation Compose — это Compose-интеграция Jetpack Navigation. Она позволяет описывать навигационный граф прямо в composable-коде: какие экраны существуют, какой экран стартовый, какие маршруты принимают аргументы и как пользователь переходит между destinations.
+
+В классическом Android UI навигация часто строилась вокруг fragments, XML navigation graph и `NavHostFragment`. В Compose основной UI уже является функциями, поэтому навигационный граф тоже удобно описывать как набор composable destinations внутри `NavHost`.
+
+Navigation Compose решает несколько задач:
+
+- хранит back stack экранов;
+- связывает route string с composable destination;
+- передает navigation arguments;
+- обрабатывает системную кнопку Back;
+- позволяет очищать часть back stack через `popUpTo`;
+- поддерживает deep links;
+- интегрируется с `ViewModel`, `SavedStateHandle` и lifecycle;
+- дает API для bottom navigation, nested graphs и нескольких back stacks.
+
+```kotlin
+dependencies {
+    implementation("androidx.navigation:navigation-compose:2.9.8")
+}
+```
+
+Версию зависимости лучше брать из version catalog или из BOM-стратегии проекта. В этом уроке показана явная запись, чтобы было понятно, какой артефакт подключает Navigation Compose.
+
+<CatTip>
+Navigation Compose отвечает за переходы между destinations, но не обязан знать бизнес-логику. Хорошая архитектура передает в экран лямбды вроде `onArticleClick`, а не весь `NavController`.
+</CatTip>
+
+## Три главных понятия
+
+В базовой Navigation Compose модели есть три центральных понятия.
+
+`NavController` — объект, который управляет навигацией. Он знает текущий back stack, выполняет `navigate`, `popBackStack`, `navigateUp`, хранит graph и предоставляет текущее destination state.
+
+`NavHost` — composable-контейнер, который показывает destination, соответствующий текущему back stack entry. В нем описывается navigation graph.
+
+`Destination` — конкретный экран или часть графа, доступная по route. В Compose destination чаще всего создается через функцию `composable(route)`.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
+@Composable
+fun MinimalNavigationApp() {
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = "home"
+    ) {
+        composable(route = "home") {
+            Text(text = "Главный экран")
+        }
+
+        composable(route = "settings") {
+            Text(text = "Настройки")
+        }
+    }
+}
+```
+
+`rememberNavController()` создает и запоминает controller в composition. Его не нужно пересоздавать при каждой recomposition. `NavHost` получает controller и стартовый destination, а затем описывает все доступные routes.
+
+<MouseTrap>
+Не создавайте `NavController` внутри каждого экрана. Обычно один controller живет на уровне app root или feature root. Если controller создается глубоко в UI, back stack будет фрагментирован, а переходы станут трудно предсказуемыми.
+</MouseTrap>
+
+## Route strings
+
+Route — это строковый идентификатор destination. На базовом уровне route можно хранить в object с константами. Это лучше, чем писать строки вручную в каждом месте.
+
+```kotlin
+import android.net.Uri
+
+object AppRoute {
+    const val HOME = "home"
+    const val BOOKMARKS = "bookmarks"
+    const val SETTINGS = "settings"
+
+    const val ARG_ARTICLE_ID = "articleId"
+    const val ARTICLE_PATTERN = "article/{$ARG_ARTICLE_ID}"
+
+    fun article(articleId: String): String {
+        // Uri.encode нужен, если идентификатор может содержать символы, опасные для route.
+        return "article/${Uri.encode(articleId)}"
+    }
+}
+```
+
+Такой подход все еще строковый, поэтому он не защищает от всех ошибок. В следующей теме будет type-safe navigation, где route описывается типами. Но для понимания основ важно сначала увидеть механику route string, pattern и arguments.
+
+## NavHost и composable destinations
+
+`NavHost` принимает:
+
+- `navController`: controller, который управляет графом;
+- `startDestination`: route стартового destination;
+- `modifier`: внешний modifier контейнера;
+- `route`: необязательный route самого графа;
+- `builder`: DSL, в котором описываются destinations.
+
+`composable` внутри graph builder принимает:
+
+- `route`: route или route pattern;
+- `arguments`: список `NamedNavArgument`;
+- `deepLinks`: список deep links;
+- `enterTransition`, `exitTransition`, `popEnterTransition`, `popExitTransition`: переходы, если используется соответствующая версия animation APIs;
+- `content`: composable-контент destination.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
+@Composable
+fun ArticleNavigationExample() {
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = AppRoute.HOME
+    ) {
+        composable(route = AppRoute.HOME) {
+            Button(
+                onClick = {
+                    navController.navigate(AppRoute.article(articleId = "compose-basics"))
+                }
+            ) {
+                Text(text = "Открыть статью")
+            }
+        }
+
+        composable(
+            route = AppRoute.ARTICLE_PATTERN,
+            arguments = listOf(
+                navArgument(AppRoute.ARG_ARTICLE_ID) {
+                    type = NavType.StringType
+                    nullable = false
+                }
+            )
+        ) { backStackEntry ->
+            val articleId = requireNotNull(
+                backStackEntry.arguments?.getString(AppRoute.ARG_ARTICLE_ID)
+            )
+
+            Text(text = "Статья: $articleId")
+        }
+    }
+}
+```
+
+`backStackEntry` содержит arguments, lifecycle, saved state и ссылку на destination. В простых примерах можно читать аргумент прямо там, но в реальном приложении часто лучше передать `articleId` в route composable, а загрузку данных выполнить во ViewModel.
+
+## navigate
+
+`navController.navigate(route)` добавляет новый destination в back stack и показывает его.
+
+Базовые варианты:
+
+- `navigate(route: String)`: переход по строковому route;
+- `navigate(route) { builder }`: переход с `NavOptionsBuilder`;
+- `launchSingleTop = true`: не добавляет новую копию destination, если он уже сверху стека;
+- `restoreState = true`: восстанавливает состояние ранее сохраненного destination;
+- `popUpTo(routeOrId) { options }`: очищает часть back stack;
+- `inclusive = true`: удаляет также destination, до которого выполняется pop;
+- `saveState = true`: сохраняет state удаляемых destinations для дальнейшего восстановления.
+
+```kotlin
+import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+
+fun NavController.navigateToTopLevelDestination(route: String) {
+    navigate(route) {
+        // Убираем промежуточные экраны до стартового destination графа.
+        popUpTo(graph.findStartDestination().id) {
+            // Сохраняем состояние вкладок, чтобы список не терял scroll position.
+            saveState = true
+        }
+
+        // Не создаем вторую копию той же вкладки сверху back stack.
+        launchSingleTop = true
+
+        // Восстанавливаем состояние вкладки, если оно было сохранено через saveState.
+        restoreState = true
+    }
+}
+```
+
+Этот helper часто используют для bottom navigation. Без `launchSingleTop` repeated taps по текущей вкладке могут создавать лишние copies. Без `popUpTo` back stack может стать слишком глубоким: вкладка, затем другая вкладка, затем снова первая вкладка.
+
+## popBackStack и navigateUp
+
+`popBackStack()` пытается удалить текущий destination из back stack и вернуться к предыдущему. Он возвращает `Boolean`: `true`, если pop выполнен, и `false`, если вернуться некуда.
+
+`navigateUp()` обычно используется для кнопки "Назад" в app bar. Он учитывает navigation hierarchy и может работать иначе, чем простой pop, особенно когда используются nested graphs, drawer layout или `AppBarConfiguration` в View-based navigation.
+
+```kotlin
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavController
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppTopBar(
+    title: String,
+    canNavigateBack: Boolean,
+    navController: NavController
+) {
+    TopAppBar(
+        title = {
+            Text(text = title)
+        },
+        navigationIcon = {
+            if (canNavigateBack) {
+                IconButton(
+                    onClick = {
+                        navController.navigateUp()
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Назад"
+                    )
+                }
+            }
+        }
+    )
+}
+```
+
+Для app bar обычно удобнее передавать не сам `NavController`, а обратный вызов `onNavigateBack`. Но этот пример показывает смысл `navigateUp`.
+
+## Back stack под капотом
+
+Back stack — это стек `NavBackStackEntry`. Каждый entry соответствует destination, который был открыт. Верхний entry является текущим экраном.
+
+Когда вызывается `navigate("settings")`, controller добавляет новый entry сверху. Когда вызывается `popBackStack()`, верхний entry удаляется, а предыдущий становится текущим. Когда вызывается `popUpTo`, controller удаляет сразу несколько entries согласно правилу.
+
+Back stack entry важен, потому что он хранит:
+
+- `destination`: описание destination;
+- `arguments`: аргументы route;
+- `lifecycle`: lifecycle конкретного entry;
+- `savedStateHandle`: сохраненное состояние entry;
+- `ViewModelStoreOwner`: область для ViewModel, привязанная к destination или graph.
+
+Навигация не просто меняет переменную "текущий экран". Она управляет жизненным циклом экранов, сохранением состояния и тем, какие ViewModel остаются живыми.
+
+## currentBackStackEntryAsState
+
+Чтобы UI реагировал на текущий route, используйте `currentBackStackEntryAsState()`. Например, bottom bar должен подсвечивать выбранную вкладку, а app bar должен менять заголовок.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
+
+@Composable
+fun rememberCurrentRoute(
+    navController: NavController
+): String? {
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    return backStackEntry?.destination?.route
+}
+```
+
+Это state-aware API. Когда текущий back stack entry меняется, composable, который прочитал это state, будет recomposed.
+
+## Route и Screen
+
+В Compose-приложениях удобно разделять route composable и screen composable.
+
+Route composable:
+
+- знает о `NavController`;
+- читает navigation arguments;
+- получает ViewModel;
+- собирает state;
+- передает screen обратные вызовы;
+- запускает navigation effects, если они нужны.
+
+Screen composable:
+
+- получает готовый UI-состояние;
+- не знает о Navigation Compose;
+- не импортирует `NavController`;
+- вызывает обратные вызовы вроде `onArticleClick`;
+- легко предпросмотр-ится и тестируется.
+
+```kotlin
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.navigation.NavController
+
+data class ArticleListItemUi(
+    val id: String,
+    val title: String,
+    val subtitle: String
+)
+
+@Composable
+fun HomeRoute(
+    navController: NavController,
+    articles: List<ArticleListItemUi>
+) {
+    HomeScreen(
+        articles = articles,
+        onArticleClick = { articleId ->
+            navController.navigate(AppRoute.article(articleId))
+        },
+        onSettingsClick = {
+            navController.navigate(AppRoute.SETTINGS)
+        }
+    )
+}
+
+@Composable
+fun HomeScreen(
+    articles: List<ArticleListItemUi>,
+    onArticleClick: (String) -> Unit,
+    onSettingsClick: () -> Unit
+) {
+    Column {
+        Text(
+            text = "Настройки",
+            modifier = Modifier.clickable {
+                onSettingsClick()
+            }
+        )
+
+        LazyColumn {
+            items(
+                items = articles,
+                key = { article ->
+                    article.id
+                }
+            ) { article ->
+                ListItem(
+                    headlineContent = {
+                        Text(text = article.title)
+                    },
+                    supportingContent = {
+                        Text(text = article.subtitle)
+                    },
+                    modifier = Modifier.clickable {
+                        onArticleClick(article.id)
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+<MouseTrap>
+Не передавайте `NavController` в каждую кнопку, карточку и строку списка. Чем ниже controller уходит в UI-дерево, тем труднее переиспользовать компонент, написать предпросмотр и проверить экран в UI-тесте.
+</MouseTrap>
+
+## Scaffold с NavHost
+
+В реальном приложении `NavHost` часто живет внутри `Scaffold`. App bar и bottom bar читают текущий route, а `NavHost` получает inner padding.
+
+```kotlin
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+
+data class TopLevelDestination(
+    val route: String,
+    val label: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector
+)
+
+private val topLevelDestinations = listOf(
+    TopLevelDestination(
+        route = AppRoute.HOME,
+        label = "Главная",
+        selectedIcon = Icons.Filled.Home,
+        unselectedIcon = Icons.Outlined.Home
+    ),
+    TopLevelDestination(
+        route = AppRoute.BOOKMARKS,
+        label = "Закладки",
+        selectedIcon = Icons.Filled.Bookmark,
+        unselectedIcon = Icons.Outlined.BookmarkBorder
+    ),
+    TopLevelDestination(
+        route = AppRoute.SETTINGS,
+        label = "Настройки",
+        selectedIcon = Icons.Filled.Settings,
+        unselectedIcon = Icons.Outlined.Settings
+    )
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NewsAppRoot() {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = when (currentRoute) {
+                            AppRoute.BOOKMARKS -> "Закладки"
+                            AppRoute.SETTINGS -> "Настройки"
+                            else -> "Новости"
+                        }
+                    )
+                }
+            )
+        },
+        bottomBar = {
+            NewsBottomBar(
+                currentRoute = currentRoute,
+                onDestinationClick = { route ->
+                    navController.navigateToTopLevel(route)
+                }
+            )
+        }
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = AppRoute.HOME,
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            composable(route = AppRoute.HOME) {
+                Text(text = "Лента новостей")
+            }
+
+            composable(route = AppRoute.BOOKMARKS) {
+                Text(text = "Сохраненные статьи")
+            }
+
+            composable(route = AppRoute.SETTINGS) {
+                Text(text = "Настройки приложения")
+            }
+        }
+    }
+}
+
+@Composable
+private fun NewsBottomBar(
+    currentRoute: String?,
+    onDestinationClick: (String) -> Unit
+) {
+    NavigationBar {
+        topLevelDestinations.forEach { destination ->
+            val selected = currentRoute == destination.route
+
+            NavigationBarItem(
+                selected = selected,
+                onClick = {
+                    onDestinationClick(destination.route)
+                },
+                icon = {
+                    Icon(
+                        imageVector = if (selected) {
+                            destination.selectedIcon
+                        } else {
+                            destination.unselectedIcon
+                        },
+                        contentDescription = destination.label
+                    )
+                },
+                label = {
+                    Text(text = destination.label)
+                }
+            )
+        }
+    }
+}
+
+private fun NavController.navigateToTopLevel(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+```
+
+Этот пример показывает базовый паттерн для боевого кода:
+
+- `rememberNavController` находится в app root;
+- `Scaffold` отвечает за chrome приложения;
+- `NavHost` получает `innerPadding`;
+- bottom bar подсвечивает текущую вкладку через `currentBackStackEntryAsState`;
+- top-level переходы используют `popUpTo`, `launchSingleTop` и `restoreState`.
+
+## Аргументы в базовой строковой навигации
+
+Route pattern описывает, где в route находится аргумент. Реальный route подставляет значение. Например:
+
+- pattern: `article/{articleId}`;
+- реальный route: `article/compose-basics`.
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavController
+
+@Composable
+fun ArticleCard(
+    articleId: String,
+    title: String,
+    navController: NavController
+) {
+    Button(
+        onClick = {
+            navController.navigate(AppRoute.article(articleId))
+        }
+    ) {
+        Text(text = title)
+    }
+}
+```
+
+Такой пример полезен для изучения, но в боевой среде лучше передавать `onClick`:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ArticleCard(
+    title: String,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick
+    ) {
+        Text(text = title)
+    }
+}
+```
+
+Теперь карточка не зависит от navigation library и может использоваться в предпросмотр, тестах, widgets-like UI и других контейнерах.
+
+## Ошибки при работе с route arguments
+
+Route arguments в строковой навигации требуют дисциплины:
+
+- не вставляйте raw string без `Uri.encode`, если значение может содержать slash, пробел, вопросительный знак или символы другого алфавита;
+- не передавайте большие объекты через route;
+- передавайте идентификатор, а данные загружайте из репозиторий;
+- не храните sensitive data в route;
+- явно задавайте `NavType`;
+- проверяйте nullable arguments;
+- держите route constants рядом с builder-функциями route.
+
+```kotlin
+import androidx.navigation.NavBackStackEntry
+
+fun NavBackStackEntry.requireStringArgument(
+    name: String
+): String {
+    return requireNotNull(arguments?.getString(name)) {
+        "Обязательный navigation argument отсутствует: $name"
+    }
+}
+```
+
+Этот helper делает ошибку ранней и понятной. Если аргумент обязателен, лучше упасть с ясным сообщением во время разработки, чем получить пустой экран с непонятной причиной.
+
+## Навигация назад из экрана деталей
+
+Экран деталей обычно получает `onNavigateBack`, а не controller.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
+@Composable
+fun DetailsBackStackExample() {
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = AppRoute.HOME
+    ) {
+        composable(route = AppRoute.HOME) {
+            Button(
+                onClick = {
+                    navController.navigate(AppRoute.article("navigation-compose"))
+                }
+            ) {
+                Text(text = "Открыть детали")
+            }
+        }
+
+        composable(
+            route = AppRoute.ARTICLE_PATTERN,
+            arguments = listOf(
+                navArgument(AppRoute.ARG_ARTICLE_ID) {
+                    type = NavType.StringType
+                }
+            )
+        ) { entry ->
+            val articleId = entry.requireStringArgument(AppRoute.ARG_ARTICLE_ID)
+
+            ArticleDetailsScreen(
+                articleId = articleId,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun ArticleDetailsScreen(
+    articleId: String,
+    onNavigateBack: () -> Unit
+) {
+    Column {
+        Text(text = "Открыта статья: $articleId")
+
+        Button(
+            onClick = onNavigateBack
+        ) {
+            Text(text = "Назад")
+        }
+    }
+}
+```
+
+`popBackStack()` подходит, когда нужно вернуться ровно на предыдущий entry. Если экран может быть открыт как deep link и предыдущего entry нет, нужно продумать fallback: например, перейти на стартовый экран.
+
+## launchSingleTop
+
+`launchSingleTop` предотвращает создание новой копии destination, если destination уже находится сверху back stack.
+
+Типичный сценарий: пользователь находится на `home` и снова нажимает вкладку "Главная". Без `launchSingleTop` можно получить две копии `home` подряд. С `launchSingleTop` текущий top destination переиспользуется.
+
+```kotlin
+import androidx.navigation.NavController
+
+fun NavController.openSettingsSingleTop() {
+    navigate(AppRoute.SETTINGS) {
+        launchSingleTop = true
+    }
+}
+```
+
+`launchSingleTop` не удаляет старые copies этого destination глубже в back stack. Он проверяет только верхний entry.
+
+## popUpTo
+
+`popUpTo` очищает back stack до заданного destination. Его часто используют после login flow, logout, onboarding и top-level navigation.
+
+```kotlin
+import androidx.navigation.NavController
+
+object AuthRoute {
+    const val LOGIN = "login"
+    const val HOME = "home"
+}
+
+fun NavController.openHomeAfterLogin() {
+    navigate(AuthRoute.HOME) {
+        // После успешного входа пользователь не должен вернуться на login через Back.
+        popUpTo(AuthRoute.LOGIN) {
+            inclusive = true
+        }
+        launchSingleTop = true
+    }
+}
+```
+
+Если `inclusive = false`, destination из `popUpTo` остается в back stack. Если `inclusive = true`, удаляется и он.
+
+## saveState и restoreState
+
+`saveState` и `restoreState` помогают сохранять состояние top-level destinations. Например, пользователь прокрутил список на вкладке "Закладки", перешел в настройки, затем вернулся. Хорошее приложение не сбрасывает scroll position без причины.
+
+```kotlin
+import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+
+fun NavController.switchTab(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) {
+            saveState = true
+        }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+```
+
+Здесь `saveState` сохраняет состояние destinations, удаляемых из back stack, а `restoreState` пытается вернуть ранее сохраненное состояние при повторном открытии route.
+
+## Типичные ошибки
+
+### Держать route strings в разных файлах без правил
+
+Если route написан вручную в нескольких местах, одна опечатка приведет к runtime-ошибке. Минимум — храните constants и builder-функции рядом.
+
+### Передавать большие модели через route
+
+Route должен содержать идентификатор или небольшой набор примитивных аргументов. Большие объекты передавайте через репозиторий, разделяемое состояние holder или сохраненное состояние, если это действительно нужно.
+
+### Навигировать прямо из глубокой UI-кнопки
+
+Кнопка должна сообщить о событии через обратный вызов. Route решает, что это событие означает для navigation graph.
+
+### Забывать `launchSingleTop` в bottom navigation
+
+Повторные нажатия на вкладку могут создавать лишние copies destination. Это делает Back-поведение странным.
+
+### Не учитывать deep link сценарий
+
+Если пользователь открыл экран деталей напрямую, предыдущего экрана в back stack может не быть. Для `popBackStack()` нужен fallback.
+
+### Использовать текущий route как единственный источник истины для сложного UI
+
+Route говорит, где находится пользователь. Он не должен заменять UI-состояние, permissions state, состояние загрузки или выбранные фильтры.
+
+## Итоги
+
+Navigation Compose строится вокруг `NavController`, `NavHost` и destinations:
+
+- `rememberNavController()` создает controller для графа;
+- `NavHost` показывает текущий destination и описывает navigation graph;
+- `composable(route)` связывает route с UI;
+- `navigate(route)` добавляет destination в back stack;
+- `popBackStack()` возвращает пользователя на предыдущий entry;
+- `navigateUp()` подходит для app bar navigation;
+- `currentBackStackEntryAsState()` позволяет UI реагировать на текущий route;
+- `launchSingleTop`, `popUpTo`, `saveState` и `restoreState` нужны для чистого back stack;
+- route composable знает о navigation, screen composable получает state и обратные вызовы;
+- аргументы лучше держать маленькими, типизированными через `NavType` и безопасно encoded;
+- для top-level navigation используйте helper, который очищает стек до start destination и восстанавливает состояние вкладок.

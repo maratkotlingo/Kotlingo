@@ -1,0 +1,418 @@
+---
+title: "Операции доступа"
+description: "Исчерпывающе разбираем get, getOrNull и getOrElse, first/last, single, elementAt, predicate-варианты, map access, nullable ambiguity, exceptions и сложность доступа."
+order: 37
+category: "Коллекции"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Доступ должен отражать ожидаемость отсутствия
+
+Standard library предлагает две группы:
+
+- strict operations бросают exception, если contract нарушен;
+- safe operations возвращают null или fallback.
+
+Выбирай strict, если отсутствие — programming/invariant error. Выбирай nullable/fallback, если отсутствие нормально.
+
+## `get` и `[]` для List
+
+```kotlin
+val lessons = listOf("Contracts", "Collections", "Arrays")
+
+println(lessons.get(0))
+println(lessons[1])
+```
+
+Обе формы вызывают indexed get. Invalid index бросает `IndexOutOfBoundsException`.
+
+```kotlin
+// lessons[10] завершится exception.
+```
+
+Direct get O(1) для ArrayList, но interface List не обещает конкретную implementation complexity для каждого пользовательский тип.
+
+## Valid indices
+
+```kotlin
+if (index in lessons.indices) {
+    println(lessons[index])
+}
+```
+
+`indices` корректно работает и для empty list (`0..-1` как empty range semantics).
+
+Для one-off safe read проще `getOrNull`.
+
+## `getOrNull`
+
+```kotlin
+val lesson: String? = lessons.getOrNull(10)
+```
+
+Возвращает null при negative/out-of-bounds index.
+
+Если element type nullable, result не различает:
+
+- index отсутствует;
+- slot существует и содержит null.
+
+```kotlin
+val nullable = listOf<String?>(null)
+println(nullable.getOrNull(0))
+println(nullable.getOrNull(1))
+```
+
+Оба null. Для различия сначала проверь index.
+
+## `getOrElse`
+
+```kotlin
+val title = lessons.getOrElse(10) { index ->
+    "Урок с индексом $index отсутствует"
+}
+```
+
+Fallback лямбда выполняется только для invalid index и получает requested index.
+
+```kotlin
+val title = lessons.getOrElse(-1) { "Первого урока ещё нет" }
+```
+
+Если existing element nullable, `getOrElse` возвращает null, а fallback не вызывается.
+
+## `first()`
+
+```kotlin
+val first = lessons.first()
+```
+
+Бросает `NoSuchElementException` на empty collection.
+
+Используй, когда non-empty invariant доказан:
+
+```kotlin
+require(lessons.isNotEmpty()) { "Нужен хотя бы один урок" }
+val first = lessons.first()
+```
+
+## `firstOrNull()`
+
+```kotlin
+val first: String? = emptyList<String>().firstOrNull()
+```
+
+Возвращает null на empty. Для nullable elements снова двусмысленно: empty и first null дают один result.
+
+## `last()` и `lastOrNull()`
+
+```kotlin
+val last = lessons.last()
+val safeLast = lessons.lastOrNull()
+```
+
+`last` strict, `lastOrNull` nullable. Для List доступ к последнему обычно indexed. Для generic Iterable получение last может пройти все elements.
+
+## Predicate-варианты `first`
+
+```kotlin
+val firstLong = lessons.first { title -> title.length > 8 }
+```
+
+Возвращает первый matching element, иначе бросает `NoSuchElementException`.
+
+```kotlin
+val safe = lessons.firstOrNull { title -> title.startsWith("Z") }
+```
+
+`find(predicate)` — alias `firstOrNull(predicate)`:
+
+```kotlin
+val found = lessons.find { it == "Arrays" }
+```
+
+## Predicate-варианты `last`
+
+```kotlin
+val lastLong = lessons.lastOrNull { title -> title.length > 5 }
+val foundLast = lessons.findLast { title -> title.contains('s') }
+```
+
+Для Iterable search last обязан пройти весь sequence. List implementation может iterate backward.
+
+## `single()`
+
+Без predicate требует ровно один element:
+
+```kotlin
+val only = listOf("Contracts").single()
+```
+
+Exceptions:
+
+- empty → `NoSuchElementException`;
+- больше одного → `IllegalArgumentException`.
+
+`single` документирует cardinality invariant сильнее `first`.
+
+## `singleOrNull()`
+
+```kotlin
+val one = listOf("Only").singleOrNull()
+val none = emptyList<String>().singleOrNull()
+val many = listOf("A", "B").singleOrNull()
+```
+
+`none` и `many` оба null. Если важно различить, проверь size или используй sealed result.
+
+## Predicate `single`
+
+```kotlin
+val exact = lessons.single { title -> title == "Arrays" }
+```
+
+Требует ровно один matching element. Zero/multiple matches — exceptions.
+
+```kotlin
+val exactOrNull = lessons.singleOrNull { title -> title == "Arrays" }
+```
+
+Возвращает null и для zero, и для multiple matches.
+
+<CatTip title="Котосовет: single выражает уникальность">
+Для lookup по supposedly unique business key используй `single`, чтобы duplicates не маскировались. В боевой лучше enforce uniqueness в Map/база данных constraint.
+</CatTip>
+
+## `elementAt`
+
+`elementAt(index)` работает для Iterable, включая Set.
+
+```kotlin
+val ordered = linkedSetOf("Contracts", "Collections", "Arrays")
+println(ordered.elementAt(1))
+```
+
+Для List idiomatic `list[index]`. Для non-list Iterable `elementAt` проходит iterator до position и может быть O(n).
+
+Set position meaningful только если implementation order гарантирован. HashSet position unpredictable.
+
+## `elementAtOrNull`
+
+```kotlin
+val missing = ordered.elementAtOrNull(100)
+```
+
+Возвращает null для invalid position.
+
+## `elementAtOrElse`
+
+```kotlin
+val value = ordered.elementAtOrElse(100) { index ->
+    "Элемент $index отсутствует"
+}
+```
+
+Fallback получает requested index.
+
+## Efficiency `elementAt`
+
+```kotlin
+fun <T> repeatedAccess(values: Iterable<T>, indices: List<Int>): List<T?> {
+    return indices.map { index -> values.elementAtOrNull(index) }
+}
+```
+
+На linked/пользовательский Iterable каждый call начинает обход заново. Если random access нужен многократно, materialize once:
+
+```kotlin
+val list = values.toList()
+val result = indices.map(list::getOrNull)
+```
+
+Memory-time trade-off измеряется по size/сценарий использования.
+
+## Map `get`
+
+```kotlin
+val lessons = mapOf(49 to "Access operations")
+val title: String? = lessons[49]
+```
+
+Map get nullable из-за отсутствующего key. При nullable V null двусмыслен:
+
+```kotlin
+val nullableMap = mapOf(49 to null)
+println(nullableMap[49])
+println(nullableMap[999])
+```
+
+Используй `containsKey` для различия.
+
+## Map `getValue`
+
+```kotlin
+val title = lessons.getValue(49)
+```
+
+Бросает `NoSuchElementException`, если key отсутствует. У map with default (`withDefault`) может использовать default provider.
+
+```kotlin
+val withDefault = lessons.withDefault { key -> "Неизвестный урок $key" }
+println(withDefault.getValue(999))
+```
+
+Обычный `map[999]` всё равно null; default участвует в `getValue`.
+
+## Map `getOrElse`
+
+```kotlin
+val title = lessons.getOrElse(999) { "Урок не найден" }
+```
+
+Map extension использует fallback, если result get null. Для existing key with null fallback тоже выполняется, поэтому если нужно различить stored null, используй containsKey/direct branch.
+
+## `getOrDefault`
+
+```kotlin
+val title = lessons.getOrDefault(999, "Урок не найден")
+```
+
+Fallback eager value, не лямбда. Semantics nullable map зависят от presence: Java/Kotlin platform implementation nuances лучше проверять; для точного distinction используй containsKey.
+
+## `firstNotNullOf`
+
+Совмещает mapping и поиск первого non-null result.
+
+```kotlin
+val mixed: List<Any> = listOf(0, "Kotlin", false)
+
+val firstText = mixed.firstNotNullOf { value ->
+    (value as? String)?.takeIf { it.length >= 3 }
+}
+```
+
+Если non-null result отсутствует, бросает `NoSuchElementException`.
+
+Safe variant:
+
+```kotlin
+val textOrNull = mixed.firstNotNullOfOrNull { value -> value as? String }
+```
+
+## `random` и `randomOrNull`
+
+```kotlin
+val random = lessons.random()
+val randomSafe = emptyList<String>().randomOrNull()
+```
+
+`random()` strict на empty. Для reproducible test передай seeded `Random`:
+
+```kotlin
+val selected = lessons.random(kotlin.random.Random(seed = 42))
+```
+
+Не используй predictable Random для security tokens.
+
+## Destructuring first values
+
+```kotlin
+val (first, second) = lessons
+```
+
+Destructuring List вызывает `component1`/`component2`, которые strict: при insufficient size будет exception. Для uncertain size используй safe access.
+
+## One-shot/пользовательский Iterable
+
+Пользовательский Iterable обычно должен создавать новый iterator, но unusual/lazy external sources могут иметь stateful behavior. Несколько `first`, `last`, `elementAt` могут повторно запускать computation или I/O.
+
+Для база данных/network stream не маскируй expensive access под generic Iterable без clear contract.
+
+## Null как data против отсутствие
+
+Если collection legitimately хранит null, nullable return safe access не различает states. Решения:
+
+- запретить nullable elements;
+- проверить index/key presence;
+- вернуть sealed lookup result;
+- использовать wrapper value;
+- redesign storage.
+
+```kotlin
+sealed interface Lookup<out T> {
+    data object Missing : Lookup<Nothing>
+    data class Found<T>(val value: T) : Lookup<T>
+}
+```
+
+## Практический пример: безопасный каталог
+
+```kotlin
+data class Lesson(
+    val id: Int,
+    val title: String
+)
+
+class LessonCatalog(lessons: Iterable<Lesson>) {
+    private val byId: Map<Int, Lesson>
+    private val ordered: List<Lesson>
+
+    init {
+        ordered = lessons.sortedBy(Lesson::id)
+        require(ordered.map(Lesson::id).distinct().size == ordered.size) {
+            "Идентификаторы должны быть уникальными"
+        }
+        byId = ordered.associateBy(Lesson::id)
+    }
+
+    fun requireById(id: Int): Lesson {
+        return byId[id] ?: throw NoSuchElementException("Урок $id не найден")
+    }
+
+    fun findById(id: Int): Lesson? = byId[id]
+
+    fun at(index: Int): Lesson? = ordered.getOrNull(index)
+
+    fun only(): Lesson? = ordered.singleOrNull()
+
+    fun firstMatching(predicate: (Lesson) -> Boolean): Lesson? {
+        return ordered.firstOrNull(predicate)
+    }
+}
+
+fun main() {
+    val catalog = LessonCatalog(
+        listOf(
+            Lesson(48, "Arrays"),
+            Lesson(49, "Access operations")
+        )
+    )
+
+    println(catalog.requireById(49))
+    println(catalog.findById(999))
+    println(catalog.at(0))
+    println(catalog.only())
+}
+```
+
+API names показывают strict/nullable semantics, Map даёт key lookup, List — order/index, constructor enforce uniqueness.
+
+## Итоги
+
+- `list[index]`/`get` strict и бросает при invalid index;
+- `getOrNull` возвращает null, `getOrElse` лениво строит fallback;
+- `first`/`last` strict на empty/no match;
+- `firstOrNull`/`lastOrNull` безопасны;
+- `find`/`findLast` aliases predicate safe variants;
+- `single` требует ровно один element/match;
+- `singleOrNull` объединяет zero и multiple в null;
+- `elementAt` подходит Iterable, но может быть O(n);
+- position Set meaningful только при guaranteed order;
+- Map get не различает missing и stored null без containsKey;
+- `getValue` strict, `withDefault` влияет на него;
+- `firstNotNullOf` объединяет mapping/search;
+- выбирай operation по ожидаемой cardinality и absence contract.
+

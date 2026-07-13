@@ -1,0 +1,706 @@
+---
+title: "rememberSaveable, Saver и сохраненное UI-состояние"
+description: "Изучаем rememberSaveable в Jetpack Compose: сохранение через Bundle, inputs, Saver, listSaver, mapSaver, TextFieldValue.Saver, LazyListState.Saver, SaveableStateHolder, ограничения размера и тестирование восстановления."
+order: 27
+category: "Compose: состояние, recomposition и архитектура"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужен rememberSaveable
+
+`remember` сохраняет значение между recomposition, но не переживает пересоздание Activity. Например, при повороте экрана Android может уничтожить Activity и создать новую. Обычный remembered state при этом исчезнет.
+
+`rememberSaveable` решает другую задачу: он сохраняет значение через saved instance state mechanism, чтобы восстановить его после configuration change и system-initiated process death.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Composable
+fun SearchInput() {
+    var query by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    Column {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { nextQuery ->
+                query = nextQuery
+            },
+            label = {
+                Text(text = "Поиск")
+            }
+        )
+
+        Text(text = "Текущий запрос: $query")
+    }
+}
+```
+
+Что произойдет:
+
+- пользователь введет текст;
+- `query` сохранится в saveable state;
+- при пересоздании Activity Compose попытается восстановить значение;
+- поле продолжит показывать введенный текст.
+
+<CatTip>
+`rememberSaveable` нужен для небольшого UI element state: текст ввода, выбранная вкладка, позиция списка, раскрытая секция, выбранный id. Для больших моделей используйте ViewModel, репозиторий и persistent storage.
+</CatTip>
+
+## Чем rememberSaveable отличается от remember
+
+`remember`:
+
+- переживает recomposition;
+- не переживает пересоздание Activity;
+- хранит ту же самую ссылку на объект;
+- может хранить любой объект, пока composition жива.
+
+`rememberSaveable`:
+
+- переживает recomposition;
+- переживает configuration changes;
+- может пережить system-initiated process death;
+- восстанавливает эквивалентное значение, но не гарантирует ту же ссылку;
+- требует, чтобы значение можно было сохранить в Bundle или через `Saver`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+
+@Composable
+fun LifespanComparison() {
+    val localOnly = remember {
+        mutableStateOf("Живет только в текущей composition")
+    }
+
+    val saveable = rememberSaveable {
+        mutableStateOf("Может восстановиться после пересоздания Activity")
+    }
+}
+```
+
+## SaveableStateRegistry
+
+Внутри `rememberSaveable` работает `SaveableStateRegistry`.
+
+Упрощенный процесс:
+
+1. `rememberSaveable` создает или восстанавливает значение.
+2. Значение регистрируется в saveable registry.
+3. Когда Android сохраняет instance state, registry собирает saveable values.
+4. Значения попадают в Bundle.
+5. После пересоздания Activity registry отдает восстановленные значения обратно Compose.
+
+Для прикладного кода это обычно прозрачно. Но важно понимать ограничение: не все можно положить в Bundle.
+
+## Что сохраняется автоматически
+
+На Android автоматически сохраняются значения, которые Bundle умеет хранить.
+
+Обычно подходят:
+
+- `Boolean`;
+- `Int`;
+- `Long`;
+- `Float`;
+- `Double`;
+- `String`;
+- `Parcelable`;
+- `Serializable`;
+- enum при подходящем saver;
+- массивы и списки простых saveable-значений;
+- `TextFieldValue` через готовый saver;
+- `LazyListState` через готовый saver.
+
+Не стоит автоматически сохранять:
+
+- большие списки моделей;
+- bitmap;
+- репозиторий;
+- база данных entity с тяжелыми связями;
+- `Context`;
+- coroutine scope;
+- open file handle;
+- сетевой клиент;
+- объекты, которые должны быть восстановлены из data layer.
+
+<MouseTrap>
+Bundle имеет ограниченный размер. Если сохранить туда большой объект или список объектов, приложение может упасть с `TransactionTooLargeException`. В Bundle кладите минимум: id, строку ввода, индекс, offset, выбранный enum.
+</MouseTrap>
+
+## inputs
+
+`rememberSaveable` принимает `inputs`, которые работают как ключи `remember`: если input изменился, сохраненное значение инвалидируется и init-блок выполняется заново.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Composable
+fun UserNoteEditor(
+    userId: String,
+    initialNote: String
+) {
+    var note by rememberSaveable(userId) {
+        mutableStateOf(initialNote)
+    }
+
+    OutlinedTextField(
+        value = note,
+        onValueChange = { nextNote ->
+            note = nextNote
+        },
+        label = {
+            Text(text = "Заметка пользователя")
+        }
+    )
+}
+```
+
+Если `userId` изменится, старый текст редактора не должен оставаться в форме другого пользователя. Поэтому `userId` используется как input.
+
+Важно: современный `rememberSaveable` опирается на positional scoping. Не используйте кастомный строковый key как способ вручную управлять памятью. Для смены сущности используйте inputs и ключи composition там, где они нужны.
+
+## Saver
+
+`Saver` описывает, как превратить сложный объект в saveable-представление и как восстановить объект обратно.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.saveable.Saver
+
+@Immutable
+data class PriceFilter(
+    val minPrice: Int,
+    val maxPrice: Int
+)
+
+val PriceFilterSaver = Saver<PriceFilter, List<Int>>(
+    save = { filter ->
+        listOf(
+            filter.minPrice,
+            filter.maxPrice
+        )
+    },
+    restore = { restored ->
+        PriceFilter(
+            minPrice = restored[0],
+            maxPrice = restored[1]
+        )
+    }
+)
+```
+
+Использование:
+
+```kotlin
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Composable
+fun PriceFilterEditor() {
+    var filter by rememberSaveable(
+        stateSaver = PriceFilterSaver
+    ) {
+        mutableStateOf(
+            PriceFilter(
+                minPrice = 0,
+                maxPrice = 10_000
+            )
+        )
+    }
+
+    Text(text = "Максимальная цена: ${filter.maxPrice}")
+
+    Slider(
+        value = filter.maxPrice.toFloat(),
+        onValueChange = { nextValue ->
+            filter = filter.copy(
+                maxPrice = nextValue.toInt()
+            )
+        },
+        valueRange = 0f..20_000f
+    )
+}
+```
+
+`Saver` должен сохранять только те данные, которых достаточно для восстановления UI-состояние.
+
+## listSaver
+
+`listSaver` удобен, когда состояние можно представить коротким списком saveable-значений.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.saveable.listSaver
+
+@Immutable
+data class SearchDraft(
+    val query: String,
+    val selectedCategoryId: String,
+    val onlyAvailable: Boolean
+)
+
+val SearchDraftListSaver = listSaver<SearchDraft, Any>(
+    save = { draft ->
+        listOf(
+            draft.query,
+            draft.selectedCategoryId,
+            draft.onlyAvailable
+        )
+    },
+    restore = { restored ->
+        SearchDraft(
+            query = restored[0] as String,
+            selectedCategoryId = restored[1] as String,
+            onlyAvailable = restored[2] as Boolean
+        )
+    }
+)
+```
+
+Плюсы:
+
+- компактно;
+- легко читать для небольших моделей;
+- порядок полей очевиден рядом с restore.
+
+Минусы:
+
+- порядок элементов критичен;
+- при добавлении поля нужно аккуратно обновить `save` и `restore`;
+- чтение через индексы хуже документирует смысл, чем map.
+
+## mapSaver
+
+`mapSaver` сохраняет значения по строковым ключам.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.saveable.mapSaver
+
+enum class SortMode {
+    ByRelevance,
+    ByPrice,
+    ByRating
+}
+
+@Immutable
+data class CatalogDraft(
+    val query: String,
+    val sortMode: SortMode,
+    val selectedBrandId: String
+)
+
+val CatalogDraftMapSaver = mapSaver(
+    save = { draft ->
+        mapOf(
+            "query" to draft.query,
+            "sortMode" to draft.sortMode.name,
+            "selectedBrandId" to draft.selectedBrandId
+        )
+    },
+    restore = { restored ->
+        CatalogDraft(
+            query = restored["query"] as String,
+            sortMode = SortMode.valueOf(restored["sortMode"] as String),
+            selectedBrandId = restored["selectedBrandId"] as String
+        )
+    }
+)
+```
+
+`mapSaver` чуть более многословен, зато восстановление легче читать: ключи показывают смысл сохраненных значений.
+
+## SaverScope.canBeSaved
+
+Внутри `save` можно проверить, умеет ли registry сохранить конкретное значение.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.saveable.Saver
+
+@Immutable
+data class TagSelection(
+    val selectedTagIds: List<String>
+)
+
+val TagSelectionSaver = Saver<TagSelection, List<String>>(
+    save = { selection ->
+        if (canBeSaved(selection.selectedTagIds)) {
+            selection.selectedTagIds
+        } else {
+            emptyList()
+        }
+    },
+    restore = { restored ->
+        TagSelection(
+            selectedTagIds = restored
+        )
+    }
+)
+```
+
+В большинстве приложений достаточно сохранять примитивы и строки. `canBeSaved` полезен для переиспользуемый-компонентов и библиотек, которые не знают заранее, какой registry будет в окружении.
+
+## TextFieldValue.Saver
+
+Для сложного состояния текстового поля, где важны selection и composition, используйте `TextFieldValue.Saver`.
+
+```kotlin
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.TextFieldValue
+
+@Composable
+fun RichTextDraftInput() {
+    var value by rememberSaveable(
+        stateSaver = TextFieldValue.Saver
+    ) {
+        mutableStateOf(TextFieldValue(""))
+    }
+
+    BasicTextField(
+        value = value,
+        onValueChange = { nextValue ->
+            value = nextValue
+        }
+    )
+}
+```
+
+Если хранить только `String`, позиция курсора может восстановиться иначе. `TextFieldValue` хранит больше информации о состоянии редактирования.
+
+## LazyListState.Saver
+
+`LazyListState` содержит позицию списка: индекс первого видимого элемента и scroll offset. Его можно сохранять через готовый saver.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
+
+@Composable
+fun SavedScrollList(
+    items: List<String>
+) {
+    val listState = rememberSaveable(
+        saver = LazyListState.Saver
+    ) {
+        LazyListState()
+    }
+
+    LazyColumn(
+        state = listState
+    ) {
+        items(
+            items = items,
+            key = { item ->
+                item
+            }
+        ) { item ->
+            Text(text = item)
+        }
+    }
+}
+```
+
+На практике часто достаточно `rememberLazyListState()`, потому что стандартный API уже использует нужные механизмы сохранения там, где это предусмотрено. Но понимание `LazyListState.Saver` помогает писать собственные state-holder объекты.
+
+## SaveableStateHolder
+
+`SaveableStateHolder` сохраняет saveable state для контента, который временно удаляется из composition. Это полезно для вкладок, пользовательский navigation и master-detail UI.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
+
+enum class EditorTab {
+    Title,
+    Description
+}
+
+@Composable
+fun SaveableTabs() {
+    var selectedTab by rememberSaveable {
+        mutableStateOf(EditorTab.Title)
+    }
+
+    val stateHolder = rememberSaveableStateHolder()
+
+    Column {
+        FilterChip(
+            selected = selectedTab == EditorTab.Title,
+            onClick = {
+                selectedTab = EditorTab.Title
+            },
+            label = {
+                Text(text = "Название")
+            }
+        )
+
+        FilterChip(
+            selected = selectedTab == EditorTab.Description,
+            onClick = {
+                selectedTab = EditorTab.Description
+            },
+            label = {
+                Text(text = "Описание")
+            }
+        )
+
+        stateHolder.SaveableStateProvider(
+            key = selectedTab.name
+        ) {
+            TabEditor(tab = selectedTab)
+        }
+    }
+}
+
+@Composable
+fun TabEditor(
+    tab: EditorTab
+) {
+    var text by rememberSaveable(tab) {
+        mutableStateOf("")
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { nextText ->
+            text = nextText
+        },
+        label = {
+            Text(text = "Поле ${tab.name}")
+        }
+    )
+}
+```
+
+Когда вкладка исчезает из composition, `SaveableStateHolder` может сохранить ее saveable state и восстановить его при возвращении.
+
+## Минимальное состояние
+
+Правило: сохраняйте не объект, а ключ восстановления.
+
+Плохо:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Immutable
+data class ProductDetails(
+    val id: String,
+    val title: String,
+    val description: String,
+    val imageUrls: List<String>,
+    val relatedProductIds: List<String>
+)
+
+@Composable
+fun ProductScreenWrong(
+    product: ProductDetails
+) {
+    var savedProduct by rememberSaveable {
+        mutableStateOf(product)
+    }
+}
+```
+
+Почему плохо:
+
+- модель может быть большой;
+- список изображений занимает место;
+- восстановление продукта должно идти из data layer;
+- не все поля могут быть saveable;
+- Bundle не предназначен для хранения всего экрана.
+
+Хорошо:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+
+@Composable
+fun ProductScreenCorrect(
+    initialProductId: String
+) {
+    var selectedProductId by rememberSaveable {
+        mutableStateOf(initialProductId)
+    }
+}
+```
+
+По id можно заново загрузить product details из репозиторий.
+
+## rememberSaveable и ViewModel
+
+`rememberSaveable` подходит для UI element state, который живет рядом с composable.
+
+`ViewModel` подходит для состояние экрана и business logic.
+
+`SavedStateHandle` подходит для минимального состояния ViewModel, которое должно пережить process death.
+
+Пример разделения:
+
+- `rememberSaveable`: текст в локальном поле поиска, выбранная вкладка, scroll position;
+- `ViewModel`: загрузка данных, обработка ошибок, применение фильтров, бизнес-правила;
+- `SavedStateHandle`: `conversationId`, выбранный filter enum, черновик короткого сообщения.
+
+## rememberSerializable
+
+В современных версиях Compose рядом с `rememberSaveable` может встречаться `rememberSerializable`. Его задача похожа: сохранить значение, но через сериализацию. Он полезен, когда проект уже использует `kotlinx.serialization` и состояние естественно описано serializable-моделью.
+
+Важная идея остается той же: сохраняйте небольшое UI-состояние, а не тяжелые данные экрана.
+
+## Тестирование восстановления
+
+Восстановление state стоит тестировать, если поведение критично для UX.
+
+```kotlin
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTextInput
+import org.junit.Rule
+import org.junit.Test
+
+@Composable
+fun SaveableNameField() {
+    var name by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    OutlinedTextField(
+        value = name,
+        onValueChange = { nextName ->
+            name = nextName
+        },
+        modifier = Modifier.testTag("name-field"),
+        label = {
+            Text(text = "Имя")
+        }
+    )
+}
+
+class SaveableNameFieldTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun restoresTypedName() {
+        val restorationTester = StateRestorationTester(composeRule)
+
+        restorationTester.setContent {
+            SaveableNameField()
+        }
+
+        composeRule
+            .onNodeWithTag("name-field")
+            .performTextInput("Анна")
+
+        restorationTester.emulateSavedInstanceStateRestore()
+
+        composeRule
+            .onNodeWithTag("name-field")
+            .assertTextEquals("Анна")
+    }
+}
+```
+
+Тест имитирует восстановление saved instance state и проверяет, что пользовательский ввод не потерялся.
+
+## Типичные ошибки
+
+### Сохранять большой объект
+
+Bundle не является базой данных. Сохраняйте id и короткие значения, а тяжелые данные восстанавливайте из слоя данных.
+
+### Ожидать ту же ссылку
+
+После восстановления объект может быть новым экземпляром. Код не должен зависеть от reference equality.
+
+### Забывать inputs при смене сущности
+
+Если редактор пользователя не сбрасывается при смене `userId`, новый пользователь может увидеть старый черновик.
+
+### Сохранять state, который должен потеряться
+
+Не всякое состояние надо восстанавливать. Например, одноразовая анимация успеха или временный snackbar могут корректно исчезнуть.
+
+### Использовать rememberSaveable вместо архитектуры
+
+Если state нужен бизнес-логике, сетевым запросам или нескольким экранам, поднимайте его в ViewModel или выше.
+
+## Итоги
+
+`rememberSaveable` расширяет `remember` за счет сохранения через saved instance state:
+
+- переживает recomposition;
+- помогает пережить configuration changes;
+- может восстановить состояние после system-initiated process death;
+- сохраняет только saveable-значения;
+- использует `inputs` для сброса при смене сущности;
+- для сложных типов применяются `Saver`, `listSaver` и `mapSaver`;
+- `TextFieldValue.Saver` сохраняет состояние редактирования текста;
+- `LazyListState.Saver` сохраняет позицию списка;
+- `SaveableStateHolder` помогает временно убирать контент из composition;
+- Bundle ограничен по размеру;
+- в Bundle нужно класть минимальное состояние, достаточное для восстановления UI.

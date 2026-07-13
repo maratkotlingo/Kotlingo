@@ -1,0 +1,486 @@
+---
+title: "rememberUpdatedState"
+description: "Подробно разбираем rememberUpdatedState в Jetpack Compose: свежая лямбда внутри long-lived effects, splash timeout, timers, обратные вызовы, DisposableEffect listeners и отличие от ключей эффекта."
+order: 36
+category: "Compose: побочные эффекты, корутины и CompositionLocal"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужен rememberUpdatedState
+
+`rememberUpdatedState` решает очень конкретную проблему: long-lived effect должен продолжать жить без перезапуска, но при этом видеть актуальное значение или обратный вызов.
+
+Типичный пример — splash timeout:
+
+- таймер должен стартовать один раз;
+- recomposition может принести новый `onTimeout`;
+- таймер не должен начинаться заново из-за смены обратный вызов;
+- после задержки должен вызваться самый свежий обратный вызов.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+
+@Composable
+fun SplashTimeout(
+    onTimeout: () -> Unit
+) {
+    val latestOnTimeout by rememberUpdatedState(onTimeout)
+
+    LaunchedEffect(Unit) {
+        delay(1_500)
+        latestOnTimeout()
+    }
+}
+```
+
+Что происходит:
+
+- `LaunchedEffect(Unit)` запускается один раз для текущего места в composition;
+- `rememberUpdatedState(onTimeout)` обновляет `State`, когда приходит новый обратный вызов;
+- coroutine не перезапускается;
+- после `delay` вызывается актуальная версия `onTimeout`.
+
+<CatTip>
+`rememberUpdatedState` не управляет запуском эффекта. Он только дает effect-блоку безопасный доступ к свежему значению без restart.
+</CatTip>
+
+## Проблема устаревшего захвата
+
+Coroutine захватывает значения из момента запуска.
+
+Проблемный код:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+
+@Composable
+fun SplashTimeoutWrong(
+    onTimeout: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        delay(1_500)
+        onTimeout()
+    }
+}
+```
+
+Если `onTimeout` изменится через recomposition, уже запущенная coroutine продолжит держать старую ссылку. Иногда это незаметно, а иногда приводит к навигации через старый `NavController`, старый обратный вызов теста или устаревшую аналитическую функцию.
+
+Исправление:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+
+@Composable
+fun SplashTimeoutCorrect(
+    onTimeout: () -> Unit
+) {
+    val currentOnTimeout by rememberUpdatedState(onTimeout)
+
+    LaunchedEffect(Unit) {
+        delay(1_500)
+        currentOnTimeout()
+    }
+}
+```
+
+## Синтаксис
+
+`rememberUpdatedState` возвращает `State<T>`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.rememberUpdatedState
+
+@Composable
+fun rememberLatestTitle(
+    title: String
+): State<String> {
+    return rememberUpdatedState(title)
+}
+```
+
+Обычно используется delegation:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+
+@Composable
+fun LatestCallbackHolder(
+    onAction: () -> Unit
+) {
+    val latestOnAction by rememberUpdatedState(onAction)
+}
+```
+
+Важно:
+
+- returned state обновляется при recomposition;
+- effect не перезапускается сам по себе;
+- чтение внутри effect дает актуальное значение;
+- API особенно полезен с `LaunchedEffect(Unit)` и `DisposableEffect`.
+
+## Не замена ключам
+
+`rememberUpdatedState` не должен скрывать значение, которое реально должно перезапускать effect.
+
+Правильно использовать ключ:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+interface ArticleTracker {
+    suspend fun trackOpened(articleId: String)
+}
+
+@Composable
+fun TrackArticleOpened(
+    articleId: String,
+    tracker: ArticleTracker
+) {
+    LaunchedEffect(articleId, tracker) {
+        tracker.trackOpened(articleId)
+    }
+}
+```
+
+Здесь `articleId` должен быть ключом, потому что смена статьи означает новую работу.
+
+Плохо:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+
+@Composable
+fun TrackArticleOpenedWrong(
+    articleId: String,
+    tracker: ArticleTracker
+) {
+    val latestArticleId by rememberUpdatedState(articleId)
+
+    LaunchedEffect(tracker) {
+        tracker.trackOpened(latestArticleId)
+    }
+}
+```
+
+Почему плохо:
+
+- effect не перезапустится при смене статьи;
+- событие может не отправиться для нового `articleId`;
+- `rememberUpdatedState` спрятал важную lifecycle-зависимость.
+
+<MouseTrap>
+Если изменение значения должно отменить старую работу и начать новую, значение должно быть ключом эффекта. `rememberUpdatedState` нужен только тогда, когда restart не нужен.
+</MouseTrap>
+
+## Long-lived таймер
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+
+@Composable
+fun CountdownTimer(
+    seconds: Int,
+    onFinished: () -> Unit
+) {
+    var remainingSeconds by remember(seconds) {
+        mutableIntStateOf(seconds)
+    }
+    val latestOnFinished by rememberUpdatedState(onFinished)
+
+    LaunchedEffect(seconds) {
+        remainingSeconds = seconds
+
+        while (remainingSeconds > 0) {
+            delay(1_000)
+            remainingSeconds -= 1
+        }
+
+        latestOnFinished()
+    }
+
+    Text(text = "Осталось секунд: $remainingSeconds")
+}
+```
+
+Здесь:
+
+- `seconds` является ключом, потому что новый duration должен перезапустить таймер;
+- `onFinished` не является ключом, потому что смена обратный вызов не должна сбрасывать countdown;
+- `latestOnFinished` гарантирует актуальный обратный вызов.
+
+## DisposableEffect listener
+
+`rememberUpdatedState` часто нужен внутри listener, зарегистрированного через `DisposableEffect`.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+
+interface PlaybackSource {
+    fun addListener(listener: PlaybackListener)
+    fun removeListener(listener: PlaybackListener)
+}
+
+fun interface PlaybackListener {
+    fun onPlaybackCompleted(mediaId: String)
+}
+
+@Composable
+fun PlaybackCompletionEffect(
+    source: PlaybackSource,
+    onPlaybackCompleted: (String) -> Unit
+) {
+    val latestOnPlaybackCompleted by rememberUpdatedState(onPlaybackCompleted)
+
+    DisposableEffect(source) {
+        val listener = PlaybackListener { mediaId ->
+            latestOnPlaybackCompleted(mediaId)
+        }
+
+        source.addListener(listener)
+
+        onDispose {
+            source.removeListener(listener)
+        }
+    }
+}
+```
+
+Если `onPlaybackCompleted` меняется, listener остается зарегистрированным, но вызывает свежую функцию.
+
+## Lifecycle observer
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
+@Composable
+fun LifecycleCallbacks(
+    lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    val latestOnStart by rememberUpdatedState(onStart)
+    val latestOnStop by rememberUpdatedState(onStop)
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    latestOnStart()
+                }
+
+                Lifecycle.Event.ON_STOP -> {
+                    latestOnStop()
+                }
+
+                else -> {
+                    // Остальные события жизненного цикла в этом эффекте не используются.
+                }
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+}
+```
+
+Ключом является `lifecycleOwner`, потому что observer зарегистрирован на нем. Обратные вызовы обновляются через `rememberUpdatedState`.
+
+## Боевой-пример: автосохранение без сброса интервала
+
+Представим редактор, который сохраняет черновик каждые 10 секунд. Если обратный вызов сохранения обновился, interval не должен начинаться заново.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
+
+@Composable
+fun AutoSaveEffect(
+    documentId: String,
+    enabled: Boolean,
+    onAutoSave: suspend (String) -> Unit
+) {
+    val latestOnAutoSave by rememberUpdatedState(onAutoSave)
+
+    if (enabled) {
+        LaunchedEffect(documentId, enabled) {
+            while (coroutineContext.isActive) {
+                delay(10_000)
+                latestOnAutoSave(documentId)
+            }
+        }
+    }
+}
+```
+
+Разбор:
+
+- `documentId` является ключом, потому что новый документ должен получить новый autosave loop;
+- `enabled` управляет входом ветки и ключом;
+- `onAutoSave` обновляется без перезапуска loop;
+- cancellation останавливает loop при уходе composable.
+
+## Боевой-пример: задержанное подтверждение
+
+```kotlin
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+
+@Composable
+fun ConfirmLaterDialog(
+    visible: Boolean,
+    message: String,
+    onDismiss: () -> Unit,
+    onAutoConfirm: () -> Unit
+) {
+    val latestOnAutoConfirm by rememberUpdatedState(onAutoConfirm)
+
+    if (visible) {
+        LaunchedEffect(message) {
+            delay(5_000)
+            latestOnAutoConfirm()
+        }
+
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            confirmButton = {
+                TextButton(onClick = onAutoConfirm) {
+                    Text(text = "Подтвердить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text(text = "Отмена")
+                }
+            },
+            title = {
+                Text(text = "Подтверждение")
+            },
+            text = {
+                Text(text = message)
+            }
+        )
+    }
+}
+```
+
+Здесь `message` является ключом: если текст подтверждения изменился, timeout начинается заново. `onAutoConfirm` обновляется без перезапуска.
+
+## Когда API не нужен
+
+`rememberUpdatedState` не нужен, если:
+
+- обратный вызов вызывается прямо из текущего `onClick`;
+- значение должно быть ключом effect;
+- нет long-lived лямбда или listener;
+- вы просто отображаете state;
+- effect должен перезапуститься при изменении значения.
+
+Пример без необходимости:
+
+```kotlin
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun SimpleActionButton(
+    onAction: () -> Unit
+) {
+    Button(onClick = onAction) {
+        Text(text = "Выполнить")
+    }
+}
+```
+
+`Button` и так получает актуальный обратный вызов при recomposition.
+
+## Типичные ошибки
+
+### Прятать ключи
+
+Если `userId`, `url`, `documentId` или `roomId` меняют смысл работы, они должны быть ключами.
+
+### Использовать для обычного onClick
+
+В `onClick` обратный вызов уже актуален после recomposition. Дополнительный holder не нужен.
+
+### Считать, что он сохраняет старое значение
+
+Название может сбить с толку. API хранит обновляемый `State`, который всегда указывает на свежее значение.
+
+### Использовать вместо подъем состояния
+
+Если child должен получать новое значение, передавайте его параметром. `rememberUpdatedState` не заменяет нормальный data flow.
+
+### Забывать delegation
+
+Без `by` вы получите `State<T>` и должны читать `.value`. Это нормально, но в effect-коде delegation часто проще.
+
+## Итоги
+
+`rememberUpdatedState` нужен для свежих значений внутри долгоживущих effects:
+
+- возвращает `State<T>`;
+- обновляется при recomposition;
+- не перезапускает effect;
+- полезен с `LaunchedEffect(Unit)`;
+- полезен с listeners в `DisposableEffect`;
+- предотвращает устаревшие обратный вызов;
+- не заменяет ключи effect;
+- не нужен для обычных `onClick`;
+- помогает отделить lifecycle работы от актуальности обратный вызов.

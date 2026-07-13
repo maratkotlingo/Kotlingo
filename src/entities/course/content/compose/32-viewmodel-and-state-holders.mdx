@@ -1,0 +1,964 @@
+---
+title: "ViewModel и держатели состояния"
+description: "Разбираем ViewModel и держатели состояния в Compose: viewModel(), UI-состояние классы данных, события как лямбды, route/screen boundary, plain держатели состояния, состояние экрана holder vs element держатель состояния и one-off events без SingleLiveEvent."
+order: 32
+category: "Compose: состояние, snapshots и управление данными UI"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем Compose нужен держатель состояния
+
+Composable-функция должна быть быстрой, предсказуемой и легко пересобираемой. Поэтому сложную логику состояния лучше выносить в держатель состояния.
+
+Держатель состояния — объект, который:
+
+- хранит состояние;
+- принимает события;
+- обновляет состояние;
+- может общаться с репозиторий/domain layer;
+- отделяет UI-отрисовку от логики экрана.
+
+В Compose обычно встречаются два типа:
+
+- plain держатель состояния: обычный Kotlin-класс, часто создается через `remember`;
+- `ViewModel`: держатель состояния уровня экрана, связанный с Android lifecycle и архитектурой приложения.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+@Stable
+class CounterState {
+
+    var count by mutableStateOf(0)
+        private set
+
+    fun increment() {
+        count += 1
+    }
+
+    fun reset() {
+        count = 0
+    }
+}
+
+@Composable
+fun rememberCounterState(): CounterState {
+    return remember {
+        CounterState()
+    }
+}
+```
+
+Это plain держатель состояния. Он не знает про Android `ViewModel`, но отлично подходит для локальной UI-логики.
+
+<CatTip>
+Не все держатель состояния должны быть ViewModel. Если состояние живет только внутри конкретного переиспользуемого компонента и не требует business logic, обычный remembered class часто проще и чище.
+</CatTip>
+
+## Что делает ViewModel
+
+`ViewModel` — держатель состояния уровня экрана или бизнес-логики. Он:
+
+- переживает configuration changes;
+- имеет `viewModelScope`;
+- может работать с репозиторий;
+- может хранить `StateFlow` или Compose `State`;
+- очищается, когда его `ViewModelStoreOwner` уничтожается окончательно;
+- не переживает system-initiated process death без `SavedStateHandle`.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+data class SettingsUiState(
+    val notificationsEnabled: Boolean,
+    val syncOverWifiOnly: Boolean
+)
+
+class SettingsViewModel : ViewModel() {
+
+    private val _uiState = MutableStateFlow(
+        SettingsUiState(
+            notificationsEnabled = true,
+            syncOverWifiOnly = true
+        )
+    )
+
+    val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            notificationsEnabled = enabled
+        )
+    }
+
+    fun setSyncOverWifiOnly(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            syncOverWifiOnly = enabled
+        )
+    }
+}
+```
+
+ViewModel не должен напрямую рисовать UI. Он готовит state и обрабатывает события.
+
+## viewModel()
+
+В Compose ViewModel получают через `viewModel()` на route boundary.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+@Composable
+fun SettingsRoute(
+    viewModel: SettingsViewModel = viewModel()
+) {
+    // Route связывает ViewModel с UI.
+}
+```
+
+Для этого нужна зависимость:
+
+```kotlin
+dependencies {
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+}
+```
+
+Правила:
+
+- вызывайте `viewModel()` на уровне route/screen точка входа;
+- не прокидывайте ViewModel в каждый маленький компонент;
+- переиспользуемый UI должен получать plain state и обратные вызовы;
+- scope ViewModel определяется текущим `ViewModelStoreOwner`;
+- в Navigation Compose owner обычно связан с back stack entry.
+
+## Route и Screen
+
+Хороший Compose-экран часто делится на:
+
+- `Route`: знает про ViewModel, Flow collection, навигацию, snackbar, permissions;
+- `Screen`: stateless UI, получает state и обратные вызовы.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+@Composable
+fun SettingsRoute(
+    viewModel: SettingsViewModel = viewModel()
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    SettingsScreen(
+        state = state,
+        onNotificationsChange = viewModel::setNotificationsEnabled,
+        onWifiOnlyChange = viewModel::setSyncOverWifiOnly
+    )
+}
+
+@Composable
+fun SettingsScreen(
+    state: SettingsUiState,
+    onNotificationsChange: (Boolean) -> Unit,
+    onWifiOnlyChange: (Boolean) -> Unit
+) {
+    Column {
+        Text(text = "Уведомления")
+        Switch(
+            checked = state.notificationsEnabled,
+            onCheckedChange = { checked ->
+                onNotificationsChange(checked)
+            }
+        )
+
+        Text(text = "Синхронизация только по Wi-Fi")
+        Switch(
+            checked = state.syncOverWifiOnly,
+            onCheckedChange = { checked ->
+                onWifiOnlyChange(checked)
+            }
+        )
+    }
+}
+```
+
+Преимущества:
+
+- `SettingsScreen` легко открыть в Предпросмотр;
+- тест UI может передать фиктивный state;
+- ViewModel можно тестировать отдельно;
+- navigation и lifecycle не протекают в маленькие компоненты.
+
+<MouseTrap>
+Если composable принимает ViewModel, он перестает быть универсальным UI-компонентом. Это нормально для route, но плохо для кнопки, карточки, строки списка или формы.
+</MouseTrap>
+
+## UI-состояние data class
+
+Screen UI-состояние лучше описывать immutable data class или sealed interface.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ArticleListUiState(
+    val loading: Boolean,
+    val articles: List<ArticleRowUi>,
+    val selectedArticleId: String?,
+    val errorMessage: String?
+)
+
+@Immutable
+data class ArticleRowUi(
+    val id: String,
+    val title: String,
+    val subtitle: String
+)
+```
+
+Почему data class:
+
+- легко копировать через `copy`;
+- состояние видно целиком;
+- удобно сравнивать в тестах;
+- UI получает один объект;
+- проще сохранять однонаправленный поток данных.
+
+Sealed interface хорош, если состояния взаимоисключающие:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+sealed interface ArticleDetailsUiState {
+    data object Loading : ArticleDetailsUiState
+
+    data class Content(
+        val title: String,
+        val body: String
+    ) : ArticleDetailsUiState
+
+    data class Error(
+        val message: String
+    ) : ArticleDetailsUiState
+}
+```
+
+Когда выбрать data class:
+
+- загрузка может сочетаться с данными;
+- error может показываться поверх старого content;
+- экран имеет много независимых флагов.
+
+Когда выбрать sealed interface:
+
+- экран явно находится в одном из режимов;
+- загрузка/контент/ошибка взаимоисключающие;
+- UI проще читать через `when`.
+
+## Events as лямбды
+
+UI-компоненты должны выражать события через лямбды.
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun LoginScreen(
+    email: String,
+    password: String,
+    loading: Boolean,
+    onEmailChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onLoginClick: () -> Unit
+) {
+    Column {
+        OutlinedTextField(
+            value = email,
+            onValueChange = { nextEmail ->
+                onEmailChange(nextEmail)
+            },
+            label = {
+                Text(text = "Email")
+            }
+        )
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = { nextPassword ->
+                onPasswordChange(nextPassword)
+            },
+            label = {
+                Text(text = "Пароль")
+            }
+        )
+
+        Button(
+            enabled = !loading,
+            onClick = onLoginClick
+        ) {
+            Text(
+                text = if (loading) {
+                    "Входим"
+                } else {
+                    "Войти"
+                }
+            )
+        }
+    }
+}
+```
+
+ViewModel решает, что делать с событиями:
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+data class LoginUiState(
+    val email: String = "",
+    val password: String = "",
+    val loading: Boolean = false,
+    val errorMessage: String? = null
+)
+
+class LoginViewModel : ViewModel() {
+
+    private val _uiState = MutableStateFlow(LoginUiState())
+    val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
+
+    fun updateEmail(email: String) {
+        _uiState.value = _uiState.value.copy(
+            email = email,
+            errorMessage = null
+        )
+    }
+
+    fun updatePassword(password: String) {
+        _uiState.value = _uiState.value.copy(
+            password = password,
+            errorMessage = null
+        )
+    }
+
+    fun login() {
+        val current = _uiState.value
+
+        if (current.email.isBlank() || current.password.isBlank()) {
+            _uiState.value = current.copy(
+                errorMessage = "Заполните email и пароль"
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = current.copy(
+                loading = true,
+                errorMessage = null
+            )
+
+            delay(700)
+
+            _uiState.value = _uiState.value.copy(
+                loading = false
+            )
+        }
+    }
+}
+```
+
+## One-off events без SingleLiveEvent
+
+`SingleLiveEvent` появился как workaround для View-based эпохи. В Compose лучше явно выбрать стратегию.
+
+Есть два основных варианта:
+
+- state-driven effect;
+- event stream через `SharedFlow` или `Channel`.
+
+### State-driven effect
+
+Если событие можно представить как часть state, часто лучше сделать его state.
+
+```kotlin
+data class ProfileSaveUiState(
+    val saving: Boolean = false,
+    val savedMessage: String? = null
+)
+```
+
+UI показывает snackbar, когда `savedMessage` не null, а потом сообщает, что сообщение обработано.
+
+```kotlin
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+
+@Composable
+fun ProfileSaveRoute(
+    state: ProfileSaveUiState,
+    onSavedMessageShown: () -> Unit
+) {
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+
+    val message = state.savedMessage
+
+    if (message != null) {
+        LaunchedEffect(message) {
+            snackbarHostState.showSnackbar(message)
+            onSavedMessageShown()
+        }
+    }
+}
+```
+
+Плюсы:
+
+- состояние можно восстановить;
+- UI явно показывает, что сообщение ожидает обработки;
+- тестировать проще.
+
+### SharedFlow для UI effects
+
+Если событие не является состоянием экрана, можно использовать `SharedFlow`.
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
+
+sealed interface LoginEffect {
+    data object NavigateToHome : LoginEffect
+    data class ShowSnackbar(
+        val message: String
+    ) : LoginEffect
+}
+
+class LoginEffectsViewModel : ViewModel() {
+
+    private val _effects = MutableSharedFlow<LoginEffect>()
+    val effects: SharedFlow<LoginEffect> = _effects.asSharedFlow()
+
+    fun onLoginSucceeded() {
+        viewModelScope.launch {
+            _effects.emit(LoginEffect.NavigateToHome)
+        }
+    }
+
+    fun onLoginFailed() {
+        viewModelScope.launch {
+            _effects.emit(
+                LoginEffect.ShowSnackbar(
+                    message = "Не удалось войти"
+                )
+            )
+        }
+    }
+}
+```
+
+Route собирает effects:
+
+```kotlin
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+
+@Composable
+fun LoginEffectsRoute(
+    viewModel: LoginEffectsViewModel,
+    onNavigateToHome: () -> Unit
+) {
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                LoginEffect.NavigateToHome -> {
+                    onNavigateToHome()
+                }
+
+                is LoginEffect.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(effect.message)
+                }
+            }
+        }
+    }
+}
+```
+
+Когда выбирать state-driven:
+
+- событие должно пережить configuration change;
+- событие связано с текущим состоянием экрана;
+- важно не потерять сообщение.
+
+Когда выбирать effect stream:
+
+- это навигация;
+- это transient command;
+- повтор после пересоздания нежелателен;
+- событие не является частью UI-состояние.
+
+<MouseTrap>
+One-off events — не повод возвращать глобальный event bus. Держите effects около владельца экрана, а сбор выполняйте на route boundary.
+</MouseTrap>
+
+## Plain держатель состояния
+
+Plain держатель состояния полезен, когда логика сложнее, чем пара `remember`, но ViewModel не нужна.
+
+```kotlin
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+@Stable
+class SearchPanelState(
+    initialQuery: String = ""
+) {
+    var query by mutableStateOf(initialQuery)
+        private set
+
+    var filtersExpanded by mutableStateOf(false)
+        private set
+
+    val clearEnabled by derivedStateOf {
+        query.isNotBlank()
+    }
+
+    fun updateQuery(nextQuery: String) {
+        query = nextQuery
+    }
+
+    fun toggleFilters() {
+        filtersExpanded = !filtersExpanded
+    }
+
+    fun clear() {
+        query = ""
+    }
+}
+```
+
+Composable factory:
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun rememberSearchPanelState(
+    initialQuery: String = ""
+): SearchPanelState {
+    return remember(initialQuery) {
+        SearchPanelState(initialQuery = initialQuery)
+    }
+}
+```
+
+Использование:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun SearchPanel(
+    state: SearchPanelState = rememberSearchPanelState()
+) {
+    Column {
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = { nextQuery ->
+                state.updateQuery(nextQuery)
+            },
+            label = {
+                Text(text = "Поиск")
+            }
+        )
+
+        Button(
+            enabled = state.clearEnabled,
+            onClick = {
+                state.clear()
+            }
+        ) {
+            Text(text = "Очистить")
+        }
+    }
+}
+```
+
+Такой holder хорош для UI-компонента, но если поиск запускает репозиторий, фильтрует server data и связан с навигацией, состояние лучше поднимать в ViewModel.
+
+## Screen держатель состояния vs element держатель состояния
+
+Element держатель состояния:
+
+- управляет одним компонентом;
+- живет в composition;
+- создается через `remember`;
+- не знает про репозиторий;
+- подходит для переиспользуемый UI.
+
+Screen держатель состояния:
+
+- управляет экраном;
+- часто является ViewModel;
+- получает зависимости;
+- вызывает сценарии использования;
+- переживает configuration changes;
+- предоставляет screen UI-состояние.
+
+Пример element держатель состояния:
+
+```kotlin
+@Stable
+class ExpandableCardState {
+
+    var expanded by mutableStateOf(false)
+        private set
+
+    fun toggle() {
+        expanded = !expanded
+    }
+}
+```
+
+Пример состояние экрана holder:
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.StateFlow
+
+class ArticleDetailsViewModel(
+    repository: ArticleRepository
+) : ViewModel() {
+
+    val uiState: StateFlow<ArticleDetailsUiState> =
+        repository.observeArticleDetails()
+}
+
+interface ArticleRepository {
+    fun observeArticleDetails(): StateFlow<ArticleDetailsUiState>
+}
+```
+
+## Боевой-пример: экран профиля
+
+ViewModel:
+
+```kotlin
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+data class EditProfileUiState(
+    val name: String = "",
+    val bio: String = "",
+    val saving: Boolean = false,
+    val errorMessage: String? = null
+)
+
+sealed interface EditProfileEffect {
+    data object NavigateBack : EditProfileEffect
+    data class ShowSnackbar(
+        val message: String
+    ) : EditProfileEffect
+}
+
+class EditProfileViewModel(
+    private val repository: ProfileRepository
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(EditProfileUiState())
+    val uiState: StateFlow<EditProfileUiState> = _uiState.asStateFlow()
+
+    private val _effects = MutableSharedFlow<EditProfileEffect>()
+    val effects: SharedFlow<EditProfileEffect> = _effects.asSharedFlow()
+
+    fun updateName(name: String) {
+        _uiState.value = _uiState.value.copy(
+            name = name,
+            errorMessage = null
+        )
+    }
+
+    fun updateBio(bio: String) {
+        _uiState.value = _uiState.value.copy(
+            bio = bio,
+            errorMessage = null
+        )
+    }
+
+    fun save() {
+        val state = _uiState.value
+
+        if (state.name.isBlank()) {
+            _uiState.value = state.copy(
+                errorMessage = "Введите имя"
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = state.copy(
+                saving = true,
+                errorMessage = null
+            )
+
+            val saved = repository.saveProfile(
+                name = state.name,
+                bio = state.bio
+            )
+
+            _uiState.value = _uiState.value.copy(
+                saving = false
+            )
+
+            if (saved) {
+                _effects.emit(EditProfileEffect.NavigateBack)
+            } else {
+                _effects.emit(
+                    EditProfileEffect.ShowSnackbar(
+                        message = "Профиль не сохранен"
+                    )
+                )
+            }
+        }
+    }
+}
+
+interface ProfileRepository {
+    suspend fun saveProfile(
+        name: String,
+        bio: String
+    ): Boolean
+}
+```
+
+Route:
+
+```kotlin
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun EditProfileRoute(
+    viewModel: EditProfileViewModel,
+    onNavigateBack: () -> Unit
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember {
+        SnackbarHostState()
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                EditProfileEffect.NavigateBack -> {
+                    onNavigateBack()
+                }
+
+                is EditProfileEffect.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(effect.message)
+                }
+            }
+        }
+    }
+
+    EditProfileScreen(
+        state = state,
+        onNameChange = viewModel::updateName,
+        onBioChange = viewModel::updateBio,
+        onSaveClick = viewModel::save
+    )
+}
+```
+
+Screen:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun EditProfileScreen(
+    state: EditProfileUiState,
+    onNameChange: (String) -> Unit,
+    onBioChange: (String) -> Unit,
+    onSaveClick: () -> Unit
+) {
+    Column {
+        OutlinedTextField(
+            value = state.name,
+            onValueChange = { nextName ->
+                onNameChange(nextName)
+            },
+            isError = state.errorMessage != null,
+            label = {
+                Text(text = "Имя")
+            }
+        )
+
+        OutlinedTextField(
+            value = state.bio,
+            onValueChange = { nextBio ->
+                onBioChange(nextBio)
+            },
+            label = {
+                Text(text = "О себе")
+            }
+        )
+
+        if (state.errorMessage != null) {
+            Text(text = state.errorMessage)
+        }
+
+        Button(
+            enabled = !state.saving,
+            onClick = onSaveClick
+        ) {
+            Text(
+                text = if (state.saving) {
+                    "Сохраняем"
+                } else {
+                    "Сохранить"
+                }
+            )
+        }
+    }
+}
+```
+
+## Тестирование ViewModel
+
+ViewModel тестируется без Compose UI.
+
+```kotlin
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class FakeProfileRepository : ProfileRepository {
+
+    var saveResult: Boolean = true
+
+    override suspend fun saveProfile(
+        name: String,
+        bio: String
+    ): Boolean {
+        return saveResult
+    }
+}
+
+class EditProfileViewModelTest {
+
+    @Test
+    fun saveShowsErrorWhenNameIsBlank() = runTest {
+        val repository = FakeProfileRepository()
+        val viewModel = EditProfileViewModel(repository)
+
+        viewModel.updateName("")
+        viewModel.updateBio("Android developer")
+        viewModel.save()
+
+        assertEquals(
+            expected = "Введите имя",
+            actual = viewModel.uiState.value.errorMessage
+        )
+    }
+}
+```
+
+UI-тест отдельно проверяет `EditProfileScreen`, передавая готовый state и фиктивные обратные вызовы.
+
+## Типичные ошибки
+
+### Прокидывать ViewModel везде
+
+ViewModel должен быть на boundary, а не в каждой строке списка.
+
+### Хранить Context в ViewModel
+
+ViewModel живет дольше Activity после configuration change. Хранение Activity context может привести к утечке.
+
+### Делать mutable UI-состояние публичным
+
+Публичный `MutableStateFlow` позволяет внешнему коду менять state. Используйте private mutable и public только для чтения.
+
+### Превращать все события в один sealed Event
+
+Один `onEvent(event)` может быть удобен в MVI, но для простого UI лямбды часто читаются лучше.
+
+### Использовать one-off event как постоянное состояние без сброса
+
+Если snackbar message хранится в state, нужен способ пометить его обработанным.
+
+## Итоги
+
+State holders отделяют UI от логики:
+
+- plain держатель состояния подходит для локальной UI-логики;
+- ViewModel подходит для screen-level state и business logic;
+- `viewModel()` вызывают на route boundary;
+- screen получает неизменяемое состояние и обратные вызовы;
+- UI-состояние удобно описывать data class или sealed interface;
+- events лучше передавать как лямбды с понятными именами;
+- one-off events лучше моделировать state-driven или через `SharedFlow`;
+- маленькие компоненты не должны зависеть от ViewModel;
+- public API ViewModel должен быть только для чтения для состояния.

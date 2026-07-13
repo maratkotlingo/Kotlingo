@@ -1,0 +1,686 @@
+---
+title: "Snapshot-коллекции"
+description: "Подробно изучаем mutableStateListOf, mutableStateMapOf, SnapshotStateList, SnapshotStateMap, observable mutations, immutable collections, стабильность моделей и безопасные паттерны списков в Compose."
+order: 30
+category: "Compose: состояние, snapshots и управление данными UI"
+difficulty: "Средний"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужны snapshot collections
+
+Compose умеет автоматически реагировать на изменения `MutableState<T>`. Но обычные изменяемые коллекции вроде `MutableList` и `MutableMap` не являются observable для Compose.
+
+Проблемный код:
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+
+val selectedIdsState = mutableStateOf(
+    mutableListOf<String>()
+)
+
+fun selectWrong(id: String) {
+    selectedIdsState.value.add(id)
+}
+```
+
+Почему это плохо:
+
+- `selectedIdsState.value` остается тем же объектом;
+- запись нового значения в `MutableState` не происходит;
+- Compose может не узнать, что внутри списка появился элемент;
+- UI может показать старые данные.
+
+Snapshot collections решают эту задачу. Они встроены в snapshot-систему Compose и сообщают runtime о своих изменениях.
+
+```kotlin
+import androidx.compose.runtime.mutableStateListOf
+
+val selectedIds = mutableStateListOf<String>()
+
+fun selectCorrect(id: String) {
+    selectedIds.add(id)
+}
+```
+
+Теперь изменение списка является observable mutation.
+
+<CatTip>
+Snapshot collections полезны для локального UI-состояния с частыми точечными изменениями: выбор элементов, раскрытие строк, временная корзина, локальные черновики. Для состояние экрана из репозиторий часто лучше immutable `List` внутри `StateFlow`.
+</CatTip>
+
+## mutableStateListOf
+
+`mutableStateListOf` создает `SnapshotStateList<T>`.
+
+```kotlin
+import androidx.compose.runtime.mutableStateListOf
+
+val names = mutableStateListOf("Анна", "Борис", "Вера")
+```
+
+Пустой список:
+
+```kotlin
+import androidx.compose.runtime.mutableStateListOf
+
+val selectedIds = mutableStateListOf<String>()
+```
+
+Из обычного списка:
+
+```kotlin
+import androidx.compose.runtime.toMutableStateList
+
+val initialNames = listOf("Анна", "Борис", "Вера")
+val stateNames = initialNames.toMutableStateList()
+```
+
+`SnapshotStateList` реализует привычные операции `MutableList`, но эти операции интегрированы со snapshot-системой.
+
+## SnapshotStateList: основные операции
+
+Чтение:
+
+- `size`: количество элементов;
+- `isEmpty()`: пуст ли список;
+- `isNotEmpty()`: есть ли элементы;
+- `contains(element)`: содержит ли элемент;
+- `get(index)`: элемент по индексу;
+- `first()`, `firstOrNull()`: первый элемент;
+- `last()`, `lastOrNull()`: последний элемент;
+- `indexOf(element)`: индекс элемента;
+- `forEach`: обход элементов;
+- `toList()`: immutable snapshot текущего содержимого.
+
+Запись:
+
+- `add(element)`: добавить элемент в конец;
+- `add(index, element)`: вставить по индексу;
+- `addAll(elements)`: добавить несколько элементов;
+- `set(index, element)`: заменить элемент;
+- `remove(element)`: удалить элемент;
+- `removeAt(index)`: удалить по индексу;
+- `removeAll(elements)`: удалить набор элементов;
+- `retainAll(elements)`: оставить только элементы из набора;
+- `clear()`: очистить список.
+
+Пример:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun SelectedTagsDemo() {
+    val selectedTags = remember {
+        mutableStateListOf<String>()
+    }
+
+    Column {
+        Button(
+            onClick = {
+                if ("compose" in selectedTags) {
+                    selectedTags.remove("compose")
+                } else {
+                    selectedTags.add("compose")
+                }
+            }
+        ) {
+            Text(text = "Переключить Compose")
+        }
+
+        Text(text = "Выбрано: ${selectedTags.joinToString()}")
+    }
+}
+```
+
+Когда кнопка меняет список, Compose узнает о mutation и обновляет `Text`, потому что `Text` читал содержимое списка.
+
+## Чтения тоже важны
+
+Snapshot-система отслеживает не только запись, но и то, что именно было прочитано.
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshots.SnapshotStateList
+
+@Composable
+fun SelectionCounter(
+    selectedIds: SnapshotStateList<String>
+) {
+    Text(text = "Выбрано: ${selectedIds.size}")
+}
+```
+
+Этот composable зависит от `selectedIds.size`. Если размер изменится, UI должен обновиться.
+
+Другой пример:
+
+```kotlin
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshots.SnapshotStateList
+
+@Composable
+fun FirstSelectedItem(
+    selectedIds: SnapshotStateList<String>
+) {
+    val firstId = selectedIds.firstOrNull()
+
+    Text(
+        text = if (firstId == null) {
+            "Ничего не выбрано"
+        } else {
+            "Первый выбранный элемент: $firstId"
+        }
+    )
+}
+```
+
+Компонент зависит от первого элемента и от факта пустоты списка.
+
+## mutableStateMapOf
+
+`mutableStateMapOf` создает `SnapshotStateMap<K, V>`.
+
+```kotlin
+import androidx.compose.runtime.mutableStateMapOf
+
+val expandedSections = mutableStateMapOf<String, Boolean>()
+```
+
+Начальные значения:
+
+```kotlin
+import androidx.compose.runtime.mutableStateMapOf
+
+val quantities = mutableStateMapOf(
+    "coffee" to 1,
+    "tea" to 2
+)
+```
+
+Из обычной map:
+
+```kotlin
+import androidx.compose.runtime.toMutableStateMap
+
+val initial = mapOf(
+    "coffee" to 1,
+    "tea" to 2
+)
+
+val stateMap = initial.toMutableStateMap()
+```
+
+## SnapshotStateMap: основные операции
+
+Чтение:
+
+- `size`: количество пар;
+- `isEmpty()`: пуста ли map;
+- `containsKey(key)`: есть ли ключ;
+- `containsValue(value)`: есть ли значение;
+- `get(key)`: значение по ключу;
+- `keys`: observable set ключей;
+- `values`: observable collection значений;
+- `entries`: пары ключ-значение;
+- `toMap()`: immutable snapshot текущего содержимого.
+
+Запись:
+
+- `put(key, value)`: записать значение;
+- `set(key, value)`: синтаксис `map[key] = value`;
+- `putAll(map)`: добавить несколько пар;
+- `remove(key)`: удалить по ключу;
+- `clear()`: очистить map.
+
+Пример:
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun CartQuantitiesDemo() {
+    val quantities = remember {
+        mutableStateMapOf<String, Int>()
+    }
+
+    Column {
+        Button(
+            onClick = {
+                val current = quantities["coffee"] ?: 0
+                quantities["coffee"] = current + 1
+            }
+        ) {
+            Text(text = "Добавить кофе")
+        }
+
+        Button(
+            onClick = {
+                val current = quantities["coffee"] ?: 0
+
+                if (current <= 1) {
+                    quantities.remove("coffee")
+                } else {
+                    quantities["coffee"] = current - 1
+                }
+            }
+        ) {
+            Text(text = "Уменьшить кофе")
+        }
+
+        Text(text = "Кофе в корзине: ${quantities["coffee"] ?: 0}")
+    }
+}
+```
+
+## Snapshot collections и LazyColumn
+
+Snapshot collections можно читать прямо в lazy layout. Но для боевой-списков все равно нужны ключи.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+
+@Immutable
+data class LocalDraftTask(
+    val id: String,
+    val title: String,
+    val done: Boolean
+)
+
+@Composable
+fun LocalTaskList() {
+    val tasks = remember {
+        mutableStateListOf(
+            LocalDraftTask(id = "1", title = "Прочитать документацию", done = false),
+            LocalDraftTask(id = "2", title = "Собрать пример", done = false)
+        )
+    }
+
+    LazyColumn {
+        items(
+            items = tasks,
+            key = { task ->
+                task.id
+            }
+        ) { task ->
+            ListItem(
+                headlineContent = {
+                    Text(text = task.title)
+                },
+                supportingContent = {
+                    Text(
+                        text = if (task.done) {
+                            "Готово"
+                        } else {
+                            "В работе"
+                        }
+                    )
+                }
+            )
+        }
+    }
+}
+```
+
+Если элемент меняется, не мутируйте поле внутри объекта. Замените элемент:
+
+```kotlin
+fun toggleTask(
+    tasks: MutableList<LocalDraftTask>,
+    taskId: String
+) {
+    val index = tasks.indexOfFirst { task ->
+        task.id == taskId
+    }
+
+    if (index >= 0) {
+        val oldTask = tasks[index]
+        tasks[index] = oldTask.copy(
+            done = !oldTask.done
+        )
+    }
+}
+```
+
+## Snapshot collections против immutable updates
+
+Есть два нормальных подхода.
+
+### Observable mutable collection
+
+```kotlin
+import androidx.compose.runtime.mutableStateListOf
+
+val selectedIds = mutableStateListOf<String>()
+
+fun toggle(id: String) {
+    if (id in selectedIds) {
+        selectedIds.remove(id)
+    } else {
+        selectedIds.add(id)
+    }
+}
+```
+
+Плюсы:
+
+- удобно для точечных локальных изменений;
+- нет необходимости создавать новый список;
+- хорошо подходит для UI-local state.
+
+Минусы:
+
+- API изменяемый;
+- проще случайно отдать mutable collection слишком глубоко;
+- хуже подходит для чистого UDF между слоями.
+
+### Неизменяемое значение в состоянии
+
+```kotlin
+import androidx.compose.runtime.mutableStateOf
+
+val selectedIdsState = mutableStateOf<Set<String>>(emptySet())
+
+fun toggleImmutable(id: String) {
+    selectedIdsState.value = if (id in selectedIdsState.value) {
+        selectedIdsState.value - id
+    } else {
+        selectedIdsState.value + id
+    }
+}
+```
+
+Плюсы:
+
+- один явный state write;
+- удобно для ViewModel и `StateFlow`;
+- легче тестировать reducers;
+- меньше риска внешней мутации.
+
+Минусы:
+
+- при больших коллекциях надо думать о стоимости копирования;
+- код может быть чуть многословнее.
+
+<CatTip>
+Для screen-level state чаще выбирайте immutable UI-состояние. Для маленького локального интерактивного состояния snapshot collections вполне уместны.
+</CatTip>
+
+## Не отдавайте SnapshotStateList как публичный контракт без причины
+
+Если composable должен только читать список, принимайте `List<T>`.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ReadOnlyNamesList(
+    names: List<String>
+) {
+    LazyColumn {
+        items(
+            items = names,
+            key = { name ->
+                name
+            }
+        ) { name ->
+            Text(text = name)
+        }
+    }
+}
+```
+
+Владелец состояния может внутри использовать `SnapshotStateList`, но UI-компоненту не обязательно знать об этом.
+
+```kotlin
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun NamesRoute() {
+    val names = remember {
+        mutableStateListOf("Анна", "Борис")
+    }
+
+    ReadOnlyNamesList(names = names)
+}
+```
+
+`SnapshotStateList` реализует `List`, поэтому такой контракт остается только для чтения для компонента.
+
+## Стабильность и коллекции
+
+Обычные `List`, `Set` и `Map` в Kotlin являются интерфейсами только для чтения, но не гарантируют физическую неизменяемость. Под ними может быть mutable implementation.
+
+Для Compose это важно:
+
+- mutable collection может измениться без observable write;
+- compiler не всегда может считать обычные коллекции стабильными;
+- unstable параметры могут мешать skipping;
+- `@Immutable` на data class с обычной mutable collection внутри будет ложным обещанием.
+
+Плохо:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class BadCatalogState(
+    val products: MutableList<String>
+)
+```
+
+Почему плохо:
+
+- `MutableList` можно изменить без новой записи state;
+- `@Immutable` обещает то, чего тип не выполняет;
+- UI может не обновиться;
+- Compose может принять неверные предположения.
+
+Лучше:
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class CatalogState(
+    val products: List<String>
+)
+```
+
+Еще лучше для строгой иммутабельности можно использовать persistent immutable collections из `kotlinx.collections.immutable`, если проект готов к этой зависимости.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+
+@Immutable
+data class StableCatalogState(
+    val products: ImmutableList<String> = persistentListOf()
+)
+```
+
+## Производственный пример: локальный выбор элементов
+
+```kotlin
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+
+@Immutable
+data class FileRow(
+    val id: String,
+    val name: String,
+    val sizeLabel: String
+)
+
+@Composable
+fun FilePicker(
+    files: List<FileRow>,
+    onSelectionConfirmed: (List<String>) -> Unit
+) {
+    val selectedIds = remember {
+        mutableStateListOf<String>()
+    }
+
+    val selectedCount by remember {
+        derivedStateOf {
+            selectedIds.size
+        }
+    }
+
+    Column {
+        Text(text = "Выбрано файлов: $selectedCount")
+
+        LazyColumn {
+            items(
+                items = files,
+                key = { file ->
+                    file.id
+                }
+            ) { file ->
+                val selected = file.id in selectedIds
+
+                ListItem(
+                    headlineContent = {
+                        Text(text = file.name)
+                    },
+                    supportingContent = {
+                        Text(text = file.sizeLabel)
+                    },
+                    trailingContent = {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    selectedIds.add(file.id)
+                                } else {
+                                    selectedIds.remove(file.id)
+                                }
+                            }
+                        )
+                    }
+                )
+            }
+        }
+
+        Button(
+            enabled = selectedIds.isNotEmpty(),
+            onClick = {
+                onSelectionConfirmed(selectedIds.toList())
+            }
+        ) {
+            Text(text = "Подтвердить выбор")
+        }
+    }
+}
+```
+
+Важно, что наружу передается `selectedIds.toList()`, а не сам mutable список.
+
+```kotlin
+fun confirmSelection(
+    selectedIds: List<String>,
+    onSelectionConfirmed: (List<String>) -> Unit
+) {
+    onSelectionConfirmed(selectedIds.toList())
+}
+```
+
+## Snapshot.withMutableSnapshot
+
+В продвинутых сценариях можно явно выполнять несколько snapshot-записей внутри mutable snapshot.
+
+```kotlin
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshots.Snapshot
+
+val queue = mutableStateListOf<String>()
+
+fun replaceQueue(items: List<String>) {
+    Snapshot.withMutableSnapshot {
+        queue.clear()
+        queue.addAll(items)
+    }
+}
+```
+
+Обычному UI-коду это нужно редко. Чаще достаточно обычных операций коллекции из main thread или обновлений через держатель состояния.
+
+<MouseTrap>
+Не используйте snapshot internals как способ обойти архитектуру. Если несколько изменений должны быть атомарным пользовательским событием, часто лучше выразить их как один reducer или одну запись неизменяемое состояние.
+</MouseTrap>
+
+## Типичные ошибки
+
+### Мутировать обычный MutableList внутри mutableStateOf
+
+Compose не обязан увидеть внутреннее изменение обычного списка.
+
+### Отдавать mutable collection слишком далеко
+
+Если любой дочерний компонент может менять список, источник истины становится размытым.
+
+### Хранить mutable model внутри SnapshotStateList
+
+Если элемент списка содержит `var` и вы меняете это поле, список может не узнать о замене элемента. Используйте immutable item и `copy`.
+
+### Считать List полностью immutable
+
+Kotlin `List` только для чтения на уровне интерфейса, но не всегда immutable по факту.
+
+### Сохранять SnapshotStateList через rememberSaveable без Saver
+
+Snapshot collections не являются универсально saveable. Для восстановления сохраняйте минимальные данные через `Saver`, `rememberSaveable` или ViewModel/SavedStateHandle.
+
+## Итоги
+
+Snapshot collections дают observable mutable collections:
+
+- `mutableStateListOf` создает `SnapshotStateList`;
+- `mutableStateMapOf` создает `SnapshotStateMap`;
+- операции `add`, `remove`, `set`, `clear` уведомляют snapshot-систему;
+- чтения `size`, `get`, `contains`, `keys`, `values` создают зависимости UI;
+- для публичных composable API чаще принимайте `List` и `Map`, а не snapshot-типы;
+- для состояние экрана часто лучше immutable data class;
+- mutable item внутри snapshot collection остается опасным;
+- для строгой стабильности можно использовать persistent immutable collections;
+- snapshot collections хороши для локального UI-состояния с точечными изменениями.

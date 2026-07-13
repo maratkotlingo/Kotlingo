@@ -1,0 +1,446 @@
+---
+title: "Группировка"
+description: "Группировка коллекций: groupBy, groupingBy, eachCount, fold, reduce, aggregate, выбор eager/lazy подхода, ключи групп, подсчет статистики и ошибки с большими наборами данных."
+order: 41
+category: "Коллекции"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Зачем нужна grouping
+
+Grouping объединяет элементы collection по ключу. Ключ обычно вычисляется из element: category, status, date, user id, first letter, difficulty.
+
+```kotlin
+data class Lesson(
+    val slug: String,
+    val title: String,
+    val category: String,
+    val minutes: Int
+)
+
+val lessons = listOf(
+    Lesson("01-introduction", "Введение", "Основы", 14),
+    Lesson("02-types", "Типы", "Основы", 28),
+    Lesson("03-lambdas", "Лямбды", "Функции", 32),
+    Lesson("04-map", "map", "Коллекции", 18)
+)
+
+val byCategory = lessons.groupBy { lesson ->
+    // Ключом группы становится category.
+    lesson.category
+}
+
+println(byCategory.keys) // [Основы, Функции, Коллекции]
+```
+
+Результат `groupBy` — `Map<K, List<T>>`: каждый key связан со списком элементов этой группы.
+
+<CatTip>
+Grouping похожа на раскладывание игрушечных мышек по коробкам: ключ выбирает коробку, а element аккуратно падает в нужную группу.
+</CatTip>
+
+## `groupBy`
+
+Базовая форма `groupBy` принимает key selector.
+
+```kotlin
+val lessonsByCategory: Map<String, List<Lesson>> = lessons.groupBy { lesson ->
+    lesson.category
+}
+
+val basics = lessonsByCategory["Основы"].orEmpty()
+println(basics.map { it.title }) // [Введение, Типы]
+```
+
+`groupBy` сразу строит map и списки внутри нее. Это eager operation: все элементы обходятся сразу, результат целиком хранится в памяти.
+
+```kotlin
+val byDurationKind = lessons.groupBy { lesson ->
+    when {
+        lesson.minutes < 20 -> "короткие"
+        lesson.minutes <= 40 -> "средние"
+        else -> "длинные"
+    }
+}
+```
+
+Ключ может быть nullable.
+
+```kotlin
+data class Article(val title: String, val authorId: String?)
+
+val articles = listOf(
+    Article("Kotlin Basics", "u-1"),
+    Article("Anonymous Notes", null),
+    Article("Collections", "u-1")
+)
+
+val byAuthor = articles.groupBy { article ->
+    // null станет отдельным ключом map.
+    article.authorId
+}
+
+println(byAuthor[null]?.map { it.title }) // [Anonymous Notes]
+```
+
+## `groupBy` с value transform
+
+Вторая форма `groupBy` принимает key selector и value transform.
+
+```kotlin
+val titlesByCategory: Map<String, List<String>> = lessons.groupBy(
+    keySelector = { lesson ->
+        lesson.category
+    },
+    valueTransform = { lesson ->
+        // В группах будут храниться только title, а не весь Lesson.
+        lesson.title
+    }
+)
+
+println(titlesByCategory)
+```
+
+Это удобно, когда после grouping нужны не исходные элементы, а конкретные поля или DTO.
+
+```kotlin
+data class LessonLink(val href: String, val label: String)
+
+val linksByCategory = lessons.groupBy(
+    keySelector = { lesson ->
+        lesson.category
+    },
+    valueTransform = { lesson ->
+        LessonLink(
+            href = "/kotlin/${lesson.slug}",
+            label = lesson.title
+        )
+    }
+)
+```
+
+## Порядок групп и элементов
+
+Для стандартных реализаций grouping сохраняет порядок первого появления ключей и порядок элементов внутри каждой группы.
+
+```kotlin
+val words = listOf("кот", "код", "лапа", "курс", "логика")
+
+val byFirstLetter = words.groupBy { word ->
+    word.first()
+}
+
+println(byFirstLetter) // {к=[кот, код, курс], л=[лапа, логика]}
+```
+
+Не превращай это в скрытую бизнес-зависимость, если порядок критичен. Лучше сортировать явно.
+
+```kotlin
+val sortedGroups = byFirstLetter
+    .toSortedMap()
+    .mapValues { (_, groupWords) ->
+        // Внутри каждой группы тоже задаем явный порядок.
+        groupWords.sorted()
+    }
+```
+
+## `groupingBy`
+
+`groupingBy` возвращает объект `Grouping`, который описывает, как группировать элементы, но не строит `Map<K, List<T>>` сразу.
+
+```kotlin
+val grouping = lessons.groupingBy { lesson ->
+    lesson.category
+}
+```
+
+Сам по себе `Grouping` почти не нужен. Он раскрывается через terminal operations: `eachCount`, `fold`, `reduce`, `aggregate`.
+
+```kotlin
+val countsByCategory = lessons
+    .groupingBy { lesson ->
+        lesson.category
+    }
+    .eachCount()
+
+println(countsByCategory) // {Основы=2, Функции=1, Коллекции=1}
+```
+
+Главное отличие: `groupBy` хранит списки элементов, а `groupingBy` позволяет сразу считать aggregate per group без промежуточных списков.
+
+<CatTip>
+Если тебе нужна вся группа как `List`, бери `groupBy`. Если нужен count, сумма, максимум или сводка, часто лучше `groupingBy` плюс aggregate-operation.
+</CatTip>
+
+## `eachCount`
+
+`eachCount` считает количество элементов в каждой группе.
+
+```kotlin
+val wordsByLength = listOf("кот", "код", "kotlin", "лапа", "api")
+    .groupingBy { word ->
+        word.length
+    }
+    .eachCount()
+
+println(wordsByLength) // {3=3, 6=1, 4=1}
+```
+
+Тип результата — `Map<K, Int>`.
+
+```kotlin
+fun countLessonsByCategory(lessons: List<Lesson>): Map<String, Int> {
+    return lessons.groupingBy { lesson ->
+        lesson.category
+    }.eachCount()
+}
+```
+
+## `fold` для grouping
+
+`fold` на `Grouping` накапливает значение для каждой группы. Начальное значение задается явно.
+
+```kotlin
+val totalMinutesByCategory: Map<String, Int> = lessons
+    .groupingBy { lesson ->
+        lesson.category
+    }
+    .fold(initialValue = 0) { accumulator, lesson ->
+        // Для каждой категории accumulator хранит уже накопленные минуты.
+        accumulator + lesson.minutes
+    }
+
+println(totalMinutesByCategory) // {Основы=42, Функции=32, Коллекции=18}
+```
+
+Есть перегрузка, где initial value вычисляется с учетом key и первого element.
+
+```kotlin
+data class CategoryStats(
+    val count: Int,
+    val totalMinutes: Int
+)
+
+val statsByCategory = lessons
+    .groupingBy { lesson ->
+        lesson.category
+    }
+    .fold(
+        initialValueSelector = { _, _ ->
+            // Для каждой новой группы создается собственный accumulator.
+            CategoryStats(count = 0, totalMinutes = 0)
+        },
+        operation = { _, stats, lesson ->
+            stats.copy(
+                count = stats.count + 1,
+                totalMinutes = stats.totalMinutes + lesson.minutes
+            )
+        }
+    )
+```
+
+Если accumulator mutable, важно создавать отдельный instance для каждой группы.
+
+```kotlin
+val titlesByCategory = lessons
+    .groupingBy { lesson -> lesson.category }
+    .fold(
+        initialValueSelector = { _, _ ->
+            // Новый MutableList создается для каждой группы отдельно.
+            mutableListOf<String>()
+        },
+        operation = { _, titles, lesson ->
+            titles.add(lesson.title)
+            titles
+        }
+    )
+```
+
+<MouseTrap>
+Не используй один и тот же mutable accumulator для всех групп. Иначе разные keys будут ссылаться на одну и ту же mutable collection.
+</MouseTrap>
+
+## `reduce` для grouping
+
+`reduce` на `Grouping` использует первый element группы как initial accumulator, а затем объединяет его с остальными.
+
+```kotlin
+val longestLessonByCategory: Map<String, Lesson> = lessons
+    .groupingBy { lesson ->
+        lesson.category
+    }
+    .reduce { _, currentLongest, lesson ->
+        // Сравниваем текущего кандидата с уже найденным максимумом группы.
+        if (lesson.minutes > currentLongest.minutes) lesson else currentLongest
+    }
+
+println(longestLessonByCategory)
+```
+
+`reduce` удобен для поиска representative element: самый длинный урок, последний event, максимальная скидка, минимальная цена.
+
+```kotlin
+val firstAlphabeticallyByCategory = lessons
+    .groupingBy { lesson -> lesson.category }
+    .reduce { _, best, lesson ->
+        if (lesson.title < best.title) lesson else best
+    }
+```
+
+`reduce` не требует initial value, но accumulator имеет тот же type, что и element.
+
+## `aggregate`
+
+`aggregate` — самый гибкий grouping terminal operation. Operation получает:
+
+- key текущей группы;
+- nullable accumulator;
+- current element;
+- flag `first`, который показывает, является ли element первым в группе.
+
+```kotlin
+data class LessonStats(
+    val count: Int,
+    val totalMinutes: Int,
+    val longestTitle: String
+)
+
+val detailedStats = lessons
+    .groupingBy { lesson ->
+        lesson.category
+    }
+    .aggregate { _, accumulator: LessonStats?, lesson, first ->
+        if (first || accumulator == null) {
+            // Первый элемент группы создает начальную статистику.
+            LessonStats(
+                count = 1,
+                totalMinutes = lesson.minutes,
+                longestTitle = lesson.title
+            )
+        } else {
+            // Следующие элементы обновляют уже накопленную статистику.
+            accumulator.copy(
+                count = accumulator.count + 1,
+                totalMinutes = accumulator.totalMinutes + lesson.minutes,
+                longestTitle = if (lesson.title.length > accumulator.longestTitle.length) {
+                    lesson.title
+                } else {
+                    accumulator.longestTitle
+                }
+            )
+        }
+    }
+```
+
+`aggregate` стоит использовать, когда `fold` или `reduce` становятся неестественными.
+
+## Grouping и duplicate keys
+
+В отличие от `associateBy`, `groupBy` не теряет элементы с одинаковым key. Все matching-elements попадают в list группы.
+
+```kotlin
+val lessonsByCategory = lessons.groupBy { lesson ->
+    lesson.category
+}
+
+val basicsCount = lessonsByCategory["Основы"]?.size ?: 0
+```
+
+Если нужен ровно один element на key, grouping может быть этапом validation.
+
+```kotlin
+fun requireUniqueSlug(lessons: List<Lesson>) {
+    val duplicates = lessons
+        .groupBy { lesson ->
+            lesson.slug
+        }
+        .filterValues { group ->
+            group.size > 1
+        }
+
+    require(duplicates.isEmpty()) {
+        "Найдены повторяющиеся slug: ${duplicates.keys.joinToString()}"
+    }
+}
+```
+
+## Боевой-пример: аналитика прогресса
+
+```kotlin
+enum class Difficulty {
+    BEGINNER,
+    INTERMEDIATE,
+    ADVANCED
+}
+
+data class ProgressEvent(
+    val userId: String,
+    val lessonSlug: String,
+    val difficulty: Difficulty,
+    val completed: Boolean,
+    val spentMinutes: Int
+)
+
+data class DifficultyReport(
+    val totalEvents: Int,
+    val completedEvents: Int,
+    val totalMinutes: Int
+) {
+    val completionRate: Double
+        get() {
+            // Деление на ноль защищает отчет от пустых групп.
+            if (totalEvents == 0) return 0.0
+            return completedEvents.toDouble() / totalEvents
+        }
+}
+
+fun buildReport(events: List<ProgressEvent>): Map<Difficulty, DifficultyReport> {
+    return events
+        .filter { event ->
+            // Отрицательная длительность считается испорченным входом и не участвует в отчете.
+            event.spentMinutes >= 0
+        }
+        .groupingBy { event ->
+            event.difficulty
+        }
+        .fold(
+            initialValue = DifficultyReport(
+                totalEvents = 0,
+                completedEvents = 0,
+                totalMinutes = 0
+            )
+        ) { report, event ->
+            report.copy(
+                totalEvents = report.totalEvents + 1,
+                completedEvents = report.completedEvents + if (event.completed) 1 else 0,
+                totalMinutes = report.totalMinutes + event.spentMinutes
+            )
+        }
+}
+```
+
+Этот подход не создает `Map<Difficulty, List<ProgressEvent>>`, если итоговой задаче нужны только aggregate-values.
+
+## Выбор между `groupBy` и `groupingBy`
+
+Используй `groupBy`, когда:
+
+- нужно отрисовать элементы группами;
+- нужно пройтись по каждой группе как по списку;
+- нужен `Map<K, List<T>>` как intermediate result;
+- данных немного и читаемость важнее экономии allocations.
+
+Используй `groupingBy`, когда:
+
+- нужен count, сумма, minimum, maximum, пользовательский stats;
+- вход большой, а хранить все списки групп не хочется;
+- grouping immediately заканчивается aggregate-operation.
+
+<MouseTrap>
+Не делай `items.groupBy { ... }.mapValues { it.value.size }`, если нужен только count. `items.groupingBy { ... }.eachCount()` обычно выражает намерение точнее и не хранит списки элементов.
+</MouseTrap>
+
+

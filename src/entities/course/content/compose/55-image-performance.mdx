@@ -1,0 +1,463 @@
+---
+title: "Производительность изображений"
+description: "Разбираем performance изображений в Jetpack Compose: bitmap memory, decode strategy, painterResource, Coil and Glide, downsampling, caching, ImageBitmap.prepareToDraw, resource IDs, ContentScale, main-thread work и профилирование."
+order: 55
+category: "Compose: графика, Canvas и рисование"
+difficulty: "Продвинутый"
+---
+
+import CatTip from "../../ui/CatTip.vue";
+import MouseTrap from "../../ui/MouseTrap.vue";
+
+## Почему изображения часто становятся узким местом
+
+Изображение в файле может выглядеть маленьким: `120 KB`, `400 KB`, `1 MB`. Но после декодирования bitmap занимает память по пикселям. Типичный ARGB bitmap требует примерно 4 байта на пиксель.
+
+Пример:
+
+- `4000 x 3000` пикселей;
+- `12 000 000` пикселей;
+- около `48 MB` только для одного decoded bitmap;
+- несколько таких изображений быстро создают memory pressure;
+- если декодирование происходит на main thread, UI может зависнуть;
+- если изображение выводится в маленькую thumbnail-область, большая часть работы потрачена зря.
+
+`Image` в Compose рисует уже подготовленный painter. Главная performance-задача — не заставлять UI слой декодировать, масштабировать и хранить больше, чем нужно.
+
+<CatTip>
+Image performance начинается до `Image()`: с размера исходника, стратегии декодирования, кеширования и того, какие параметры вы передаете в composable.
+</CatTip>
+
+## Основные источники проблем
+
+Самые частые проблемы:
+
+- слишком большие исходные bitmap-и;
+- отсутствие downsampling;
+- декодирование на main thread;
+- загрузка изображения прямо внутри composable без image loader;
+- передача нестабильного `Painter` через public API;
+- повторное создание image request на каждую recomposition;
+- отсутствие memory/disk cache;
+- тяжелые transformations для каждого item списка;
+- blur, color filter и clipping поверх больших изображений;
+- неверный `ContentScale`, из-за которого декодируется больше, чем видно;
+- одинаковые изображения хранятся в нескольких копиях;
+- bitmap resources упакованы в APK/AAB без оптимизации.
+
+<MouseTrap>
+Не думайте о bitmap как о размере файла. Для runtime важен decoded размер в памяти, а не только вес PNG, JPG, WEBP или AVIF на диске.
+</MouseTrap>
+
+## `Image` ничего не загружает из сети
+
+`Image` — это rendering composable. Он принимает `Painter`, `ImageBitmap` или `ImageVector` через соответствующие APIs, но не является network image loader.
+
+Для network images используйте библиотеку загрузки:
+
+- Coil для Kotlin-first проектов;
+- Glide для проектов, где уже есть Glide infrastructure;
+- собственный loader только при сильной архитектурной причине.
+
+Image loader обычно решает:
+
+- background decoding;
+- memory cache;
+- disk cache;
+- downsampling;
+- request cancellation;
+- lifecycle awareness;
+- crossfade;
+- transformations;
+- error states;
+- повторное использование bitmap resources.
+
+## Локальные ресурсы
+
+Для drawable resources используйте `painterResource`. Для icons чаще используйте `Icon`, если это Material-compatible icon.
+
+```kotlin
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+
+@Composable
+fun LocalHeroImage(
+    @DrawableRes imageResId: Int,
+    contentDescription: String
+) {
+    Image(
+        painter = painterResource(id = imageResId),
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+    )
+}
+```
+
+Не передавайте `Painter` в этот компонент снаружи, если достаточно `@DrawableRes Int`. Resource id дешевле сравнивать и проще хранить в state.
+
+## Network image с image loader
+
+Ниже пример с Coil. Конкретные imports зависят от версии Coil, но архитектурная идея остается той же: composable получает URL и описание, а image loader управляет загрузкой, кешем и downsampling.
+
+```kotlin
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+
+@Composable
+fun RemoteArticleImage(
+    imageUrl: String,
+    title: String
+) {
+    AsyncImage(
+        model = imageUrl,
+        contentDescription = "Изображение статьи: $title",
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+    )
+}
+```
+
+Такой компонент остается простым: он не хранит bitmap в UI-состояние и не декодирует изображение вручную.
+
+## Стабильная модель изображения
+
+Для списков удобно передавать стабильную model, а не painter.
+
+```kotlin
+import androidx.compose.runtime.Immutable
+
+@Immutable
+data class ArticleImageUi(
+    val id: String,
+    val url: String,
+    val contentDescription: String
+)
+```
+
+```kotlin
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+
+@Composable
+fun ArticleImage(
+    image: ArticleImageUi
+) {
+    AsyncImage(
+        model = image.url,
+        contentDescription = image.contentDescription,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(4f / 3f)
+    )
+}
+```
+
+Такой API хорошо работает с `LazyColumn`: item получает immutable data, а loader сам управляет bitmap lifecycle.
+
+## Downsampling
+
+Downsampling — это декодирование изображения в размере, близком к фактическому отображению. Если thumbnail имеет `120.dp`, нет смысла декодировать `4000 x 3000` полностью.
+
+```kotlin
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+
+@Composable
+fun UserThumbnail(
+    avatarUrl: String,
+    userName: String
+) {
+    AsyncImage(
+        model = avatarUrl,
+        contentDescription = "Аватар пользователя $userName",
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.size(48.dp)
+    )
+}
+```
+
+Image loader видит constraints через Compose integration и может выбрать подходящий decode size. Если вы строите request вручную, следите, чтобы размер не становился `OriginalSize` без причины.
+
+## `ContentScale`
+
+`ContentScale` управляет тем, как painter вписывается в bounds:
+
+- `ContentScale.Fit`: вся картинка помещается, могут появиться пустые области;
+- `ContentScale.Crop`: заполняет bounds, часть картинки может быть обрезана;
+- `ContentScale.FillBounds`: растягивает под bounds и может исказить пропорции;
+- `ContentScale.FillWidth`: заполняет ширину;
+- `ContentScale.FillHeight`: заполняет высоту;
+- `ContentScale.Inside`: помещает внутри без upscaling сверх intrinsic size;
+- `ContentScale.None`: не масштабирует.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ProductImageTile() {
+    Image(
+        painter = painterResource(id = R.drawable.product),
+        contentDescription = "Фото товара",
+        contentScale = ContentScale.Fit,
+        modifier = Modifier.size(160.dp)
+    )
+}
+```
+
+Для товаров часто лучше `Fit`, чтобы не обрезать важные детали. Для hero images часто выбирают `Crop`, чтобы заполнить область.
+
+## Lazy lists
+
+Изображения в lazy lists требуют дополнительных правил:
+
+- всегда задавайте стабильный `key`;
+- задавайте предсказуемый размер изображения;
+- не используйте unbounded height;
+- не создавайте тяжелые transformations в item body;
+- не храните decoded bitmap в item state;
+- избегайте nested image loaders;
+- используйте `contentType`, если список содержит разные типы items;
+- проверяйте scroll jank на реальном устройстве.
+
+```kotlin
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+
+@Composable
+fun ArticleImageList(
+    articles: List<ArticleImageUi>
+) {
+    LazyColumn {
+        items(
+            items = articles,
+            key = { article ->
+                article.id
+            },
+            contentType = {
+                "article-image"
+            }
+        ) { article ->
+            ArticleImage(image = article)
+        }
+    }
+}
+```
+
+Stable keys помогают Compose сохранять item state и не путать загруженные изображения при перестановке списка.
+
+## `ImageBitmap.prepareToDraw`
+
+Если вы вручную работаете с `ImageBitmap`, можно заранее попросить систему подготовить bitmap к drawing через `prepareToDraw`.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.ImageBitmap
+
+@Composable
+fun PreparedBitmapImage(
+    imageBitmap: ImageBitmap,
+    description: String
+) {
+    LaunchedEffect(imageBitmap) {
+        imageBitmap.prepareToDraw()
+    }
+
+    Image(
+        bitmap = imageBitmap,
+        contentDescription = description
+    )
+}
+```
+
+Большинство image загрузка libraries уже делают подобные оптимизации. Этот прием нужен, когда вы управляете `ImageBitmap` самостоятельно.
+
+## Избегайте decode в composable
+
+Декодирование внутри composable body — плохая идея. Composable может вызываться много раз.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.ImageBitmap
+
+@Composable
+fun AlreadyDecodedImage(
+    imageBitmap: ImageBitmap,
+    description: String
+) {
+    Image(
+        bitmap = imageBitmap,
+        contentDescription = description
+    )
+}
+```
+
+Если bitmap приходит из репозиторий или loader layer, UI остается легким. Но репозиторий тоже не должен хранить огромные bitmap-и без policy.
+
+## Bitmap против vector
+
+Выбирайте asset type под задачу:
+
+- bitmap хорош для фотографий, текстур, сложных raster artwork;
+- vector хорош для icons, простых shapes и масштабируемых illustration;
+- vector может быть дорогим, если содержит слишком много paths;
+- bitmap может быть дорогим, если имеет огромный decoded size;
+- animated vector подходит для небольших иконок, а не для больших сцен;
+- material symbols лучше показывать через `Icon`.
+
+```kotlin
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.vector.ImageVector
+
+@Composable
+fun NavigationIcon(
+    icon: ImageVector,
+    description: String
+) {
+    Icon(
+        imageVector = icon,
+        contentDescription = description
+    )
+}
+```
+
+Для простых одноцветных иконок `Icon` обычно лучше, чем `Image` с `ColorFilter`.
+
+## Transformations и effects
+
+Круглая обрезка, blur, color filter и shadows могут быть дорогими, если применяются к большим изображениям.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun SmallClippedAvatar() {
+    Image(
+        painter = painterResource(id = R.drawable.avatar),
+        contentDescription = "Аватар",
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+    )
+}
+```
+
+Clipping маленького avatar — нормальная практика. Clipping большого scrolling hero с blur и shadow поверх каждого item — повод открыть profiler.
+
+## Accessibility и декоративные изображения
+
+Performance не должна ломать accessibility:
+
+- meaningful image получает `contentDescription`;
+- decorative image получает `contentDescription = null`;
+- статус не должен передаваться только цветом изображения;
+- skeleton/состояние загрузки должен иметь понятную semantics-стратегию;
+- если изображение является кнопкой, кликабельность должна быть на accessible component.
+
+```kotlin
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+
+@Composable
+fun DecorativeBackgroundTexture() {
+    Image(
+        painter = painterResource(id = R.drawable.texture),
+        contentDescription = null
+    )
+}
+```
+
+`null` здесь означает: программа чтения с экрана игнорирует чисто декоративную картинку.
+
+## Профилирование
+
+Проверяйте:
+
+- memory profiler: количество bitmap и heap pressure;
+- Android Studio Profiler: allocations и garbage collection;
+- Layout Inspector: recomposition вокруг image items;
+- System Trace: jank при scroll;
+- APK Analyzer: размер packaged graphics;
+- screenshot tests: crop, scaling, theme overlays;
+- low-end device: decode и scroll behavior.
+
+## Типичные ошибки
+
+### Передавать `Painter` как state во ViewModel
+
+ViewModel не должен знать о Compose painter. Передавайте URL, resource id или domain model.
+
+### Декодировать original size для thumbnail
+
+Thumbnail должен декодироваться примерно под размер отображения.
+
+### Использовать `FillBounds` для фотографий
+
+Пропорции будут искажены. Для фотографий чаще подходят `Crop` или `Fit`.
+
+### Хранить bitmap-и в `rememberSaveable`
+
+Bitmap не является хорошим saveable state. Сохраняйте ключ, URL или resource id.
+
+### Игнорировать duplicate bitmap-и
+
+Одинаковые decoded images в памяти — частый источник лишнего расхода RAM.
+
+## Итоги
+
+Image performance в Compose строится вокруг данных и размера:
+
+- decoded bitmap может быть во много раз тяжелее файла;
+- `Image` рисует, но не является network loader;
+- для сети используйте Coil, Glide или другой image загрузка layer;
+- downsampling критичен для thumbnails;
+- `ContentScale` должен соответствовать смыслу картинки;
+- в lazy lists нужны stable keys и стабильные размеры;
+- `ImageBitmap.prepareToDraw` полезен для вручную управляемых bitmap;
+- не декодируйте изображения в composable или draw block;
+- public API часто лучше принимает URL или resource id, а не `Painter`;
+- profiling на реальном устройстве важнее догадок.

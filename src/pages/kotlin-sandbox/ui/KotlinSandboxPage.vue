@@ -28,6 +28,7 @@ import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
 import {
   Decoration,
   EditorView,
+  type HoverTooltipSource,
   ViewPlugin,
   WidgetType,
   crosshairCursor,
@@ -35,6 +36,7 @@ import {
   dropCursor,
   highlightActiveLine,
   highlightSpecialChars,
+  hoverTooltip,
   keymap,
   lineNumbers,
   placeholder,
@@ -44,8 +46,6 @@ import {
 } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 import {
-  AlertTriangle,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Code2,
@@ -57,11 +57,9 @@ import {
   FolderPlus,
   Home,
   Loader2,
-  Package,
   Play,
   RotateCcw,
   Search,
-  Terminal,
   Trash2,
   Wand2,
   X,
@@ -70,7 +68,8 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
 import CourseTopBar from '@/widgets/course-layout/ui/CourseTopBar.vue'
-import AppSelect from '@/shared/ui/AppSelect.vue'
+import SandboxDiagnosticsPanel from '@/pages/kotlin-sandbox/ui/SandboxDiagnosticsPanel.vue'
+import SandboxRunPanel from '@/pages/kotlin-sandbox/ui/SandboxRunPanel.vue'
 import { buttons, form, layout, tagBase } from '@/shared/config/ui'
 import {
   DEFAULT_ACTIVE_FILE_ID,
@@ -83,12 +82,13 @@ import {
   isFileNode,
   isFolderNode,
   makeUniqueNodeName,
+  moveSandboxNodeToFolder,
   normalizeFileName,
   normalizeFolderName,
   packageNameFromFolder,
-  parseKotlinDeclarations,
   parseKotlinImports,
   parseKotlinPackage,
+  renameSandboxNode,
   sortSandboxNodes,
   sourceForNewKotlinFile,
   type KotlinImport,
@@ -96,6 +96,15 @@ import {
   type SandboxFolderNode,
   type SandboxNode,
 } from '@/pages/kotlin-sandbox/model/sandboxProject'
+import {
+  buildKotlinFileSymbols,
+  dedupeSymbolMembers,
+  extractFunctionParameters,
+  extractReturnType,
+  syntheticDataClassMembers,
+  type ExportedSymbol,
+  type SymbolMember,
+} from '@/pages/kotlin-sandbox/model/sandboxSymbols'
 import {
   FALLBACK_KOTLIN_VERSION,
   cleanCompilerText,
@@ -132,15 +141,6 @@ interface StoredSandboxState {
   args: string
 }
 
-interface ExportedSymbol {
-  fileId: string
-  filePath: string
-  packageName: string
-  importPath: string
-  name: string
-  kind: string
-}
-
 interface ImportResolution extends KotlinImport {
   status: ImportStatus
   targetFilePath?: string
@@ -152,6 +152,66 @@ interface CompletionQuery {
   prefix: string
   mode: 'default' | 'import' | 'member'
   qualifier?: string
+  memberExpression?: string
+  documentContent?: string
+  cursorPosition: number
+}
+
+type KotlinTypeCategory =
+  | 'unknown'
+  | 'user'
+  | 'string'
+  | 'char'
+  | 'boolean'
+  | 'number'
+  | 'list'
+  | 'mutableList'
+  | 'set'
+  | 'mutableSet'
+  | 'map'
+  | 'mutableMap'
+  | 'mapEntry'
+  | 'array'
+  | 'primitiveArray'
+  | 'sequence'
+  | 'iterable'
+  | 'pair'
+  | 'result'
+  | 'unit'
+
+interface KotlinTypeInfo {
+  name: string
+  category: KotlinTypeCategory
+  symbol?: ExportedSymbol
+  genericArguments: string[]
+  nullable: boolean
+}
+
+interface TypeInferenceContext {
+  cursorPosition?: number
+}
+
+interface LambdaParameterInfo {
+  name: string
+  explicitType?: string
+}
+
+interface LambdaCallContext {
+  callName: string
+  receiverExpression?: string
+  receiverType?: KotlinTypeInfo
+  callArguments: string[]
+}
+
+interface KotlinMemberInfo {
+  label: string
+  type: string
+  signature: string
+  returnType?: string
+  detail?: string
+  section?: string
+  boost?: number
+  description?: string
 }
 
 interface InlineSuggestion {
@@ -188,6 +248,7 @@ const copiedImportPath = ref('')
 const editorHostRef = ref<HTMLElement | null>(null)
 const editorView = shallowRef<EditorView | null>(null)
 const hasHydrated = ref(false)
+let realtimeDiagnosticsTimer: number | undefined
 
 const nodeMap = computed(() => new Map(nodes.value.map((node) => [node.id, node])))
 const files = computed(() => nodes.value.filter(isFileNode))
@@ -241,20 +302,7 @@ const compilerVersionOptions = computed<SelectOption[]>(() => [
     value: version.version,
   })),
 ])
-const localSymbols = computed<ExportedSymbol[]>(() =>
-  files.value.flatMap((file) => {
-    const packageName = parseKotlinPackage(file.content)
-
-    return parseKotlinDeclarations(file.content).map((declaration) => ({
-      fileId: file.id,
-      filePath: getNodePath(file.id, nodes.value),
-      packageName,
-      importPath: packageName ? `${packageName}.${declaration.name}` : declaration.name,
-      name: declaration.name,
-      kind: declaration.kind,
-    }))
-  }),
-)
+const localSymbols = computed<ExportedSymbol[]>(() => files.value.flatMap((file) => buildKotlinFileSymbols(file, nodes.value)))
 const exportedSymbols = computed<ExportedSymbol[]>(() =>
   localSymbols.value.filter((symbol) => symbol.fileId !== activeFileId.value && symbol.packageName),
 )
@@ -340,6 +388,7 @@ const kotlingoEditorTheme = EditorView.theme(
       textUnderlineOffset: '3px',
     },
     '.cm-tooltip': {
+      zIndex: '80',
       border: '1px solid var(--color-line)',
       borderRadius: 'var(--radius-card)',
       backgroundColor: 'var(--color-panel-raised)',
@@ -369,6 +418,103 @@ const kotlingoEditorTheme = EditorView.theme(
       color: 'var(--color-muted-soft)',
       opacity: '0.72',
       pointerEvents: 'none',
+    },
+    '.cm-kotlingo-hover': {
+      display: 'grid',
+      gap: '10px',
+      maxWidth: 'min(620px, 88vw)',
+      maxHeight: 'min(520px, calc(100vh - var(--header-height) - 48px))',
+      overflow: 'auto',
+      padding: '12px',
+      fontFamily: 'var(--font-sans)',
+      color: 'var(--color-ink)',
+    },
+    '.cm-kotlingo-hover-signature': {
+      margin: '0',
+      whiteSpace: 'pre-wrap',
+      fontFamily: 'var(--font-mono)',
+      fontSize: '13px',
+      lineHeight: '1.6',
+      color: 'var(--color-accent)',
+    },
+    '.cm-kotlingo-hover-meta': {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '6px',
+      margin: '0',
+      color: 'var(--color-muted)',
+      fontSize: '12px',
+      fontWeight: '700',
+    },
+    '.cm-kotlingo-hover-chip': {
+      border: '1px solid var(--color-line)',
+      borderRadius: '999px',
+      padding: '3px 8px',
+      backgroundColor: 'var(--color-app-soft)',
+    },
+    '.cm-kotlingo-hover-doc': {
+      margin: '0',
+      color: 'var(--color-ink)',
+      fontSize: '13px',
+      lineHeight: '1.65',
+    },
+    '.cm-kotlingo-hover-members': {
+      display: 'grid',
+      gap: '5px',
+      margin: '0',
+      color: 'var(--color-muted)',
+      fontSize: '12px',
+    },
+    '.cm-kotlingo-hover-members code': {
+      color: 'var(--color-ink)',
+      fontFamily: 'var(--font-mono)',
+    },
+    '.cm-kotlingo-hover-section-title': {
+      margin: '0 0 2px',
+      color: 'var(--color-muted)',
+      fontSize: '11px',
+      fontWeight: '900',
+      textTransform: 'uppercase',
+      letterSpacing: '0',
+    },
+    '.cm-kotlingo-hover-params': {
+      display: 'grid',
+      gap: '5px',
+      margin: '0',
+      padding: '8px 10px',
+      border: '1px solid var(--color-line)',
+      borderRadius: 'var(--radius-card)',
+      backgroundColor: 'var(--color-app-soft)',
+      color: 'var(--color-ink)',
+      fontFamily: 'var(--font-mono)',
+      fontSize: '12px',
+      lineHeight: '1.55',
+    },
+    '.cm-kotlingo-hover details': {
+      border: '1px solid var(--color-line)',
+      borderRadius: 'var(--radius-card)',
+      backgroundColor: 'var(--color-app-soft)',
+      overflow: 'hidden',
+    },
+    '.cm-kotlingo-hover summary': {
+      cursor: 'pointer',
+      padding: '8px 10px',
+      color: 'var(--color-accent)',
+      fontSize: '12px',
+      fontWeight: '900',
+      textTransform: 'uppercase',
+      letterSpacing: '0',
+    },
+    '.cm-kotlingo-hover pre': {
+      maxHeight: '280px',
+      overflow: 'auto',
+      margin: '0',
+      borderTop: '1px solid var(--color-line)',
+      padding: '10px',
+      fontFamily: 'var(--font-mono)',
+      fontSize: '12px',
+      lineHeight: '1.55',
+      color: 'var(--color-ink)',
     },
   },
   { dark: true },
@@ -451,129 +597,752 @@ const kotlinKeywords = [
   'vararg',
 ]
 
-const kotlinStdlibCompletions: Completion[] = [
-  'Any',
-  'Unit',
-  'Nothing',
-  'String',
-  'Char',
-  'Boolean',
-  'Byte',
-  'Short',
-  'Int',
-  'Long',
-  'Float',
-  'Double',
-  'Array',
-  'IntArray',
-  'LongArray',
-  'List',
-  'MutableList',
-  'Set',
-  'MutableSet',
-  'Map',
-  'MutableMap',
-  'Pair',
-  'Triple',
-  'Result',
-  'Sequence',
-  'Iterable',
-  'Comparable',
-  'Comparator',
-  'Throwable',
-  'Exception',
-  'IllegalArgumentException',
-  'IllegalStateException',
-  'println',
-  'print',
-  'readln',
-  'readLine',
-  'TODO',
-  'require',
-  'check',
-  'error',
-  'run',
-  'let',
-  'also',
-  'apply',
-  'with',
-  'takeIf',
-  'takeUnless',
-  'lazy',
-  'mutableListOf',
-  'listOf',
-  'setOf',
-  'mutableSetOf',
-  'mapOf',
-  'mutableMapOf',
-  'arrayOf',
-  'sequenceOf',
-  'generateSequence',
-  'emptyList',
-  'emptySet',
-  'emptyMap',
-  'buildList',
-  'buildSet',
-  'buildMap',
-].map((label) => ({
+interface KotlinStdlibDoc {
+  kind: string
+  signature: string
+  returnType?: string
+  description: string
+  section: string
+}
+
+const kotlinStdlibDocs: Record<string, KotlinStdlibDoc> = {
+  Any: {
+    kind: 'class',
+    signature: 'open class Any',
+    description: 'Корневой тип Kotlin: у любого значения есть методы toString(), equals() и hashCode().',
+    section: 'Базовые типы',
+  },
+  Unit: {
+    kind: 'object',
+    signature: 'object Unit',
+    description: 'Тип результата функции, которая ничего полезного не возвращает. Аналог void, но является настоящим значением.',
+    section: 'Базовые типы',
+  },
+  Nothing: {
+    kind: 'class',
+    signature: 'class Nothing',
+    description: 'Тип выражений, которые никогда не завершаются нормально: throw, error(), бесконечный цикл.',
+    section: 'Базовые типы',
+  },
+  String: {
+    kind: 'class',
+    signature: 'class String : Comparable<String>, CharSequence',
+    description: 'Неизменяемая строка. Поддерживает индексацию по символам, поиск, преобразования регистра, split/trim/replace.',
+    section: 'Текст',
+  },
+  Char: {
+    kind: 'class',
+    signature: 'class Char : Comparable<Char>',
+    description: 'Один Unicode-символ. Удобен для проверок isDigit(), isLetter(), преобразований регистра и получения code.',
+    section: 'Текст',
+  },
+  Boolean: {
+    kind: 'class',
+    signature: 'class Boolean : Comparable<Boolean>',
+    description: 'Логический тип true/false. Используется в условиях if, when, фильтрах и предикатах.',
+    section: 'Базовые типы',
+  },
+  Byte: { kind: 'class', signature: 'class Byte : Number', description: '8-битное целое число со знаком.', section: 'Числа' },
+  Short: { kind: 'class', signature: 'class Short : Number', description: '16-битное целое число со знаком.', section: 'Числа' },
+  Int: { kind: 'class', signature: 'class Int : Number', description: 'Основной тип целых чисел. По умолчанию литерал 42 имеет тип Int.', section: 'Числа' },
+  Long: { kind: 'class', signature: 'class Long : Number', description: '64-битное целое число. Литерал можно записать как 42L.', section: 'Числа' },
+  Float: { kind: 'class', signature: 'class Float : Number', description: '32-битное число с плавающей точкой. Литерал обычно пишут с суффиксом F.', section: 'Числа' },
+  Double: { kind: 'class', signature: 'class Double : Number', description: '64-битное число с плавающей точкой. Дробные литералы по умолчанию имеют тип Double.', section: 'Числа' },
+  Array: {
+    kind: 'class',
+    signature: 'class Array<T>',
+    description: 'Массив фиксированного размера. Элементы можно читать и менять по индексу: array[index].',
+    section: 'Коллекции',
+  },
+  IntArray: { kind: 'class', signature: 'class IntArray', description: 'Примитивный массив Int без boxing. Быстрее и компактнее Array<Int>.', section: 'Массивы' },
+  LongArray: { kind: 'class', signature: 'class LongArray', description: 'Примитивный массив Long без boxing.', section: 'Массивы' },
+  DoubleArray: { kind: 'class', signature: 'class DoubleArray', description: 'Примитивный массив Double без boxing.', section: 'Массивы' },
+  FloatArray: { kind: 'class', signature: 'class FloatArray', description: 'Примитивный массив Float без boxing.', section: 'Массивы' },
+  BooleanArray: { kind: 'class', signature: 'class BooleanArray', description: 'Примитивный массив Boolean без boxing.', section: 'Массивы' },
+  CharArray: { kind: 'class', signature: 'class CharArray', description: 'Примитивный массив Char. Часто используется для посимвольной обработки текста.', section: 'Массивы' },
+  List: {
+    kind: 'interface',
+    signature: 'interface List<out T> : Collection<T>',
+    description: 'Read-only список: порядок элементов сохранен, доступ по индексу есть, менять содержимое через List нельзя.',
+    section: 'Коллекции',
+  },
+  MutableList: {
+    kind: 'interface',
+    signature: 'interface MutableList<T> : List<T>, MutableCollection<T>',
+    description: 'Изменяемый список: можно add/remove/set, сортировать, перемешивать и менять элементы по индексу.',
+    section: 'Коллекции',
+  },
+  Set: {
+    kind: 'interface',
+    signature: 'interface Set<out T> : Collection<T>',
+    description: 'Read-only множество уникальных элементов. Нет доступа по индексу, зато удобно проверять contains().',
+    section: 'Коллекции',
+  },
+  MutableSet: {
+    kind: 'interface',
+    signature: 'interface MutableSet<T> : Set<T>, MutableCollection<T>',
+    description: 'Изменяемое множество уникальных элементов: add(), remove(), clear().',
+    section: 'Коллекции',
+  },
+  Map: {
+    kind: 'interface',
+    signature: 'interface Map<out K, V>',
+    description: 'Read-only словарь ключ -> значение. Чтение через map[key], getValue(), keys, values, entries.',
+    section: 'Коллекции',
+  },
+  MutableMap: {
+    kind: 'interface',
+    signature: 'interface MutableMap<K, V> : Map<K, V>',
+    description: 'Изменяемый словарь: put(), remove(), getOrPut(), clear(), плюс все read-only операции Map.',
+    section: 'Коллекции',
+  },
+  Iterable: {
+    kind: 'interface',
+    signature: 'interface Iterable<out T>',
+    description: 'Тип, по которому можно пройтись циклом for. Большинство коллекций реализуют Iterable.',
+    section: 'Коллекции',
+  },
+  Sequence: {
+    kind: 'interface',
+    signature: 'interface Sequence<out T>',
+    description: 'Ленивая цепочка преобразований. Полезна для больших данных и длинных map/filter pipeline.',
+    section: 'Коллекции',
+  },
+  Pair: {
+    kind: 'data class',
+    signature: 'data class Pair<out A, out B>(val first: A, val second: B)',
+    description: 'Пара значений first/second. Удобна для временных результатов, но для доменной модели лучше data class.',
+    section: 'Базовые типы',
+  },
+  Triple: {
+    kind: 'data class',
+    signature: 'data class Triple<out A, out B, out C>',
+    description: 'Тройка значений first/second/third. Для читаемого API обычно лучше named data class.',
+    section: 'Базовые типы',
+  },
+  Result: {
+    kind: 'class',
+    signature: 'value class Result<out T>',
+    description: 'Контейнер успеха или ошибки. Используйте runCatching(), map(), recover(), getOrThrow().',
+    section: 'Ошибки',
+  },
+  Comparable: { kind: 'interface', signature: 'interface Comparable<in T>', description: 'Тип, который умеет сравниваться с другим значением через compareTo().', section: 'Базовые типы' },
+  Comparator: { kind: 'interface', signature: 'fun interface Comparator<T>', description: 'Объект сравнения для сортировки: sortedWith(), sortWith(), compareBy().', section: 'Базовые типы' },
+  Throwable: { kind: 'class', signature: 'open class Throwable', description: 'Базовый тип всех исключений и ошибок.', section: 'Ошибки' },
+  Exception: { kind: 'class', signature: 'open class Exception : Throwable', description: 'Базовый класс обычных исключительных ситуаций.', section: 'Ошибки' },
+  IllegalArgumentException: { kind: 'class', signature: 'class IllegalArgumentException : RuntimeException', description: 'Исключение для неверных аргументов функции. Часто бросается require().', section: 'Ошибки' },
+  IllegalStateException: { kind: 'class', signature: 'class IllegalStateException : RuntimeException', description: 'Исключение для некорректного состояния объекта. Часто бросается check().', section: 'Ошибки' },
+  println: { kind: 'fun', signature: 'fun println(message: Any?): Unit', returnType: 'Unit', description: 'Печатает значение и перевод строки в stdout.', section: 'Ввод/вывод' },
+  print: { kind: 'fun', signature: 'fun print(message: Any?): Unit', returnType: 'Unit', description: 'Печатает значение в stdout без перевода строки.', section: 'Ввод/вывод' },
+  readln: { kind: 'fun', signature: 'fun readln(): String', returnType: 'String', description: 'Читает строку из stdin. В этой браузерной песочнице stdin пока не передается, поэтому readln() может получить EOF.', section: 'Ввод/вывод' },
+  readLine: { kind: 'fun', signature: 'fun readLine(): String?', returnType: 'String?', description: 'Nullable-версия чтения строки из stdin. Возвращает null при EOF.', section: 'Ввод/вывод' },
+  TODO: { kind: 'fun', signature: 'fun TODO(reason: String = ""): Nothing', returnType: 'Nothing', description: 'Заглушка: при выполнении бросает NotImplementedError и имеет тип Nothing.', section: 'Ошибки' },
+  require: { kind: 'fun', signature: 'fun require(value: Boolean, lazyMessage: () -> Any): Unit', returnType: 'Unit', description: 'Проверяет аргументы функции. Если условие false, бросает IllegalArgumentException.', section: 'Проверки' },
+  requireNotNull: { kind: 'fun', signature: 'fun <T : Any> requireNotNull(value: T?): T', returnType: 'T', description: 'Проверяет, что аргумент не null, и возвращает smart non-null значение.', section: 'Проверки' },
+  check: { kind: 'fun', signature: 'fun check(value: Boolean, lazyMessage: () -> Any): Unit', returnType: 'Unit', description: 'Проверяет состояние объекта. Если условие false, бросает IllegalStateException.', section: 'Проверки' },
+  checkNotNull: { kind: 'fun', signature: 'fun <T : Any> checkNotNull(value: T?): T', returnType: 'T', description: 'Проверяет, что состояние не null, и возвращает non-null значение.', section: 'Проверки' },
+  error: { kind: 'fun', signature: 'fun error(message: Any): Nothing', returnType: 'Nothing', description: 'Немедленно бросает IllegalStateException. Удобно для невозможных веток when/else.', section: 'Ошибки' },
+  run: { kind: 'fun', signature: 'inline fun <R> run(block: () -> R): R', returnType: 'R', description: 'Выполняет блок и возвращает его результат. Удобно для локального scope.', section: 'Scope functions' },
+  with: { kind: 'fun', signature: 'inline fun <T, R> with(receiver: T, block: T.() -> R): R', returnType: 'R', description: 'Выполняет блок на receiver без создания цепочки вызовов.', section: 'Scope functions' },
+  runCatching: { kind: 'fun', signature: 'inline fun <R> runCatching(block: () -> R): Result<R>', returnType: 'Result<R>', description: 'Запускает блок и упаковывает успех или исключение в Result.', section: 'Ошибки' },
+  lazy: { kind: 'fun', signature: 'fun <T> lazy(initializer: () -> T): Lazy<T>', returnType: 'Lazy<T>', description: 'Создает ленивое значение: initializer выполнится только при первом обращении.', section: 'Делегаты' },
+  listOf: { kind: 'fun', signature: 'fun <T> listOf(vararg elements: T): List<T>', returnType: 'List<T>', description: 'Создает read-only список из переданных элементов.', section: 'Коллекции' },
+  mutableListOf: { kind: 'fun', signature: 'fun <T> mutableListOf(vararg elements: T): MutableList<T>', returnType: 'MutableList<T>', description: 'Создает изменяемый список.', section: 'Коллекции' },
+  setOf: { kind: 'fun', signature: 'fun <T> setOf(vararg elements: T): Set<T>', returnType: 'Set<T>', description: 'Создает read-only множество уникальных элементов.', section: 'Коллекции' },
+  mutableSetOf: { kind: 'fun', signature: 'fun <T> mutableSetOf(vararg elements: T): MutableSet<T>', returnType: 'MutableSet<T>', description: 'Создает изменяемое множество.', section: 'Коллекции' },
+  mapOf: { kind: 'fun', signature: 'fun <K, V> mapOf(vararg pairs: Pair<K, V>): Map<K, V>', returnType: 'Map<K, V>', description: 'Создает read-only словарь. Пары обычно пишутся как key to value.', section: 'Коллекции' },
+  mutableMapOf: { kind: 'fun', signature: 'fun <K, V> mutableMapOf(vararg pairs: Pair<K, V>): MutableMap<K, V>', returnType: 'MutableMap<K, V>', description: 'Создает изменяемый словарь.', section: 'Коллекции' },
+  arrayOf: { kind: 'fun', signature: 'fun <T> arrayOf(vararg elements: T): Array<T>', returnType: 'Array<T>', description: 'Создает массив фиксированного размера.', section: 'Массивы' },
+  intArrayOf: { kind: 'fun', signature: 'fun intArrayOf(vararg elements: Int): IntArray', returnType: 'IntArray', description: 'Создает примитивный IntArray без boxing.', section: 'Массивы' },
+  sequenceOf: { kind: 'fun', signature: 'fun <T> sequenceOf(vararg elements: T): Sequence<T>', returnType: 'Sequence<T>', description: 'Создает ленивую Sequence из элементов.', section: 'Коллекции' },
+  generateSequence: { kind: 'fun', signature: 'fun <T : Any> generateSequence(nextFunction: () -> T?): Sequence<T>', returnType: 'Sequence<T>', description: 'Создает последовательность, генерируя следующий элемент по функции.', section: 'Коллекции' },
+  emptyList: { kind: 'fun', signature: 'fun <T> emptyList(): List<T>', returnType: 'List<T>', description: 'Возвращает пустой read-only список.', section: 'Коллекции' },
+  emptySet: { kind: 'fun', signature: 'fun <T> emptySet(): Set<T>', returnType: 'Set<T>', description: 'Возвращает пустое read-only множество.', section: 'Коллекции' },
+  emptyMap: { kind: 'fun', signature: 'fun <K, V> emptyMap(): Map<K, V>', returnType: 'Map<K, V>', description: 'Возвращает пустой read-only словарь.', section: 'Коллекции' },
+  buildList: { kind: 'fun', signature: 'fun <E> buildList(builderAction: MutableList<E>.() -> Unit): List<E>', returnType: 'List<E>', description: 'Строит read-only List через временный MutableList receiver.', section: 'Коллекции' },
+  buildSet: { kind: 'fun', signature: 'fun <E> buildSet(builderAction: MutableSet<E>.() -> Unit): Set<E>', returnType: 'Set<E>', description: 'Строит read-only Set через временный MutableSet receiver.', section: 'Коллекции' },
+  buildMap: { kind: 'fun', signature: 'fun <K, V> buildMap(builderAction: MutableMap<K, V>.() -> Unit): Map<K, V>', returnType: 'Map<K, V>', description: 'Строит read-only Map через временный MutableMap receiver.', section: 'Коллекции' },
+}
+
+const kotlinStdlibCompletions: Completion[] = Object.entries(kotlinStdlibDocs).map(([label, doc]) => ({
   label,
-  type: /^[A-Z]/.test(label) ? 'type' : 'function',
-  detail: 'kotlin stdlib',
-  section: 'Kotlin stdlib',
+  type: completionType(doc.kind),
+  detail: doc.signature,
+  info: `${doc.signature}\n${doc.description}`,
+  section: doc.section,
 }))
 
-const kotlinMemberCompletions: Completion[] = [
-  'toString',
-  'hashCode',
-  'equals',
-  'copy',
-  'let',
-  'also',
-  'apply',
-  'run',
-  'takeIf',
-  'takeUnless',
-  'isNullOrBlank',
-  'isNullOrEmpty',
-  'isEmpty',
-  'isNotEmpty',
-  'isBlank',
-  'isNotBlank',
-  'length',
-  'size',
-  'indices',
-  'first',
-  'last',
-  'firstOrNull',
-  'lastOrNull',
-  'map',
-  'flatMap',
-  'filter',
-  'filterNot',
-  'forEach',
-  'fold',
-  'reduce',
-  'groupBy',
-  'associateBy',
-  'sorted',
-  'sortedBy',
-  'distinct',
-  'joinToString',
-  'contains',
-  'count',
-  'any',
-  'all',
-  'none',
-  'sum',
-  'sumOf',
-  'minOrNull',
-  'maxOrNull',
-].map((label) => ({
-  label,
-  type: label === 'length' || label === 'size' || label === 'indices' ? 'property' : 'method',
-  detail: 'member',
-  section: 'Members',
-}))
+const kotlinLanguageDocs: Record<string, KotlinStdlibDoc> = {
+  val: { kind: 'keyword', signature: 'val name: Type = value', description: 'Объявляет read-only ссылку. Сам объект может быть mutable, но переменную нельзя переназначить.', section: 'Язык' },
+  var: { kind: 'keyword', signature: 'var name: Type = value', description: 'Объявляет изменяемую переменную, которую можно переназначить.', section: 'Язык' },
+  fun: { kind: 'keyword', signature: 'fun name(parameters): ReturnType', description: 'Объявляет функцию. Тип результата можно опустить, если он выводится из expression body.', section: 'Язык' },
+  class: { kind: 'keyword', signature: 'class Name(...) { ... }', description: 'Объявляет класс: состояние, поведение, конструкторы, свойства и методы.', section: 'Язык' },
+  interface: { kind: 'keyword', signature: 'interface Name { ... }', description: 'Контракт типа. Может содержать abstract members и реализации по умолчанию.', section: 'Язык' },
+  object: { kind: 'keyword', signature: 'object Name { ... }', description: 'Singleton-объект: ровно один экземпляр, создается лениво при первом обращении.', section: 'Язык' },
+  data: { kind: 'modifier', signature: 'data class Name(...)', description: 'Модификатор data class: генерирует equals/hashCode/toString/copy/componentN по constructor properties.', section: 'Язык' },
+  sealed: { kind: 'modifier', signature: 'sealed class/interface Name', description: 'Закрытая иерархия: все прямые наследники известны компилятору, удобно для exhaustive when.', section: 'Язык' },
+  enum: { kind: 'modifier', signature: 'enum class Name', description: 'Класс с фиксированным набором экземпляров-констант.', section: 'Язык' },
+  when: { kind: 'keyword', signature: 'when (value) { condition -> result }', description: 'Мощная замена switch: работает как statement или expression, поддерживает типы, ranges и условия.', section: 'Язык' },
+  if: { kind: 'keyword', signature: 'if (condition) value else fallback', description: 'Условная конструкция. В Kotlin if может быть expression и возвращать значение.', section: 'Язык' },
+  for: { kind: 'keyword', signature: 'for (item in items) { ... }', description: 'Цикл по Iterable, массиву, range или progression.', section: 'Язык' },
+  while: { kind: 'keyword', signature: 'while (condition) { ... }', description: 'Цикл, который выполняется, пока условие истинно.', section: 'Язык' },
+  try: { kind: 'keyword', signature: 'try { ... } catch (e: Exception) { ... }', description: 'Обработка исключений. В Kotlin try тоже может быть expression.', section: 'Язык' },
+  catch: { kind: 'keyword', signature: 'catch (e: Throwable) { ... }', description: 'Ветка обработки исключения из блока try.', section: 'Язык' },
+  finally: { kind: 'keyword', signature: 'finally { ... }', description: 'Блок, который выполняется после try/catch независимо от результата.', section: 'Язык' },
+  return: { kind: 'keyword', signature: 'return value', description: 'Завершает функцию и возвращает значение.', section: 'Язык' },
+  throw: { kind: 'keyword', signature: 'throw exception', description: 'Бросает исключение. Выражение throw имеет тип Nothing.', section: 'Язык' },
+  null: { kind: 'keyword', signature: 'null', description: 'Отсутствие значения. Может быть присвоено только nullable-типам вроде String?.', section: 'Язык' },
+  true: { kind: 'literal', signature: 'true', description: 'Логический литерал Boolean со значением истина.', section: 'Язык' },
+  false: { kind: 'literal', signature: 'false', description: 'Логический литерал Boolean со значением ложь.', section: 'Язык' },
+  is: { kind: 'keyword', signature: 'value is Type', description: 'Проверяет тип и часто включает smart cast внутри ветки.', section: 'Язык' },
+  as: { kind: 'keyword', signature: 'value as Type', description: 'Явное приведение типа. Для безопасного приведения используйте as?.', section: 'Язык' },
+  in: { kind: 'keyword', signature: 'value in range', description: 'Проверка contains или часть for-loop: for (x in xs).', section: 'Язык' },
+}
+
+const kotlinKeywordCompletions: Completion[] = kotlinKeywords.map((keyword) => {
+  const doc = kotlinLanguageDocs[keyword]
+
+  return {
+    label: keyword,
+    type: 'keyword',
+    detail: doc?.signature ?? 'keyword',
+    info: doc ? `${doc.signature}\n${doc.description}` : 'Kotlin keyword',
+    section: 'Keywords',
+  }
+})
+
+const commonAnyMembers: KotlinMemberInfo[] = [
+  {
+    label: 'toString',
+    type: 'method',
+    signature: 'fun toString(): String',
+    returnType: 'String',
+    section: 'Any',
+    boost: 20,
+  },
+  {
+    label: 'hashCode',
+    type: 'method',
+    signature: 'fun hashCode(): Int',
+    returnType: 'Int',
+    section: 'Any',
+    boost: 18,
+  },
+  {
+    label: 'equals',
+    type: 'method',
+    signature: 'fun equals(other: Any?): Boolean',
+    returnType: 'Boolean',
+    section: 'Any',
+    boost: 18,
+  },
+]
+
+const commonScopeMembers: KotlinMemberInfo[] = [
+  {
+    label: 'let',
+    type: 'method',
+    signature: 'inline fun <T, R> T.let(block: (T) -> R): R',
+    returnType: 'R',
+    section: 'Scope functions',
+    boost: 38,
+  },
+  {
+    label: 'also',
+    type: 'method',
+    signature: 'inline fun <T> T.also(block: (T) -> Unit): T',
+    returnType: 'T',
+    section: 'Scope functions',
+    boost: 36,
+  },
+  {
+    label: 'apply',
+    type: 'method',
+    signature: 'inline fun <T> T.apply(block: T.() -> Unit): T',
+    returnType: 'T',
+    section: 'Scope functions',
+    boost: 36,
+  },
+  {
+    label: 'run',
+    type: 'method',
+    signature: 'inline fun <T, R> T.run(block: T.() -> R): R',
+    returnType: 'R',
+    section: 'Scope functions',
+    boost: 34,
+  },
+  {
+    label: 'takeIf',
+    type: 'method',
+    signature: 'inline fun <T> T.takeIf(predicate: (T) -> Boolean): T?',
+    returnType: 'T?',
+    section: 'Scope functions',
+    boost: 32,
+  },
+  {
+    label: 'takeUnless',
+    type: 'method',
+    signature: 'inline fun <T> T.takeUnless(predicate: (T) -> Boolean): T?',
+    returnType: 'T?',
+    section: 'Scope functions',
+    boost: 31,
+  },
+]
+
+const collectionReadMembers: KotlinMemberInfo[] = [
+  { label: 'size', type: 'property', signature: 'val size: Int', returnType: 'Int', section: 'Collection', boost: 130 },
+  { label: 'indices', type: 'property', signature: 'val indices: IntRange', returnType: 'IntRange', section: 'Collection', boost: 118 },
+  { label: 'lastIndex', type: 'property', signature: 'val lastIndex: Int', returnType: 'Int', section: 'Collection', boost: 118 },
+  { label: 'isEmpty', type: 'method', signature: 'fun isEmpty(): Boolean', returnType: 'Boolean', section: 'Collection', boost: 116 },
+  { label: 'isNotEmpty', type: 'method', signature: 'fun isNotEmpty(): Boolean', returnType: 'Boolean', section: 'Collection', boost: 116 },
+  { label: 'iterator', type: 'method', signature: 'operator fun iterator(): Iterator<T>', returnType: 'Iterator<T>', section: 'Iteration', boost: 78 },
+  { label: 'contains', type: 'method', signature: 'operator fun contains(element: T): Boolean', returnType: 'Boolean', section: 'Collection', boost: 100 },
+  { label: 'containsAll', type: 'method', signature: 'fun containsAll(elements: Collection<T>): Boolean', returnType: 'Boolean', section: 'Collection', boost: 82 },
+  { label: 'get', type: 'method', signature: 'operator fun get(index: Int): T', returnType: 'T', section: 'Indexed access', boost: 106 },
+  { label: 'elementAt', type: 'method', signature: 'fun elementAt(index: Int): T', returnType: 'T', section: 'Indexed access', boost: 84 },
+  { label: 'elementAtOrNull', type: 'method', signature: 'fun elementAtOrNull(index: Int): T?', returnType: 'T?', section: 'Indexed access', boost: 80 },
+  { label: 'elementAtOrElse', type: 'method', signature: 'fun elementAtOrElse(index: Int, defaultValue: (Int) -> T): T', returnType: 'T', section: 'Indexed access', boost: 78 },
+  { label: 'indexOf', type: 'method', signature: 'fun indexOf(element: T): Int', returnType: 'Int', section: 'Indexed access', boost: 82 },
+  { label: 'lastIndexOf', type: 'method', signature: 'fun lastIndexOf(element: T): Int', returnType: 'Int', section: 'Indexed access', boost: 78 },
+  { label: 'first', type: 'method', signature: 'fun first(): T', returnType: 'T', section: 'Collection', boost: 110 },
+  { label: 'firstOrNull', type: 'method', signature: 'fun firstOrNull(): T?', returnType: 'T?', section: 'Collection', boost: 106 },
+  { label: 'find', type: 'method', signature: 'fun find(predicate: (T) -> Boolean): T?', returnType: 'T?', section: 'Predicate', boost: 98 },
+  { label: 'last', type: 'method', signature: 'fun last(): T', returnType: 'T', section: 'Collection', boost: 104 },
+  { label: 'lastOrNull', type: 'method', signature: 'fun lastOrNull(): T?', returnType: 'T?', section: 'Collection', boost: 102 },
+  { label: 'findLast', type: 'method', signature: 'fun findLast(predicate: (T) -> Boolean): T?', returnType: 'T?', section: 'Predicate', boost: 82 },
+  { label: 'single', type: 'method', signature: 'fun single(): T', returnType: 'T', section: 'Collection', boost: 72 },
+  { label: 'singleOrNull', type: 'method', signature: 'fun singleOrNull(): T?', returnType: 'T?', section: 'Collection', boost: 70 },
+  { label: 'map', type: 'method', signature: 'fun <R> map(transform: (T) -> R): List<R>', returnType: 'List<R>', section: 'Transform', boost: 126 },
+  { label: 'mapIndexed', type: 'method', signature: 'fun <R> mapIndexed(transform: (index: Int, T) -> R): List<R>', returnType: 'List<R>', section: 'Transform', boost: 104 },
+  { label: 'mapNotNull', type: 'method', signature: 'fun <R : Any> mapNotNull(transform: (T) -> R?): List<R>', returnType: 'List<R>', section: 'Transform', boost: 100 },
+  { label: 'flatMap', type: 'method', signature: 'fun <R> flatMap(transform: (T) -> Iterable<R>): List<R>', returnType: 'List<R>', section: 'Transform', boost: 102 },
+  { label: 'filter', type: 'method', signature: 'fun filter(predicate: (T) -> Boolean): List<T>', returnType: 'List<T>', section: 'Filter', boost: 124 },
+  { label: 'filterIndexed', type: 'method', signature: 'fun filterIndexed(predicate: (index: Int, T) -> Boolean): List<T>', returnType: 'List<T>', section: 'Filter', boost: 98 },
+  { label: 'filterNot', type: 'method', signature: 'fun filterNot(predicate: (T) -> Boolean): List<T>', returnType: 'List<T>', section: 'Filter', boost: 96 },
+  { label: 'filterNotNull', type: 'method', signature: 'fun filterNotNull(): List<T>', returnType: 'List<T>', section: 'Filter', boost: 86 },
+  { label: 'forEach', type: 'method', signature: 'fun forEach(action: (T) -> Unit): Unit', returnType: 'Unit', section: 'Iteration', boost: 112 },
+  { label: 'forEachIndexed', type: 'method', signature: 'fun forEachIndexed(action: (index: Int, T) -> Unit): Unit', returnType: 'Unit', section: 'Iteration', boost: 92 },
+  { label: 'onEach', type: 'method', signature: 'fun onEach(action: (T) -> Unit): Iterable<T>', returnType: 'Iterable<T>', section: 'Iteration', boost: 86 },
+  { label: 'fold', type: 'method', signature: 'fun <R> fold(initial: R, operation: (acc: R, T) -> R): R', returnType: 'R', section: 'Aggregate', boost: 92 },
+  { label: 'foldIndexed', type: 'method', signature: 'fun <R> foldIndexed(initial: R, operation: (index: Int, acc: R, T) -> R): R', returnType: 'R', section: 'Aggregate', boost: 76 },
+  { label: 'reduce', type: 'method', signature: 'fun reduce(operation: (acc: T, T) -> T): T', returnType: 'T', section: 'Aggregate', boost: 90 },
+  { label: 'reduceOrNull', type: 'method', signature: 'fun reduceOrNull(operation: (acc: T, T) -> T): T?', returnType: 'T?', section: 'Aggregate', boost: 78 },
+  { label: 'groupBy', type: 'method', signature: 'fun <K> groupBy(keySelector: (T) -> K): Map<K, List<T>>', returnType: 'Map<K, List<T>>', section: 'Transform', boost: 94 },
+  { label: 'associateBy', type: 'method', signature: 'fun <K> associateBy(keySelector: (T) -> K): Map<K, T>', returnType: 'Map<K, T>', section: 'Transform', boost: 90 },
+  { label: 'associateWith', type: 'method', signature: 'fun <V> associateWith(valueSelector: (T) -> V): Map<T, V>', returnType: 'Map<T, V>', section: 'Transform', boost: 86 },
+  { label: 'partition', type: 'method', signature: 'fun partition(predicate: (T) -> Boolean): Pair<List<T>, List<T>>', returnType: 'Pair<List<T>, List<T>>', section: 'Filter', boost: 84 },
+  { label: 'sorted', type: 'method', signature: 'fun sorted(): List<T>', returnType: 'List<T>', section: 'Order', boost: 92 },
+  { label: 'sortedDescending', type: 'method', signature: 'fun sortedDescending(): List<T>', returnType: 'List<T>', section: 'Order', boost: 86 },
+  { label: 'sortedBy', type: 'method', signature: 'fun <R : Comparable<R>> sortedBy(selector: (T) -> R?): List<T>', returnType: 'List<T>', section: 'Order', boost: 96 },
+  { label: 'sortedByDescending', type: 'method', signature: 'fun <R : Comparable<R>> sortedByDescending(selector: (T) -> R?): List<T>', returnType: 'List<T>', section: 'Order', boost: 86 },
+  { label: 'reversed', type: 'method', signature: 'fun reversed(): List<T>', returnType: 'List<T>', section: 'Order', boost: 84 },
+  { label: 'shuffled', type: 'method', signature: 'fun shuffled(): List<T>', returnType: 'List<T>', section: 'Order', boost: 72 },
+  { label: 'distinct', type: 'method', signature: 'fun distinct(): List<T>', returnType: 'List<T>', section: 'Transform', boost: 88 },
+  { label: 'distinctBy', type: 'method', signature: 'fun <K> distinctBy(selector: (T) -> K): List<T>', returnType: 'List<T>', section: 'Transform', boost: 78 },
+  { label: 'joinToString', type: 'method', signature: 'fun joinToString(separator: String = ", "): String', returnType: 'String', section: 'Transform', boost: 94 },
+  { label: 'take', type: 'method', signature: 'fun take(n: Int): List<T>', returnType: 'List<T>', section: 'Slice', boost: 84 },
+  { label: 'takeLast', type: 'method', signature: 'fun takeLast(n: Int): List<T>', returnType: 'List<T>', section: 'Slice', boost: 76 },
+  { label: 'takeWhile', type: 'method', signature: 'fun takeWhile(predicate: (T) -> Boolean): List<T>', returnType: 'List<T>', section: 'Slice', boost: 74 },
+  { label: 'drop', type: 'method', signature: 'fun drop(n: Int): List<T>', returnType: 'List<T>', section: 'Slice', boost: 82 },
+  { label: 'dropLast', type: 'method', signature: 'fun dropLast(n: Int): List<T>', returnType: 'List<T>', section: 'Slice', boost: 74 },
+  { label: 'slice', type: 'method', signature: 'fun slice(indices: Iterable<Int>): List<T>', returnType: 'List<T>', section: 'Slice', boost: 74 },
+  { label: 'zip', type: 'method', signature: 'fun <R> zip(other: Iterable<R>): List<Pair<T, R>>', returnType: 'List<Pair<T, R>>', section: 'Transform', boost: 80 },
+  { label: 'any', type: 'method', signature: 'fun any(predicate: (T) -> Boolean): Boolean', returnType: 'Boolean', section: 'Predicate', boost: 92 },
+  { label: 'all', type: 'method', signature: 'fun all(predicate: (T) -> Boolean): Boolean', returnType: 'Boolean', section: 'Predicate', boost: 90 },
+  { label: 'none', type: 'method', signature: 'fun none(predicate: (T) -> Boolean): Boolean', returnType: 'Boolean', section: 'Predicate', boost: 88 },
+  { label: 'random', type: 'method', signature: 'fun random(): T', returnType: 'T', section: 'Collection', boost: 72 },
+  { label: 'count', type: 'method', signature: 'fun count(predicate: (T) -> Boolean): Int', returnType: 'Int', section: 'Aggregate', boost: 90 },
+  { label: 'sumOf', type: 'method', signature: 'fun <R> sumOf(selector: (T) -> R): R', returnType: 'R', section: 'Aggregate', boost: 84 },
+  { label: 'minOrNull', type: 'method', signature: 'fun minOrNull(): T?', returnType: 'T?', section: 'Aggregate', boost: 76 },
+  { label: 'maxOrNull', type: 'method', signature: 'fun maxOrNull(): T?', returnType: 'T?', section: 'Aggregate', boost: 76 },
+  { label: 'toList', type: 'method', signature: 'fun toList(): List<T>', returnType: 'List<T>', section: 'Convert', boost: 88 },
+  { label: 'toMutableList', type: 'method', signature: 'fun toMutableList(): MutableList<T>', returnType: 'MutableList<T>', section: 'Convert', boost: 84 },
+  { label: 'toSet', type: 'method', signature: 'fun toSet(): Set<T>', returnType: 'Set<T>', section: 'Convert', boost: 82 },
+  { label: 'toMutableSet', type: 'method', signature: 'fun toMutableSet(): MutableSet<T>', returnType: 'MutableSet<T>', section: 'Convert', boost: 80 },
+  { label: 'asSequence', type: 'method', signature: 'fun asSequence(): Sequence<T>', returnType: 'Sequence<T>', section: 'Convert', boost: 82 },
+  { label: 'asIterable', type: 'method', signature: 'fun asIterable(): Iterable<T>', returnType: 'Iterable<T>', section: 'Convert', boost: 70 },
+  { label: 'chunked', type: 'method', signature: 'fun chunked(size: Int): List<List<T>>', returnType: 'List<List<T>>', section: 'Transform', boost: 72 },
+  { label: 'windowed', type: 'method', signature: 'fun windowed(size: Int, step: Int = 1): List<List<T>>', returnType: 'List<List<T>>', section: 'Transform', boost: 70 },
+  { label: 'plus', type: 'method', signature: 'operator fun plus(element: T): List<T>', returnType: 'List<T>', section: 'Operators', boost: 66 },
+  { label: 'minus', type: 'method', signature: 'operator fun minus(element: T): List<T>', returnType: 'List<T>', section: 'Operators', boost: 66 },
+]
+
+const mutableListMembers: KotlinMemberInfo[] = [
+  { label: 'add', type: 'method', signature: 'fun add(element: T): Boolean', returnType: 'Boolean', section: 'MutableList', boost: 128 },
+  { label: 'addAll', type: 'method', signature: 'fun addAll(elements: Collection<T>): Boolean', returnType: 'Boolean', section: 'MutableList', boost: 104 },
+  { label: 'remove', type: 'method', signature: 'fun remove(element: T): Boolean', returnType: 'Boolean', section: 'MutableList', boost: 104 },
+  { label: 'removeAt', type: 'method', signature: 'fun removeAt(index: Int): T', returnType: 'T', section: 'MutableList', boost: 96 },
+  { label: 'removeAll', type: 'method', signature: 'fun removeAll(elements: Collection<T>): Boolean', returnType: 'Boolean', section: 'MutableList', boost: 82 },
+  { label: 'clear', type: 'method', signature: 'fun clear(): Unit', returnType: 'Unit', section: 'MutableList', boost: 94 },
+  { label: 'set', type: 'method', signature: 'operator fun set(index: Int, element: T): T', returnType: 'T', section: 'MutableList', boost: 100 },
+  { label: 'fill', type: 'method', signature: 'fun fill(value: T): Unit', returnType: 'Unit', section: 'MutableList', boost: 78 },
+  { label: 'replaceAll', type: 'method', signature: 'fun replaceAll(transform: (T) -> T): Unit', returnType: 'Unit', section: 'MutableList', boost: 72 },
+  { label: 'sort', type: 'method', signature: 'fun sort(): Unit', returnType: 'Unit', section: 'MutableList', boost: 82 },
+  { label: 'sortBy', type: 'method', signature: 'fun <R : Comparable<R>> sortBy(selector: (T) -> R?): Unit', returnType: 'Unit', section: 'MutableList', boost: 78 },
+  { label: 'sortDescending', type: 'method', signature: 'fun sortDescending(): Unit', returnType: 'Unit', section: 'MutableList', boost: 74 },
+  { label: 'shuffle', type: 'method', signature: 'fun shuffle(): Unit', returnType: 'Unit', section: 'MutableList', boost: 70 },
+]
+
+const setMembers: KotlinMemberInfo[] = collectionReadMembers.filter(
+  (member) => !['get', 'indices', 'lastIndex', 'indexOf', 'lastIndexOf', 'elementAt', 'elementAtOrNull', 'elementAtOrElse'].includes(member.label),
+)
+
+const mutableSetMembers: KotlinMemberInfo[] = [
+  { label: 'add', type: 'method', signature: 'fun add(element: T): Boolean', returnType: 'Boolean', section: 'MutableSet', boost: 128 },
+  { label: 'addAll', type: 'method', signature: 'fun addAll(elements: Collection<T>): Boolean', returnType: 'Boolean', section: 'MutableSet', boost: 104 },
+  { label: 'remove', type: 'method', signature: 'fun remove(element: T): Boolean', returnType: 'Boolean', section: 'MutableSet', boost: 104 },
+  { label: 'removeAll', type: 'method', signature: 'fun removeAll(elements: Collection<T>): Boolean', returnType: 'Boolean', section: 'MutableSet', boost: 82 },
+  { label: 'clear', type: 'method', signature: 'fun clear(): Unit', returnType: 'Unit', section: 'MutableSet', boost: 94 },
+]
+
+const mapMembers: KotlinMemberInfo[] = [
+  { label: 'size', type: 'property', signature: 'val size: Int', returnType: 'Int', section: 'Map', boost: 130 },
+  { label: 'keys', type: 'property', signature: 'val keys: Set<K>', returnType: 'Set<K>', section: 'Map', boost: 120 },
+  { label: 'values', type: 'property', signature: 'val values: Collection<V>', returnType: 'Collection<V>', section: 'Map', boost: 118 },
+  { label: 'entries', type: 'property', signature: 'val entries: Set<Map.Entry<K, V>>', returnType: 'Set<Map.Entry<K, V>>', section: 'Map', boost: 116 },
+  { label: 'isEmpty', type: 'method', signature: 'fun isEmpty(): Boolean', returnType: 'Boolean', section: 'Map', boost: 112 },
+  { label: 'isNotEmpty', type: 'method', signature: 'fun isNotEmpty(): Boolean', returnType: 'Boolean', section: 'Map', boost: 112 },
+  { label: 'containsKey', type: 'method', signature: 'fun containsKey(key: K): Boolean', returnType: 'Boolean', section: 'Map', boost: 110 },
+  { label: 'containsValue', type: 'method', signature: 'fun containsValue(value: V): Boolean', returnType: 'Boolean', section: 'Map', boost: 104 },
+  { label: 'get', type: 'method', signature: 'operator fun get(key: K): V?', returnType: 'V?', section: 'Map', boost: 108 },
+  { label: 'getValue', type: 'method', signature: 'fun getValue(key: K): V', returnType: 'V', section: 'Map', boost: 98 },
+  { label: 'getOrDefault', type: 'method', signature: 'fun getOrDefault(key: K, defaultValue: V): V', returnType: 'V', section: 'Map', boost: 92 },
+  { label: 'getOrElse', type: 'method', signature: 'fun getOrElse(key: K, defaultValue: () -> V): V', returnType: 'V', section: 'Map', boost: 92 },
+  { label: 'map', type: 'method', signature: 'fun <R> map(transform: (Map.Entry<K, V>) -> R): List<R>', returnType: 'List<R>', section: 'Transform', boost: 106 },
+  { label: 'mapKeys', type: 'method', signature: 'fun <R> mapKeys(transform: (Map.Entry<K, V>) -> R): Map<R, V>', returnType: 'Map<R, V>', section: 'Transform', boost: 102 },
+  { label: 'mapValues', type: 'method', signature: 'fun <R> mapValues(transform: (Map.Entry<K, V>) -> R): Map<K, R>', returnType: 'Map<K, R>', section: 'Transform', boost: 104 },
+  { label: 'filter', type: 'method', signature: 'fun filter(predicate: (Map.Entry<K, V>) -> Boolean): Map<K, V>', returnType: 'Map<K, V>', section: 'Filter', boost: 106 },
+  { label: 'filterKeys', type: 'method', signature: 'fun filterKeys(predicate: (K) -> Boolean): Map<K, V>', returnType: 'Map<K, V>', section: 'Filter', boost: 98 },
+  { label: 'filterValues', type: 'method', signature: 'fun filterValues(predicate: (V) -> Boolean): Map<K, V>', returnType: 'Map<K, V>', section: 'Filter', boost: 98 },
+  { label: 'forEach', type: 'method', signature: 'fun forEach(action: (K, V) -> Unit): Unit', returnType: 'Unit', section: 'Iteration', boost: 100 },
+  { label: 'toMap', type: 'method', signature: 'fun toMap(): Map<K, V>', returnType: 'Map<K, V>', section: 'Convert', boost: 86 },
+  { label: 'toMutableMap', type: 'method', signature: 'fun toMutableMap(): MutableMap<K, V>', returnType: 'MutableMap<K, V>', section: 'Convert', boost: 84 },
+  { label: 'plus', type: 'method', signature: 'operator fun plus(pair: Pair<K, V>): Map<K, V>', returnType: 'Map<K, V>', section: 'Operators', boost: 72 },
+  { label: 'minus', type: 'method', signature: 'operator fun minus(key: K): Map<K, V>', returnType: 'Map<K, V>', section: 'Operators', boost: 72 },
+]
+
+const mutableMapMembers: KotlinMemberInfo[] = [
+  { label: 'put', type: 'method', signature: 'fun put(key: K, value: V): V?', returnType: 'V?', section: 'MutableMap', boost: 128 },
+  { label: 'putAll', type: 'method', signature: 'fun putAll(from: Map<K, V>): Unit', returnType: 'Unit', section: 'MutableMap', boost: 100 },
+  { label: 'remove', type: 'method', signature: 'fun remove(key: K): V?', returnType: 'V?', section: 'MutableMap', boost: 104 },
+  { label: 'clear', type: 'method', signature: 'fun clear(): Unit', returnType: 'Unit', section: 'MutableMap', boost: 94 },
+  { label: 'getOrPut', type: 'method', signature: 'fun getOrPut(key: K, defaultValue: () -> V): V', returnType: 'V', section: 'MutableMap', boost: 96 },
+]
+
+const mapEntryMembers: KotlinMemberInfo[] = [
+  { label: 'key', type: 'property', signature: 'val key: K', returnType: 'K', section: 'Map.Entry', boost: 126 },
+  { label: 'value', type: 'property', signature: 'val value: V', returnType: 'V', section: 'Map.Entry', boost: 126 },
+  { label: 'component1', type: 'method', signature: 'operator fun component1(): K', returnType: 'K', section: 'Map.Entry', boost: 82 },
+  { label: 'component2', type: 'method', signature: 'operator fun component2(): V', returnType: 'V', section: 'Map.Entry', boost: 82 },
+  { label: 'toPair', type: 'method', signature: 'fun toPair(): Pair<K, V>', returnType: 'Pair<K, V>', section: 'Map.Entry', boost: 74 },
+]
+
+const stringMembers: KotlinMemberInfo[] = [
+  { label: 'length', type: 'property', signature: 'val length: Int', returnType: 'Int', section: 'String', boost: 132 },
+  { label: 'indices', type: 'property', signature: 'val indices: IntRange', returnType: 'IntRange', section: 'String', boost: 116 },
+  { label: 'lastIndex', type: 'property', signature: 'val lastIndex: Int', returnType: 'Int', section: 'String', boost: 116 },
+  { label: 'isEmpty', type: 'method', signature: 'fun isEmpty(): Boolean', returnType: 'Boolean', section: 'String', boost: 116 },
+  { label: 'isNotEmpty', type: 'method', signature: 'fun isNotEmpty(): Boolean', returnType: 'Boolean', section: 'String', boost: 116 },
+  { label: 'isBlank', type: 'method', signature: 'fun isBlank(): Boolean', returnType: 'Boolean', section: 'String', boost: 114 },
+  { label: 'isNotBlank', type: 'method', signature: 'fun isNotBlank(): Boolean', returnType: 'Boolean', section: 'String', boost: 114 },
+  { label: 'get', type: 'method', signature: 'operator fun get(index: Int): Char', returnType: 'Char', section: 'String', boost: 98 },
+  { label: 'substring', type: 'method', signature: 'fun substring(startIndex: Int, endIndex: Int = length): String', returnType: 'String', section: 'String', boost: 110 },
+  { label: 'contains', type: 'method', signature: 'fun contains(other: CharSequence, ignoreCase: Boolean = false): Boolean', returnType: 'Boolean', section: 'String', boost: 106 },
+  { label: 'indexOf', type: 'method', signature: 'fun indexOf(string: String, startIndex: Int = 0, ignoreCase: Boolean = false): Int', returnType: 'Int', section: 'String', boost: 92 },
+  { label: 'lastIndexOf', type: 'method', signature: 'fun lastIndexOf(string: String, startIndex: Int = lastIndex, ignoreCase: Boolean = false): Int', returnType: 'Int', section: 'String', boost: 82 },
+  { label: 'startsWith', type: 'method', signature: 'fun startsWith(prefix: String, ignoreCase: Boolean = false): Boolean', returnType: 'Boolean', section: 'String', boost: 96 },
+  { label: 'endsWith', type: 'method', signature: 'fun endsWith(suffix: String, ignoreCase: Boolean = false): Boolean', returnType: 'Boolean', section: 'String', boost: 96 },
+  { label: 'lowercase', type: 'method', signature: 'fun lowercase(): String', returnType: 'String', section: 'String', boost: 102 },
+  { label: 'uppercase', type: 'method', signature: 'fun uppercase(): String', returnType: 'String', section: 'String', boost: 102 },
+  { label: 'trim', type: 'method', signature: 'fun trim(): String', returnType: 'String', section: 'String', boost: 102 },
+  { label: 'trimStart', type: 'method', signature: 'fun trimStart(): String', returnType: 'String', section: 'String', boost: 84 },
+  { label: 'trimEnd', type: 'method', signature: 'fun trimEnd(): String', returnType: 'String', section: 'String', boost: 84 },
+  { label: 'split', type: 'method', signature: 'fun split(vararg delimiters: String): List<String>', returnType: 'List<String>', section: 'String', boost: 102 },
+  { label: 'replace', type: 'method', signature: 'fun replace(oldValue: String, newValue: String, ignoreCase: Boolean = false): String', returnType: 'String', section: 'String', boost: 100 },
+  { label: 'replaceFirst', type: 'method', signature: 'fun replaceFirst(oldValue: String, newValue: String, ignoreCase: Boolean = false): String', returnType: 'String', section: 'String', boost: 78 },
+  { label: 'removePrefix', type: 'method', signature: 'fun removePrefix(prefix: CharSequence): String', returnType: 'String', section: 'String', boost: 82 },
+  { label: 'removeSuffix', type: 'method', signature: 'fun removeSuffix(suffix: CharSequence): String', returnType: 'String', section: 'String', boost: 82 },
+  { label: 'removeSurrounding', type: 'method', signature: 'fun removeSurrounding(prefix: CharSequence, suffix: CharSequence): String', returnType: 'String', section: 'String', boost: 76 },
+  { label: 'padStart', type: 'method', signature: 'fun padStart(length: Int, padChar: Char = \' \'): String', returnType: 'String', section: 'String', boost: 72 },
+  { label: 'padEnd', type: 'method', signature: 'fun padEnd(length: Int, padChar: Char = \' \'): String', returnType: 'String', section: 'String', boost: 72 },
+  { label: 'lines', type: 'method', signature: 'fun lines(): List<String>', returnType: 'List<String>', section: 'String', boost: 76 },
+  { label: 'filter', type: 'method', signature: 'fun filter(predicate: (Char) -> Boolean): String', returnType: 'String', section: 'String', boost: 92 },
+  { label: 'filterNot', type: 'method', signature: 'fun filterNot(predicate: (Char) -> Boolean): String', returnType: 'String', section: 'String', boost: 82 },
+  { label: 'map', type: 'method', signature: 'fun <R> map(transform: (Char) -> R): List<R>', returnType: 'List<R>', section: 'String', boost: 88 },
+  { label: 'forEach', type: 'method', signature: 'fun forEach(action: (Char) -> Unit): Unit', returnType: 'Unit', section: 'String', boost: 84 },
+  { label: 'any', type: 'method', signature: 'fun any(predicate: (Char) -> Boolean): Boolean', returnType: 'Boolean', section: 'String', boost: 80 },
+  { label: 'all', type: 'method', signature: 'fun all(predicate: (Char) -> Boolean): Boolean', returnType: 'Boolean', section: 'String', boost: 78 },
+  { label: 'none', type: 'method', signature: 'fun none(predicate: (Char) -> Boolean): Boolean', returnType: 'Boolean', section: 'String', boost: 76 },
+  { label: 'count', type: 'method', signature: 'fun count(predicate: (Char) -> Boolean): Int', returnType: 'Int', section: 'String', boost: 76 },
+  { label: 'find', type: 'method', signature: 'fun find(predicate: (Char) -> Boolean): Char?', returnType: 'Char?', section: 'String', boost: 74 },
+  { label: 'matches', type: 'method', signature: 'fun matches(regex: Regex): Boolean', returnType: 'Boolean', section: 'String', boost: 70 },
+  { label: 'toRegex', type: 'method', signature: 'fun toRegex(): Regex', returnType: 'Regex', section: 'Convert', boost: 68 },
+  { label: 'toInt', type: 'method', signature: 'fun toInt(): Int', returnType: 'Int', section: 'Convert', boost: 94 },
+  { label: 'toIntOrNull', type: 'method', signature: 'fun toIntOrNull(): Int?', returnType: 'Int?', section: 'Convert', boost: 92 },
+  { label: 'toLong', type: 'method', signature: 'fun toLong(): Long', returnType: 'Long', section: 'Convert', boost: 84 },
+  { label: 'toDouble', type: 'method', signature: 'fun toDouble(): Double', returnType: 'Double', section: 'Convert', boost: 84 },
+  { label: 'toBoolean', type: 'method', signature: 'fun toBoolean(): Boolean', returnType: 'Boolean', section: 'Convert', boost: 70 },
+]
+
+const numberMembers: KotlinMemberInfo[] = [
+  { label: 'toByte', type: 'method', signature: 'fun toByte(): Byte', returnType: 'Byte', section: 'Number', boost: 76 },
+  { label: 'toShort', type: 'method', signature: 'fun toShort(): Short', returnType: 'Short', section: 'Number', boost: 76 },
+  { label: 'toInt', type: 'method', signature: 'fun toInt(): Int', returnType: 'Int', section: 'Number', boost: 100 },
+  { label: 'toLong', type: 'method', signature: 'fun toLong(): Long', returnType: 'Long', section: 'Number', boost: 100 },
+  { label: 'toFloat', type: 'method', signature: 'fun toFloat(): Float', returnType: 'Float', section: 'Number', boost: 96 },
+  { label: 'toDouble', type: 'method', signature: 'fun toDouble(): Double', returnType: 'Double', section: 'Number', boost: 96 },
+  { label: 'coerceAtLeast', type: 'method', signature: 'fun coerceAtLeast(minimumValue: T): T', returnType: 'T', section: 'Number', boost: 92 },
+  { label: 'coerceAtMost', type: 'method', signature: 'fun coerceAtMost(maximumValue: T): T', returnType: 'T', section: 'Number', boost: 92 },
+  { label: 'coerceIn', type: 'method', signature: 'fun coerceIn(minimumValue: T, maximumValue: T): T', returnType: 'T', section: 'Number', boost: 90 },
+  { label: 'compareTo', type: 'method', signature: 'operator fun compareTo(other: T): Int', returnType: 'Int', section: 'Number', boost: 76 },
+  { label: 'plus', type: 'method', signature: 'operator fun plus(other: T): T', returnType: 'T', section: 'Operators', boost: 70 },
+  { label: 'minus', type: 'method', signature: 'operator fun minus(other: T): T', returnType: 'T', section: 'Operators', boost: 70 },
+  { label: 'times', type: 'method', signature: 'operator fun times(other: T): T', returnType: 'T', section: 'Operators', boost: 70 },
+  { label: 'div', type: 'method', signature: 'operator fun div(other: T): T', returnType: 'T', section: 'Operators', boost: 70 },
+  { label: 'rem', type: 'method', signature: 'operator fun rem(other: T): T', returnType: 'T', section: 'Operators', boost: 68 },
+  { label: 'rangeTo', type: 'method', signature: 'operator fun rangeTo(other: T): ClosedRange<T>', returnType: 'ClosedRange<T>', section: 'Operators', boost: 64 },
+  { label: 'toString', type: 'method', signature: 'fun toString(): String', returnType: 'String', section: 'Number', boost: 62 },
+]
+
+const booleanMembers: KotlinMemberInfo[] = [
+  { label: 'and', type: 'method', signature: 'infix fun and(other: Boolean): Boolean', returnType: 'Boolean', section: 'Boolean', boost: 92 },
+  { label: 'or', type: 'method', signature: 'infix fun or(other: Boolean): Boolean', returnType: 'Boolean', section: 'Boolean', boost: 92 },
+  { label: 'xor', type: 'method', signature: 'infix fun xor(other: Boolean): Boolean', returnType: 'Boolean', section: 'Boolean', boost: 86 },
+  { label: 'not', type: 'method', signature: 'operator fun not(): Boolean', returnType: 'Boolean', section: 'Boolean', boost: 96 },
+  { label: 'compareTo', type: 'method', signature: 'fun compareTo(other: Boolean): Int', returnType: 'Int', section: 'Boolean', boost: 70 },
+]
+
+const charMembers: KotlinMemberInfo[] = [
+  { label: 'code', type: 'property', signature: 'val code: Int', returnType: 'Int', section: 'Char', boost: 116 },
+  { label: 'isDigit', type: 'method', signature: 'fun isDigit(): Boolean', returnType: 'Boolean', section: 'Char', boost: 100 },
+  { label: 'isLetter', type: 'method', signature: 'fun isLetter(): Boolean', returnType: 'Boolean', section: 'Char', boost: 100 },
+  { label: 'isLetterOrDigit', type: 'method', signature: 'fun isLetterOrDigit(): Boolean', returnType: 'Boolean', section: 'Char', boost: 96 },
+  { label: 'lowercase', type: 'method', signature: 'fun lowercase(): String', returnType: 'String', section: 'Char', boost: 88 },
+  { label: 'uppercase', type: 'method', signature: 'fun uppercase(): String', returnType: 'String', section: 'Char', boost: 88 },
+]
+
+const arrayMembers: KotlinMemberInfo[] = [
+  ...collectionReadMembers,
+  { label: 'set', type: 'method', signature: 'operator fun set(index: Int, value: T): Unit', returnType: 'Unit', section: 'Array', boost: 112 },
+  { label: 'fill', type: 'method', signature: 'fun fill(element: T): Unit', returnType: 'Unit', section: 'Array', boost: 88 },
+  { label: 'copyOf', type: 'method', signature: 'fun copyOf(newSize: Int = size): Array<T>', returnType: 'Array<T>', section: 'Array', boost: 92 },
+  { label: 'copyOfRange', type: 'method', signature: 'fun copyOfRange(fromIndex: Int, toIndex: Int): Array<T>', returnType: 'Array<T>', section: 'Array', boost: 82 },
+  { label: 'contentToString', type: 'method', signature: 'fun contentToString(): String', returnType: 'String', section: 'Array', boost: 82 },
+  { label: 'contentEquals', type: 'method', signature: 'fun contentEquals(other: Array<T>): Boolean', returnType: 'Boolean', section: 'Array', boost: 72 },
+  { label: 'sort', type: 'method', signature: 'fun sort(): Unit', returnType: 'Unit', section: 'Array', boost: 82 },
+  { label: 'reverse', type: 'method', signature: 'fun reverse(): Unit', returnType: 'Unit', section: 'Array', boost: 80 },
+]
+
+const sequenceMembers: KotlinMemberInfo[] = [
+  { label: 'map', type: 'method', signature: 'fun <R> map(transform: (T) -> R): Sequence<R>', returnType: 'Sequence<R>', section: 'Sequence', boost: 126 },
+  { label: 'flatMap', type: 'method', signature: 'fun <R> flatMap(transform: (T) -> Sequence<R>): Sequence<R>', returnType: 'Sequence<R>', section: 'Sequence', boost: 100 },
+  { label: 'filter', type: 'method', signature: 'fun filter(predicate: (T) -> Boolean): Sequence<T>', returnType: 'Sequence<T>', section: 'Sequence', boost: 124 },
+  { label: 'filterNot', type: 'method', signature: 'fun filterNot(predicate: (T) -> Boolean): Sequence<T>', returnType: 'Sequence<T>', section: 'Sequence', boost: 92 },
+  { label: 'take', type: 'method', signature: 'fun take(n: Int): Sequence<T>', returnType: 'Sequence<T>', section: 'Sequence', boost: 98 },
+  { label: 'drop', type: 'method', signature: 'fun drop(n: Int): Sequence<T>', returnType: 'Sequence<T>', section: 'Sequence', boost: 94 },
+  { label: 'distinct', type: 'method', signature: 'fun distinct(): Sequence<T>', returnType: 'Sequence<T>', section: 'Sequence', boost: 88 },
+  { label: 'sorted', type: 'method', signature: 'fun sorted(): Sequence<T>', returnType: 'Sequence<T>', section: 'Sequence', boost: 84 },
+  { label: 'forEach', type: 'method', signature: 'fun forEach(action: (T) -> Unit): Unit', returnType: 'Unit', section: 'Sequence', boost: 102 },
+  { label: 'toList', type: 'method', signature: 'fun toList(): List<T>', returnType: 'List<T>', section: 'Convert', boost: 100 },
+  { label: 'toSet', type: 'method', signature: 'fun toSet(): Set<T>', returnType: 'Set<T>', section: 'Convert', boost: 86 },
+  { label: 'first', type: 'method', signature: 'fun first(): T', returnType: 'T', section: 'Sequence', boost: 88 },
+  { label: 'firstOrNull', type: 'method', signature: 'fun firstOrNull(): T?', returnType: 'T?', section: 'Sequence', boost: 86 },
+  { label: 'count', type: 'method', signature: 'fun count(): Int', returnType: 'Int', section: 'Aggregate', boost: 82 },
+  { label: 'any', type: 'method', signature: 'fun any(predicate: (T) -> Boolean): Boolean', returnType: 'Boolean', section: 'Predicate', boost: 78 },
+  { label: 'all', type: 'method', signature: 'fun all(predicate: (T) -> Boolean): Boolean', returnType: 'Boolean', section: 'Predicate', boost: 76 },
+]
+
+const pairMembers: KotlinMemberInfo[] = [
+  { label: 'first', type: 'property', signature: 'val first: A', returnType: 'A', section: 'Pair', boost: 118 },
+  { label: 'second', type: 'property', signature: 'val second: B', returnType: 'B', section: 'Pair', boost: 118 },
+  { label: 'toList', type: 'method', signature: 'fun toList(): List<Any?>', returnType: 'List<Any?>', section: 'Pair', boost: 78 },
+]
+
+const resultMembers: KotlinMemberInfo[] = [
+  { label: 'isSuccess', type: 'property', signature: 'val isSuccess: Boolean', returnType: 'Boolean', section: 'Result', boost: 116 },
+  { label: 'isFailure', type: 'property', signature: 'val isFailure: Boolean', returnType: 'Boolean', section: 'Result', boost: 116 },
+  { label: 'getOrNull', type: 'method', signature: 'fun getOrNull(): T?', returnType: 'T?', section: 'Result', boost: 106 },
+  { label: 'getOrThrow', type: 'method', signature: 'fun getOrThrow(): T', returnType: 'T', section: 'Result', boost: 102 },
+  { label: 'getOrDefault', type: 'method', signature: 'fun getOrDefault(defaultValue: T): T', returnType: 'T', section: 'Result', boost: 94 },
+  { label: 'getOrElse', type: 'method', signature: 'fun getOrElse(onFailure: (Throwable) -> T): T', returnType: 'T', section: 'Result', boost: 94 },
+  { label: 'map', type: 'method', signature: 'fun <R> map(transform: (T) -> R): Result<R>', returnType: 'Result<R>', section: 'Result', boost: 90 },
+  { label: 'recover', type: 'method', signature: 'fun recover(transform: (Throwable) -> T): Result<T>', returnType: 'Result<T>', section: 'Result', boost: 84 },
+]
+
+const kotlinMemberDocs: Record<string, string> = {
+  'string.length': 'Количество символов в строке.',
+  'string.indices': 'Диапазон допустимых индексов строки: 0..lastIndex.',
+  'string.lastIndex': 'Индекс последнего символа. Для пустой строки равен -1.',
+  'string.substring': 'Возвращает часть строки по индексам.',
+  'string.contains': 'Проверяет, входит ли символ или подстрока в строку.',
+  'string.indexOf': 'Возвращает индекс первого вхождения или -1, если ничего не найдено.',
+  'string.lastIndexOf': 'Возвращает индекс последнего вхождения или -1.',
+  'string.lowercase': 'Возвращает новую строку в нижнем регистре.',
+  'string.uppercase': 'Возвращает новую строку в верхнем регистре.',
+  'string.trim': 'Удаляет пробельные символы в начале и конце строки.',
+  'string.split': 'Разбивает строку на список частей.',
+  'string.replace': 'Возвращает новую строку с замененными фрагментами.',
+  'string.lines': 'Разбивает строку на строки с учетом разных переводов строки.',
+  'string.toIntOrNull': 'Безопасно парсит Int: возвращает null вместо исключения.',
+  'string.toRegex': 'Создает Regex из строки-шаблона.',
+  'map.keys': 'Read-only набор ключей словаря.',
+  'map.values': 'Read-only коллекция значений словаря.',
+  'map.entries': 'Набор пар key/value, удобный для перебора и map/filter.',
+  'map.get': 'Возвращает значение по ключу или null, если ключ отсутствует.',
+  'map.getValue': 'Возвращает значение по ключу или бросает исключение, если ключа нет.',
+  'map.getOrElse': 'Возвращает значение по ключу или результат defaultValue.',
+  'map.getOrDefault': 'Возвращает значение по ключу или переданное значение по умолчанию.',
+  'map.containsKey': 'Проверяет наличие ключа.',
+  'map.containsValue': 'Проверяет наличие значения.',
+  'map.mapKeys': 'Создает новый Map, преобразуя ключи.',
+  'map.mapValues': 'Создает новый Map, преобразуя значения.',
+  'map.filterKeys': 'Оставляет пары, ключи которых подходят под predicate.',
+  'map.filterValues': 'Оставляет пары, значения которых подходят под predicate.',
+  'mutableMap.put': 'Добавляет или заменяет значение по ключу.',
+  'mutableMap.getOrPut': 'Возвращает существующее значение или создает и сохраняет новое.',
+  'mutableMap.remove': 'Удаляет значение по ключу.',
+  'mapEntry.key': 'Ключ текущей пары Map.Entry.',
+  'mapEntry.value': 'Значение текущей пары Map.Entry.',
+  'mapEntry.component1': 'Первый компонент для destructuring: val (key, value) = entry.',
+  'mapEntry.component2': 'Второй компонент для destructuring: val (key, value) = entry.',
+  'mutableList.add': 'Добавляет элемент в конец списка.',
+  'mutableList.addAll': 'Добавляет все элементы коллекции.',
+  'mutableList.remove': 'Удаляет первое совпадающее значение.',
+  'mutableList.removeAt': 'Удаляет элемент по индексу и возвращает его.',
+  'mutableList.set': 'Заменяет элемент по индексу.',
+  'mutableList.sort': 'Сортирует список на месте.',
+  'mutableList.shuffle': 'Перемешивает список на месте.',
+  'mutableSet.add': 'Добавляет элемент, если его еще нет.',
+  'mutableSet.remove': 'Удаляет элемент из множества.',
+  'array.set': 'Записывает значение по индексу массива.',
+  'array.copyOf': 'Создает копию массива, опционально с новым размером.',
+  'array.copyOfRange': 'Копирует часть массива по диапазону индексов.',
+  'array.contentToString': 'Возвращает читаемое строковое представление содержимого массива.',
+  'array.fill': 'Заполняет массив одним значением.',
+  'number.coerceIn': 'Ограничивает число диапазоном min..max.',
+  'number.coerceAtLeast': 'Возвращает не меньше minimumValue.',
+  'number.coerceAtMost': 'Возвращает не больше maximumValue.',
+  'char.code': 'Unicode-код символа.',
+  'char.isDigit': 'Проверяет, является ли символ цифрой.',
+  'char.isLetter': 'Проверяет, является ли символ буквой.',
+  'char.isLetterOrDigit': 'Проверяет букву или цифру.',
+  'boolean.not': 'Логическое отрицание.',
+  'boolean.and': 'Логическое И без short-circuit.',
+  'boolean.or': 'Логическое ИЛИ без short-circuit.',
+  'pair.first': 'Первое значение пары.',
+  'pair.second': 'Второе значение пары.',
+  'result.isSuccess': 'true, если Result содержит успешное значение.',
+  'result.isFailure': 'true, если Result содержит исключение.',
+  'result.getOrNull': 'Возвращает значение успеха или null.',
+  'result.getOrThrow': 'Возвращает значение успеха или пробрасывает исключение.',
+  'result.recover': 'Преобразует ошибку в успешное значение.',
+  size: 'Количество элементов.',
+  isEmpty: 'Проверяет, что элементов нет.',
+  isNotEmpty: 'Проверяет, что есть хотя бы один элемент.',
+  iterator: 'Возвращает Iterator для ручного обхода.',
+  contains: 'Проверяет наличие элемента.',
+  containsAll: 'Проверяет, что все элементы присутствуют.',
+  get: 'Получает элемент по индексу или ключу.',
+  elementAt: 'Получает элемент по индексу.',
+  elementAtOrNull: 'Получает элемент по индексу или null, если индекс вне границ.',
+  elementAtOrElse: 'Получает элемент или вызывает defaultValue для неверного индекса.',
+  first: 'Возвращает первый элемент или бросает исключение, если коллекция пустая.',
+  firstOrNull: 'Возвращает первый элемент или null.',
+  last: 'Возвращает последний элемент или бросает исключение, если коллекция пустая.',
+  lastOrNull: 'Возвращает последний элемент или null.',
+  single: 'Возвращает единственный элемент или бросает исключение.',
+  singleOrNull: 'Возвращает единственный элемент или null.',
+  find: 'Возвращает первый элемент, подходящий под predicate.',
+  findLast: 'Возвращает последний элемент, подходящий под predicate.',
+  map: 'Преобразует каждый элемент и возвращает новую коллекцию результатов.',
+  mapIndexed: 'Как map, но transform получает индекс элемента.',
+  mapNotNull: 'Преобразует элементы и отбрасывает null-результаты.',
+  flatMap: 'Преобразует каждый элемент в коллекцию и склеивает результаты.',
+  filter: 'Оставляет элементы, для которых predicate возвращает true.',
+  filterIndexed: 'Как filter, но predicate получает индекс.',
+  filterNot: 'Оставляет элементы, для которых predicate возвращает false.',
+  filterNotNull: 'Удаляет null-значения из коллекции.',
+  forEach: 'Выполняет действие для каждого элемента.',
+  forEachIndexed: 'Как forEach, но action получает индекс.',
+  onEach: 'Выполняет side-effect для каждого элемента и возвращает исходную цепочку.',
+  fold: 'Сворачивает коллекцию в одно значение, начиная с initial.',
+  reduce: 'Сворачивает непустую коллекцию без initial.',
+  reduceOrNull: 'Сворачивает коллекцию или возвращает null для пустой.',
+  groupBy: 'Группирует элементы в Map по ключу.',
+  associateBy: 'Создает Map, используя выбранный ключ для каждого элемента.',
+  associateWith: 'Создает Map, где ключами становятся сами элементы.',
+  partition: 'Разделяет коллекцию на две: подходящие и неподходящие элементы.',
+  sorted: 'Возвращает отсортированный список.',
+  sortedDescending: 'Возвращает список в обратном порядке сортировки.',
+  sortedBy: 'Сортирует по выбранному ключу.',
+  sortedByDescending: 'Сортирует по выбранному ключу по убыванию.',
+  reversed: 'Возвращает элементы в обратном порядке.',
+  shuffled: 'Возвращает элементы в случайном порядке.',
+  distinct: 'Удаляет дубликаты, сохраняя порядок первого появления.',
+  distinctBy: 'Удаляет дубликаты по вычисленному ключу.',
+  joinToString: 'Склеивает элементы в строку.',
+  take: 'Берет первые n элементов.',
+  takeLast: 'Берет последние n элементов.',
+  takeWhile: 'Берет элементы, пока predicate возвращает true.',
+  drop: 'Пропускает первые n элементов.',
+  dropLast: 'Пропускает последние n элементов.',
+  slice: 'Возвращает элементы по набору индексов.',
+  zip: 'Объединяет две коллекции попарно.',
+  any: 'Проверяет, что хотя бы один элемент подходит под predicate.',
+  all: 'Проверяет, что все элементы подходят под predicate.',
+  none: 'Проверяет, что ни один элемент не подходит под predicate.',
+  random: 'Возвращает случайный элемент.',
+  count: 'Считает элементы, опционально подходящие под predicate.',
+  sumOf: 'Суммирует значения, полученные selector-функцией.',
+  minOrNull: 'Минимальный элемент или null для пустой коллекции.',
+  maxOrNull: 'Максимальный элемент или null для пустой коллекции.',
+  toList: 'Создает read-only List.',
+  toMutableList: 'Создает MutableList-копию.',
+  toSet: 'Создает read-only Set.',
+  toMutableSet: 'Создает MutableSet-копию.',
+  asSequence: 'Переходит к ленивой Sequence-цепочке.',
+  asIterable: 'Возвращает Iterable-представление.',
+  chunked: 'Разбивает коллекцию на блоки заданного размера.',
+  windowed: 'Создает скользящие окна по коллекции.',
+  plus: 'Возвращает новую коллекцию/значение с добавлением.',
+  minus: 'Возвращает новую коллекцию/значение с удалением.',
+  toString: 'Возвращает строковое представление значения.',
+  equals: 'Проверяет структурное равенство.',
+  hashCode: 'Возвращает hash code для equals/hash-based коллекций.',
+  let: 'Передает receiver как it и возвращает результат блока.',
+  also: 'Передает receiver как it и возвращает сам receiver.',
+  apply: 'Выполняет блок с receiver this и возвращает сам receiver.',
+  run: 'Выполняет блок с receiver this и возвращает результат.',
+  takeIf: 'Возвращает receiver, если predicate true, иначе null.',
+  takeUnless: 'Возвращает receiver, если predicate false, иначе null.',
+}
+
+const kotlinTypedMemberCatalog: Partial<Record<KotlinTypeCategory, KotlinMemberInfo[]>> = {
+  string: stringMembers,
+  char: charMembers,
+  boolean: booleanMembers,
+  number: numberMembers,
+  list: collectionReadMembers,
+  mutableList: [...collectionReadMembers, ...mutableListMembers],
+  set: setMembers,
+  mutableSet: [...setMembers, ...mutableSetMembers],
+  map: mapMembers,
+  mutableMap: [...mapMembers, ...mutableMapMembers],
+  mapEntry: mapEntryMembers,
+  array: arrayMembers,
+  primitiveArray: arrayMembers,
+  sequence: sequenceMembers,
+  iterable: collectionReadMembers,
+  pair: pairMembers,
+  result: resultMembers,
+}
+
+const kotlinFallbackMemberCompletions: Completion[] = [
+  ...commonScopeMembers,
+  ...commonAnyMembers,
+  ...collectionReadMembers.slice(0, 16),
+  ...stringMembers.slice(0, 8),
+].map((member) => kotlinMemberToCompletion(member, { name: 'Any', category: 'unknown', genericArguments: [], nullable: false }, 0))
 
 const kotlinSnippetCompletions: Completion[] = [
   snippetCompletion('fun main() {\n    ${}\n}', {
@@ -629,6 +1398,10 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (realtimeDiagnosticsTimer !== undefined) {
+    window.clearTimeout(realtimeDiagnosticsTimer)
+  }
+
   editorView.value?.destroy()
   editorView.value = null
 })
@@ -661,6 +1434,7 @@ watch(
     activeFileId.value = file.id
     openFile(file.id)
     replaceEditorDocument(file.content)
+    scheduleRealtimeDiagnostics(file.content, 0)
 
     if (!nodeMap.value.has(selectedNodeId.value)) {
       selectedNodeId.value = file.id
@@ -726,6 +1500,7 @@ function createEditorExtensions(): Extension[] {
       optionClass: (completion) => `cm-kotlingo-completion-${completion.type ?? 'text'}`,
     }),
     createInlineSuggestionExtension(),
+    hoverTooltip(kotlinHoverTooltipSource, { hoverTime: 180 }),
     diagnosticsCompartment.of(createDiagnosticsExtension()),
     keymap.of([
       {
@@ -746,6 +1521,14 @@ function createEditorExtensions(): Extension[] {
         key: 'Tab',
         run: (view) => acceptInlineSuggestion(view) || acceptCompletion(view) || Boolean(indentWithTab.run?.(view)),
       },
+      {
+        key: '.',
+        run: (view) => {
+          view.dispatch(view.state.replaceSelection('.'))
+          window.requestAnimationFrame(() => startCompletion(view))
+          return true
+        },
+      },
       { key: 'Ctrl-Space', run: startCompletion },
       ...completionKeymap,
       ...searchKeymap,
@@ -759,7 +1542,7 @@ function createEditorExtensions(): Extension[] {
 function localCompletionSource(context: CompletionContext): CompletionResult | null {
   const query = getCompletionQuery(context.state, context.pos)
 
-  if (!query || (!query.prefix && !context.explicit && query.mode !== 'import')) {
+  if (!query || (!query.prefix && !context.explicit && query.mode !== 'import' && query.mode !== 'member')) {
     return null
   }
 
@@ -767,51 +1550,68 @@ function localCompletionSource(context: CompletionContext): CompletionResult | n
     from: query.from,
     to: query.to,
     options: buildCompletionOptions(query),
-    validFor: query.mode === 'import' ? /^[A-Za-z_][\w.]*\*?$/ : /^[A-Za-z_]\w*$/,
+    validFor:
+      query.mode === 'import'
+        ? /^$|^[A-Za-z_][\w.]*\*?$/
+        : query.mode === 'member'
+          ? /^$|^[A-Za-z_]\w*$/
+          : /^[A-Za-z_]\w*$/,
   }
 }
 
 function getCompletionQuery(state: EditorState, pos: number): CompletionQuery | null {
   const line = state.doc.lineAt(pos)
-  const before = line.text.slice(0, pos - line.from)
+  const cursorOffset = pos - line.from
+  const before = line.text.slice(0, cursorOffset)
+  const after = line.text.slice(cursorOffset)
   const importMatch = before.match(/^\s*import\s+([A-Za-z_][\w.]*\*?)?$/)
+  const documentContent = state.doc.toString()
 
   if (importMatch) {
-    const prefix = importMatch[1] ?? ''
+    const leftPrefix = importMatch[1] ?? ''
+    const rightSuffix = after.match(/^[A-Za-z_][\w.]*\*?/)?.[0] ?? ''
+    const prefix = `${leftPrefix}${rightSuffix}`
 
     return {
-      from: pos - prefix.length,
-      to: pos,
+      from: pos - leftPrefix.length,
+      to: pos + rightSuffix.length,
       prefix,
       mode: 'import',
+      documentContent,
+      cursorPosition: pos,
     }
   }
 
-  const memberMatch = before.match(/([A-Za-z_]\w*)\.([A-Za-z_]\w*)?$/)
+  const memberAccess = getMemberAccessAtCursor(before, after)
 
-  if (memberMatch) {
-    const prefix = memberMatch[2] ?? ''
-
+  if (memberAccess) {
     return {
-      from: pos - prefix.length,
-      to: pos,
-      prefix,
+      from: pos - memberAccess.leftPrefix.length,
+      to: pos + memberAccess.rightSuffix.length,
+      prefix: `${memberAccess.leftPrefix}${memberAccess.rightSuffix}`,
       mode: 'member',
-      qualifier: memberMatch[1],
+      qualifier: memberAccess.qualifier,
+      memberExpression: memberAccess.expression,
+      documentContent,
+      cursorPosition: pos,
     }
   }
 
-  const wordMatch = before.match(/[A-Za-z_]\w*$/)
+  const leftWord = before.match(/[A-Za-z_]\w*$/)?.[0] ?? ''
+  const rightWord = after.match(/^[A-Za-z_]\w*/)?.[0] ?? ''
+  const word = `${leftWord}${rightWord}`
 
-  if (!wordMatch) {
+  if (!word) {
     return null
   }
 
   return {
-    from: pos - wordMatch[0].length,
-    to: pos,
-    prefix: wordMatch[0],
+    from: pos - leftWord.length,
+    to: pos + rightWord.length,
+    prefix: word,
     mode: 'default',
+    documentContent,
+    cursorPosition: pos,
   }
 }
 
@@ -821,7 +1621,7 @@ function buildCompletionOptions(query: CompletionQuery): Completion[] {
   }
 
   if (query.mode === 'member') {
-    return buildMemberCompletionOptions(query.qualifier)
+    return buildMemberCompletionOptions(query)
   }
 
   return [
@@ -829,12 +1629,7 @@ function buildCompletionOptions(query: CompletionQuery): Completion[] {
     ...buildLocalScopeCompletionOptions(),
     ...kotlinSnippetCompletions,
     ...kotlinStdlibCompletions,
-    ...kotlinKeywords.map((keyword) => ({
-      label: keyword,
-      type: 'keyword',
-      detail: 'keyword',
-      section: 'Keywords',
-    })),
+    ...kotlinKeywordCompletions,
   ]
 }
 
@@ -946,30 +1741,1367 @@ function buildImportCompletionOptions(): Completion[] {
   ]
 }
 
-function buildMemberCompletionOptions(qualifier?: string): Completion[] {
-  const localClass = localSymbols.value.find((symbol) => symbol.name === qualifier && ['class', 'object'].includes(symbol.kind))
-  const classMemberOptions = localClass ? extractClassMemberCompletions(localClass) : []
+function buildMemberCompletionOptions(query: CompletionQuery): Completion[] {
+  const content = query.documentContent ?? activeFile.value?.content ?? ''
+  const inferredType = inferExpressionType(query.memberExpression ?? query.qualifier ?? '', content, {
+    cursorPosition: query.cursorPosition,
+  })
+  const localClass = inferredType?.symbol ?? resolveQualifierSymbol(query.qualifier, content)
+  const typedMemberOptions = inferredType
+    ? memberCatalogForType(inferredType).map((member) => kotlinMemberToCompletion(member, inferredType, 70))
+    : []
+  const commonMemberOptions = [...commonScopeMembers, ...commonAnyMembers].map((member) =>
+    kotlinMemberToCompletion(member, inferredType ?? unknownTypeInfo(), 8, false),
+  )
+  const fallbackOptions =
+    !inferredType || inferredType.category === 'unknown' ? kotlinFallbackMemberCompletions : []
 
-  return [...classMemberOptions, ...kotlinMemberCompletions]
+  return dedupeCompletionOptions([
+    ...(localClass ? extractClassMemberCompletions(localClass) : []),
+    ...typedMemberOptions,
+    ...commonMemberOptions,
+    ...fallbackOptions,
+  ])
 }
 
 function extractClassMemberCompletions(symbol: ExportedSymbol): Completion[] {
-  const file = files.value.find((item) => item.id === symbol.fileId)
+  return dedupeSymbolMembers([...symbol.members, ...syntheticDataClassMembers(symbol)]).map((member) => ({
+    label: member.name,
+    type: completionType(member.kind),
+    detail: member.signature,
+    info: `${member.signature}\n${symbol.filePath}`,
+    boost: member.kind === 'fun' ? 132 : 138,
+    section: `${symbol.name} members`,
+  }))
+}
 
-  if (!file) {
+function kotlinMemberToCompletion(
+  member: KotlinMemberInfo,
+  ownerType: KotlinTypeInfo,
+  boostOffset = 0,
+  specializeSignature = true,
+): Completion {
+  const signature = specializeSignature ? specializeMemberSignature(member.signature, ownerType) : member.signature
+  const description = member.description ?? kotlinMemberDescription(member, ownerType)
+
+  return {
+    label: member.label,
+    type: member.type,
+    detail: signature,
+    info: description ? `${signature}\n${description}` : signature,
+    boost: (member.boost ?? 0) + boostOffset,
+    section: member.section ?? typeDisplayName(ownerType),
+  }
+}
+
+function kotlinMemberDescription(member: KotlinMemberInfo, ownerType: KotlinTypeInfo): string {
+  const ownerKeys = memberDocOwnerKeys(ownerType)
+  const keyedDescription = ownerKeys
+    .map((ownerKey) => kotlinMemberDocs[`${ownerKey}.${member.label}`])
+    .find(Boolean)
+
+  return keyedDescription ?? kotlinMemberDocs[member.label] ?? ''
+}
+
+function memberDocOwnerKeys(ownerType: KotlinTypeInfo): string[] {
+  const keys = [ownerType.category]
+
+  if (ownerType.category === 'primitiveArray') {
+    keys.push('array')
+  }
+
+  if (ownerType.category === 'mutableList') {
+    keys.push('list')
+  }
+
+  if (ownerType.category === 'mutableSet') {
+    keys.push('set')
+  }
+
+  if (ownerType.category === 'mutableMap') {
+    keys.push('map')
+  }
+
+  return keys
+}
+
+function memberCatalogForType(typeInfo: KotlinTypeInfo): KotlinMemberInfo[] {
+  return kotlinTypedMemberCatalog[typeInfo.category] ?? []
+}
+
+function specializeMemberSignature(signature: string, typeInfo: KotlinTypeInfo): string {
+  const generics = typeInfo.genericArguments
+  const receiver = typeDisplayName(typeInfo)
+  const replacements: Record<string, string> = {
+    T: generics[0] ?? receiver,
+    K: generics[0] ?? 'K',
+    V: generics[1] ?? 'V',
+    A: generics[0] ?? 'A',
+    B: generics[1] ?? 'B',
+  }
+
+  return Object.entries(replacements).reduce(
+    (result, [placeholder, replacement]) => result.replace(new RegExp(`\\b${placeholder}\\b`, 'g'), replacement),
+    signature,
+  )
+}
+
+function dedupeCompletionOptions(options: Completion[]): Completion[] {
+  const seen = new Set<string>()
+
+  return options.filter((option) => {
+    const key = `${option.label}:${option.type ?? 'text'}`
+
+    if (seen.has(key)) {
+      return false
+    }
+
+    seen.add(key)
+    return true
+  })
+}
+
+function getMemberAccessAtCursor(
+  before: string,
+  after: string,
+): { expression: string; qualifier?: string; leftPrefix: string; rightSuffix: string } | null {
+  const memberMatch = before.match(/([\s\S]+?)(?:\?\.|!!\.|\.)([A-Za-z_]\w*)?$/)
+
+  if (!memberMatch) {
+    return null
+  }
+
+  const expression = extractTrailingMemberExpression(memberMatch[1])
+
+  if (!expression) {
+    return null
+  }
+
+  const leftPrefix = memberMatch[2] ?? ''
+  const rightSuffix = after.match(/^[A-Za-z_]\w*/)?.[0] ?? ''
+  const qualifier = expression.match(/[A-Za-z_]\w*$/)?.[0]
+
+  return {
+    expression,
+    qualifier,
+    leftPrefix,
+    rightSuffix,
+  }
+}
+
+function extractTrailingMemberExpression(value: string): string {
+  const text = value.trimEnd()
+  let parenDepth = 0
+  let bracketDepth = 0
+  let braceDepth = 0
+  let angleDepth = 0
+
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const char = text[index]
+
+    if (char === ')') {
+      parenDepth += 1
+      continue
+    }
+
+    if (char === '(') {
+      if (parenDepth === 0) {
+        return cleanupMemberExpression(text.slice(index + 1))
+      }
+
+      parenDepth -= 1
+      continue
+    }
+
+    if (char === ']') {
+      bracketDepth += 1
+      continue
+    }
+
+    if (char === '[') {
+      if (bracketDepth === 0) {
+        return cleanupMemberExpression(text.slice(index + 1))
+      }
+
+      bracketDepth -= 1
+      continue
+    }
+
+    if (char === '}') {
+      braceDepth += 1
+      continue
+    }
+
+    if (char === '{') {
+      if (braceDepth === 0) {
+        return cleanupMemberExpression(text.slice(index + 1))
+      }
+
+      braceDepth -= 1
+      continue
+    }
+
+    if (char === '>' && text[index - 1] !== '-' && text[index - 1] !== '=') {
+      angleDepth += 1
+      continue
+    }
+
+    if (char === '<') {
+      if (angleDepth === 0) {
+        return cleanupMemberExpression(text.slice(index + 1))
+      }
+
+      angleDepth -= 1
+      continue
+    }
+
+    if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0 && char === '-' && text[index + 1] === '>') {
+      return cleanupMemberExpression(text.slice(index + 2))
+    }
+
+    if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0 && /[=,;+\-*/%?:]/.test(char)) {
+      return cleanupMemberExpression(text.slice(index + 1))
+    }
+  }
+
+  return cleanupMemberExpression(text)
+}
+
+function cleanupMemberExpression(expression: string): string {
+  return expression
+    .trim()
+    .replace(/^(?:return|throw|yield)\s+/, '')
+    .replace(/^(?:val|var)\s+[A-Za-z_]\w*\s*=\s*/, '')
+    .trim()
+}
+
+function inferExpressionType(expression: string, content: string, context: TypeInferenceContext = {}): KotlinTypeInfo | null {
+  const normalizedExpression = stripOuterParentheses(cleanupExpression(expression))
+
+  if (!normalizedExpression) {
+    return null
+  }
+
+  const indexAccessType = inferIndexAccessType(normalizedExpression, content, context)
+
+  if (indexAccessType) {
+    return indexAccessType
+  }
+
+  const chainedType = inferChainedExpressionType(normalizedExpression, content, context)
+
+  if (chainedType) {
+    return chainedType
+  }
+
+  if (/^"""/.test(normalizedExpression) || /^"(?:\\.|[^"\\])*"$/.test(normalizedExpression)) {
+    return typeInfoFromTypeName('String')
+  }
+
+  if (/^'(?:\\.|[^'\\])'$/.test(normalizedExpression)) {
+    return typeInfoFromTypeName('Char')
+  }
+
+  if (/^(?:true|false)$/.test(normalizedExpression)) {
+    return typeInfoFromTypeName('Boolean')
+  }
+
+  if (/^-?\d+(?:\.\d+)?(?:[fFdDlL])?$/.test(normalizedExpression)) {
+    return typeInfoFromTypeName(/[fFdD]$|\./.test(normalizedExpression) ? 'Double' : 'Int')
+  }
+
+  const identifierMatch = normalizedExpression.match(/^[A-Za-z_]\w*$/)
+
+  if (identifierMatch) {
+    return inferIdentifierType(identifierMatch[0], content, context) ?? typeInfoFromTypeName(identifierMatch[0])
+  }
+
+  const callType = inferKnownCallType(normalizedExpression, content, context)
+
+  if (callType) {
+    return callType
+  }
+
+  return null
+}
+
+function cleanupExpression(expression: string): string {
+  return expression.replace(/\/\/.*$/, '').trim()
+}
+
+function stripOuterParentheses(expression: string): string {
+  let result = expression.trim()
+
+  while (result.startsWith('(') && result.endsWith(')') && wrapsWholeExpression(result)) {
+    result = result.slice(1, -1).trim()
+  }
+
+  return result
+}
+
+function wrapsWholeExpression(expression: string): boolean {
+  let depth = 0
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const char = expression[index]
+
+    if (char === '(') {
+      depth += 1
+    } else if (char === ')') {
+      depth -= 1
+
+      if (depth === 0 && index < expression.length - 1) {
+        return false
+      }
+    }
+  }
+
+  return depth === 0
+}
+
+function inferIndexAccessType(expression: string, content: string, context: TypeInferenceContext = {}): KotlinTypeInfo | null {
+  const match = expression.match(/^([\s\S]+)\[[\s\S]*\]$/)
+
+  if (!match) {
+    return null
+  }
+
+  const receiverType = inferExpressionType(match[1], content, context)
+
+  if (!receiverType) {
+    return null
+  }
+
+  if (['list', 'mutableList', 'array', 'primitiveArray', 'set', 'mutableSet', 'sequence', 'iterable'].includes(receiverType.category)) {
+    return elementTypeInfo(receiverType)
+  }
+
+  if (['map', 'mutableMap'].includes(receiverType.category)) {
+    return typeInfoFromTypeName(receiverType.genericArguments[1] ?? 'Any?')
+  }
+
+  if (receiverType.category === 'string') {
+    return typeInfoFromTypeName('Char')
+  }
+
+  return null
+}
+
+function inferChainedExpressionType(expression: string, content: string, context: TypeInferenceContext = {}): KotlinTypeInfo | null {
+  const match = expression.match(/^([\s\S]+)\.([A-Za-z_]\w*)\s*(?:\([^)]*\))?(?:\s*\{[\s\S]*\})?$/)
+
+  if (!match) {
+    return null
+  }
+
+  const receiverType = inferExpressionType(match[1], content, context)
+
+  if (!receiverType) {
+    return null
+  }
+
+  return inferMemberReturnType(receiverType, match[2])
+}
+
+function inferMemberReturnType(receiverType: KotlinTypeInfo, memberName: string): KotlinTypeInfo | null {
+  const userMember = receiverType.symbol?.members.find((member) => member.name === memberName)
+
+  if (userMember) {
+    return typeInfoFromTypeName(memberReturnType(userMember) || 'Any?')
+  }
+
+  const member = memberCatalogForType(receiverType).find((item) => item.label === memberName)
+  const commonMember = [...commonAnyMembers, ...commonScopeMembers].find((item) => item.label === memberName)
+  const resolvedMember = member ?? commonMember
+
+  if (!resolvedMember) {
+    return null
+  }
+
+  const returnType = specializeMemberSignature(
+    resolvedMember.returnType ?? kotlinMemberInfoReturnType(resolvedMember),
+    receiverType,
+  )
+
+  if (!returnType) {
+    return unknownTypeInfo()
+  }
+
+  return typeInfoFromTypeName(returnType)
+}
+
+function inferIdentifierType(name: string, content: string, context: TypeInferenceContext = {}): KotlinTypeInfo | null {
+  const directType = typeInfoFromTypeName(name)
+
+  if (directType?.symbol) {
+    return directType
+  }
+
+  const lambdaParameterType =
+    context.cursorPosition === undefined ? null : inferLambdaParameterType(name, content, context.cursorPosition)
+
+  if (lambdaParameterType) {
+    return lambdaParameterType
+  }
+
+  const explicitVariableType = content.match(
+    new RegExp(`\\b(?:val|var)\\s+${escapeRegExp(name)}\\s*:\\s*([^=\\n]+)`),
+  )?.[1]
+
+  if (explicitVariableType) {
+    return typeInfoFromTypeName(explicitVariableType)
+  }
+
+  const initializer = content.match(
+    new RegExp(`\\b(?:val|var)\\s+${escapeRegExp(name)}\\b[^=\\n]*=\\s*([^\\n]+)`),
+  )?.[1]
+
+  if (initializer) {
+    const initializerType = inferExpressionType(initializer, content, context)
+
+    if (initializerType) {
+      return initializerType
+    }
+  }
+
+  const parameterType = findParameterType(name, content)
+
+  if (parameterType) {
+    return typeInfoFromTypeName(parameterType)
+  }
+
+  const loopElementType = findLoopElementType(name, content, context)
+
+  if (loopElementType) {
+    return loopElementType
+  }
+
+  const functionSymbol = localSymbols.value.find((symbol) => symbol.kind === 'fun' && symbol.name === name && symbol.returnType)
+
+  if (functionSymbol) {
+    return typeInfoFromTypeName(functionSymbol.returnType)
+  }
+
+  return null
+}
+
+function findParameterType(name: string, content: string): string {
+  const parameterLists = content.matchAll(/\(([^()]*)\)/g)
+
+  for (const match of parameterLists) {
+    const parameter = splitTopLevel(match[1])
+      .map((item) => item.trim())
+      .find((item) => new RegExp(`^${escapeRegExp(name)}\\s*:`).test(item))
+    const typeName = parameter?.match(/:\s*(.+)$/)?.[1]?.trim()
+
+    if (typeName) {
+      return typeName
+    }
+  }
+
+  return ''
+}
+
+function findLoopElementType(name: string, content: string, context: TypeInferenceContext = {}): KotlinTypeInfo | null {
+  const loopRegex = new RegExp(`for\\s*\\(\\s*${escapeRegExp(name)}\\s+in\\s+([^)]*)\\)`, 'g')
+  const match = loopRegex.exec(content)
+
+  if (!match) {
+    return null
+  }
+
+  const collectionType = inferExpressionType(match[1], content, context)
+
+  return collectionType ? elementTypeInfo(collectionType) : null
+}
+
+function inferLambdaParameterType(name: string, content: string, cursorPosition: number): KotlinTypeInfo | null {
+  const lambda = findCurrentLambda(content, cursorPosition)
+
+  if (!lambda) {
+    return null
+  }
+
+  const callContext = findLambdaCallContext(content, lambda.openBrace)
+
+  if (!callContext) {
+    return null
+  }
+
+  const lambdaContentBeforeCursor = content.slice(lambda.openBrace + 1, cursorPosition)
+  const parameters = parseLambdaParameters(lambdaContentBeforeCursor)
+
+  if (parameters.length > 0) {
+    const parameterIndex = parameters.findIndex((parameter) => parameter.name === name)
+    const parameter = parameters[parameterIndex]
+
+    if (parameterIndex < 0) {
+      return null
+    }
+
+    if (parameter.explicitType) {
+      return typeInfoFromTypeName(parameter.explicitType)
+    }
+
+    return inferLambdaParameterTypeByIndex(callContext, parameterIndex, parameters.length)
+  }
+
+  return name === 'it' ? inferLambdaParameterTypeByIndex(callContext, 0, 1) : null
+}
+
+function findCurrentLambda(content: string, cursorPosition: number): { openBrace: number } | null {
+  const stack: number[] = []
+  let inLineComment = false
+  let inBlockComment = false
+  let inString = false
+  let inChar = false
+  let inTripleString = false
+
+  for (let index = 0; index < Math.min(cursorPosition, content.length); index += 1) {
+    const char = content[index]
+    const next = content[index + 1]
+    const previous = content[index - 1]
+
+    if (inLineComment) {
+      if (char === '\n') {
+        inLineComment = false
+      }
+      continue
+    }
+
+    if (inBlockComment) {
+      if (char === '*' && next === '/') {
+        inBlockComment = false
+        index += 1
+      }
+      continue
+    }
+
+    if (inTripleString) {
+      if (char === '"' && next === '"' && content[index + 2] === '"') {
+        inTripleString = false
+        index += 2
+      }
+      continue
+    }
+
+    if (inString) {
+      if (char === '"' && previous !== '\\') {
+        inString = false
+      }
+      continue
+    }
+
+    if (inChar) {
+      if (char === "'" && previous !== '\\') {
+        inChar = false
+      }
+      continue
+    }
+
+    if (char === '/' && next === '/') {
+      inLineComment = true
+      index += 1
+      continue
+    }
+
+    if (char === '/' && next === '*') {
+      inBlockComment = true
+      index += 1
+      continue
+    }
+
+    if (char === '"' && next === '"' && content[index + 2] === '"') {
+      inTripleString = true
+      index += 2
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === "'") {
+      inChar = true
+      continue
+    }
+
+    if (char === '{') {
+      stack.push(index)
+    } else if (char === '}') {
+      stack.pop()
+    }
+  }
+
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    const openBrace = stack[index]
+
+    if (findLambdaCallContext(content, openBrace)) {
+      return { openBrace }
+    }
+  }
+
+  return null
+}
+
+function findLambdaCallContext(content: string, openBrace: number): LambdaCallContext | null {
+  const before = content.slice(0, openBrace).trimEnd()
+  const memberCall = before.match(/([\s\S]+)(?:\?\.|!!\.|\.)([A-Za-z_]\w*)\s*(?:\(([\s\S]*)\))?$/)
+
+  if (memberCall) {
+    const receiverExpression = extractTrailingMemberExpression(memberCall[1])
+
+    if (!receiverExpression) {
+      return null
+    }
+
+    const callName = memberCall[2]
+    const receiverType = inferExpressionType(receiverExpression, content, { cursorPosition: openBrace })
+
+    if (!receiverType || !isKnownLambdaMemberCall(callName, receiverType)) {
+      return null
+    }
+
+    return {
+      callName,
+      receiverExpression,
+      receiverType,
+      callArguments: splitCallArguments(memberCall[3] ?? ''),
+    }
+  }
+
+  const topLevelCall = before.match(/\b([A-Za-z_]\w*)\s*(?:\(([\s\S]*)\))?$/)
+
+  if (!topLevelCall || !isKnownTopLevelLambdaCall(topLevelCall[1])) {
+    return null
+  }
+
+  return {
+    callName: topLevelCall[1],
+    callArguments: splitCallArguments(topLevelCall[2] ?? ''),
+  }
+}
+
+function isKnownLambdaMemberCall(callName: string, receiverType: KotlinTypeInfo): boolean {
+  if (['let', 'also', 'takeIf', 'takeUnless'].includes(callName)) {
+    return true
+  }
+
+  return Boolean(inferMemberReturnType(receiverType, callName) || memberCatalogForType(receiverType).some((member) => member.label === callName))
+}
+
+function isKnownTopLevelLambdaCall(callName: string): boolean {
+  return ['run', 'with', 'buildList', 'buildSet', 'buildMap', 'sequence'].includes(callName)
+}
+
+function splitCallArguments(rawArguments: string): string[] {
+  return rawArguments.trim() ? splitTopLevel(rawArguments).map((argument) => argument.trim()) : []
+}
+
+function parseLambdaParameters(lambdaContentBeforeCursor: string): LambdaParameterInfo[] {
+  const arrowIndex = findTopLevelArrow(lambdaContentBeforeCursor)
+
+  if (arrowIndex < 0) {
     return []
   }
 
-  const classRegex = new RegExp(`\\b(?:class|object|interface)\\s+${escapeRegExp(symbol.name)}\\b[^{]*\\{([\\s\\S]*)\\}`)
-  const body = file.content.match(classRegex)?.[1] ?? ''
+  const declaration = stripOuterParentheses(lambdaContentBeforeCursor.slice(0, arrowIndex).trim())
 
-  return parseKotlinDeclarations(body).map((declaration) => ({
-    label: declaration.name,
-    type: completionType(declaration.kind),
-    detail: `${symbol.name}.${declaration.name}`,
-    boost: 130,
-    section: 'Class members',
-  }))
+  if (!declaration) {
+    return []
+  }
+
+  return splitTopLevel(declaration)
+    .map((parameter) => parameter.trim())
+    .map<LambdaParameterInfo | null>((parameter) => {
+      const match = parameter.match(/^([A-Za-z_]\w*)\s*(?::\s*([\s\S]+))?$/)
+
+      return match ? { name: match[1], explicitType: match[2]?.trim() } : null
+    })
+    .filter((parameter): parameter is LambdaParameterInfo => Boolean(parameter))
+}
+
+function findTopLevelArrow(value: string): number {
+  let parenDepth = 0
+  let bracketDepth = 0
+  let braceDepth = 0
+  let angleDepth = 0
+
+  for (let index = 0; index < value.length - 1; index += 1) {
+    const char = value[index]
+    const next = value[index + 1]
+
+    if (char === '-' && next === '>' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
+      return index
+    }
+
+    if (char === '(') {
+      parenDepth += 1
+    } else if (char === ')') {
+      parenDepth = Math.max(0, parenDepth - 1)
+    } else if (char === '[') {
+      bracketDepth += 1
+    } else if (char === ']') {
+      bracketDepth = Math.max(0, bracketDepth - 1)
+    } else if (char === '{') {
+      braceDepth += 1
+    } else if (char === '}') {
+      braceDepth = Math.max(0, braceDepth - 1)
+    } else if (char === '<') {
+      angleDepth += 1
+    } else if (char === '>') {
+      angleDepth = Math.max(0, angleDepth - 1)
+    }
+  }
+
+  return -1
+}
+
+function inferLambdaParameterTypeByIndex(
+  callContext: LambdaCallContext,
+  parameterIndex: number,
+  parameterCount: number,
+): KotlinTypeInfo | null {
+  const receiverType = callContext.receiverType
+
+  if (!receiverType) {
+    return inferTopLevelLambdaParameterType(callContext, parameterIndex)
+  }
+
+  if (['let', 'also', 'takeIf', 'takeUnless'].includes(callContext.callName)) {
+    return parameterIndex === 0 ? receiverType : null
+  }
+
+  if (receiverType.category === 'map' || receiverType.category === 'mutableMap') {
+    return inferMapLambdaParameterType(receiverType, callContext.callName, parameterIndex, parameterCount)
+  }
+
+  if (receiverType.category === 'string') {
+    return inferStringLambdaParameterType(callContext.callName, parameterIndex)
+  }
+
+  return inferCollectionLambdaParameterType(receiverType, callContext.callName, parameterIndex)
+}
+
+function inferTopLevelLambdaParameterType(callContext: LambdaCallContext, parameterIndex: number): KotlinTypeInfo | null {
+  if (callContext.callName === 'with' && parameterIndex === 0 && callContext.callArguments[0]) {
+    return inferExpressionType(callContext.callArguments[0], activeFile.value?.content ?? '')
+  }
+
+  return null
+}
+
+function inferMapLambdaParameterType(
+  receiverType: KotlinTypeInfo,
+  callName: string,
+  parameterIndex: number,
+  parameterCount: number,
+): KotlinTypeInfo | null {
+  const keyType = typeInfoFromTypeName(receiverType.genericArguments[0] ?? 'K') ?? unknownTypeInfo()
+  const valueType = typeInfoFromTypeName(receiverType.genericArguments[1] ?? 'V') ?? unknownTypeInfo()
+  const entryType = mapEntryTypeInfo(receiverType)
+
+  if (callName === 'filterKeys') {
+    return parameterIndex === 0 ? keyType : null
+  }
+
+  if (callName === 'filterValues') {
+    return parameterIndex === 0 ? valueType : null
+  }
+
+  if (parameterCount >= 2 && ['forEach', 'map', 'filter', 'onEach'].includes(callName)) {
+    return parameterIndex === 0 ? keyType : parameterIndex === 1 ? valueType : null
+  }
+
+  return ['map', 'mapKeys', 'mapValues', 'filter', 'forEach', 'onEach', 'any', 'all', 'none'].includes(callName) && parameterIndex === 0
+    ? entryType
+    : null
+}
+
+function inferStringLambdaParameterType(callName: string, parameterIndex: number): KotlinTypeInfo | null {
+  const charType = typeInfoFromTypeName('Char')
+
+  return parameterIndex === 0 &&
+    ['filter', 'filterNot', 'map', 'forEach', 'any', 'all', 'none', 'count', 'find', 'first', 'last', 'takeWhile', 'dropWhile'].includes(callName)
+    ? charType
+    : null
+}
+
+function inferCollectionLambdaParameterType(receiverType: KotlinTypeInfo, callName: string, parameterIndex: number): KotlinTypeInfo | null {
+  const elementType = elementTypeInfo(receiverType)
+
+  if (['filterIndexed', 'mapIndexed', 'forEachIndexed'].includes(callName)) {
+    return parameterIndex === 0 ? typeInfoFromTypeName('Int') : parameterIndex === 1 ? elementType : null
+  }
+
+  if (callName === 'foldIndexed') {
+    return parameterIndex === 0 ? typeInfoFromTypeName('Int') : parameterIndex === 2 ? elementType : null
+  }
+
+  if (callName === 'fold') {
+    return parameterIndex === 1 ? elementType : null
+  }
+
+  if (['reduce', 'reduceOrNull'].includes(callName)) {
+    return parameterIndex <= 1 ? elementType : null
+  }
+
+  return [
+    'filter',
+    'filterNot',
+    'map',
+    'mapNotNull',
+    'flatMap',
+    'forEach',
+    'onEach',
+    'any',
+    'all',
+    'none',
+    'count',
+    'find',
+    'findLast',
+    'first',
+    'firstOrNull',
+    'last',
+    'lastOrNull',
+    'single',
+    'singleOrNull',
+    'sortedBy',
+    'sortedByDescending',
+    'distinctBy',
+    'groupBy',
+    'associateBy',
+    'associateWith',
+    'sumOf',
+    'takeWhile',
+    'dropWhile',
+    'partition',
+    'replaceAll',
+    'sortBy',
+  ].includes(callName) && parameterIndex === 0
+    ? elementType
+    : null
+}
+
+function mapEntryTypeInfo(mapType: KotlinTypeInfo): KotlinTypeInfo {
+  return typeInfoFromTypeName(
+    `Map.Entry<${mapType.genericArguments[0] ?? 'K'}, ${mapType.genericArguments[1] ?? 'V'}>`,
+  ) ?? unknownTypeInfo()
+}
+
+function inferKnownCallType(expression: string, content: string, context: TypeInferenceContext = {}): KotlinTypeInfo | null {
+  const call = expression.match(/^([A-Za-z_]\w*)\s*(?:<([^>]*)>)?\s*\(/)
+
+  if (!call) {
+    return null
+  }
+
+  const callName = call[1]
+  const explicitGenerics = call[2] ? splitTopLevel(call[2]).map((item) => item.trim()).filter(Boolean) : []
+  const argumentTypes = inferCallArgumentTypes(expression, content, context)
+  const mapEntryTypes = inferMapEntryTypes(expression, content, context)
+
+  switch (callName) {
+    case 'listOf':
+    case 'listOfNotNull':
+    case 'emptyList':
+    case 'buildList':
+    case 'List':
+      return typeInfoFromTypeName(`List<${explicitGenerics[0] ?? argumentTypes[0] ?? 'Any?'}>`)
+    case 'mutableListOf':
+    case 'arrayListOf':
+    case 'MutableList':
+    case 'ArrayList':
+      return typeInfoFromTypeName(`MutableList<${explicitGenerics[0] ?? argumentTypes[0] ?? 'Any?'}>`)
+    case 'setOf':
+    case 'emptySet':
+    case 'buildSet':
+    case 'Set':
+      return typeInfoFromTypeName(`Set<${explicitGenerics[0] ?? argumentTypes[0] ?? 'Any?'}>`)
+    case 'mutableSetOf':
+    case 'hashSetOf':
+    case 'linkedSetOf':
+    case 'MutableSet':
+    case 'HashSet':
+    case 'LinkedHashSet':
+      return typeInfoFromTypeName(`MutableSet<${explicitGenerics[0] ?? argumentTypes[0] ?? 'Any?'}>`)
+    case 'mapOf':
+    case 'emptyMap':
+    case 'buildMap':
+    case 'Map':
+      return typeInfoFromTypeName(`Map<${explicitGenerics[0] ?? mapEntryTypes[0] ?? 'K'}, ${explicitGenerics[1] ?? mapEntryTypes[1] ?? 'V'}>`)
+    case 'mutableMapOf':
+    case 'hashMapOf':
+    case 'linkedMapOf':
+    case 'MutableMap':
+    case 'HashMap':
+    case 'LinkedHashMap':
+      return typeInfoFromTypeName(`MutableMap<${explicitGenerics[0] ?? mapEntryTypes[0] ?? 'K'}, ${explicitGenerics[1] ?? mapEntryTypes[1] ?? 'V'}>`)
+    case 'arrayOf':
+    case 'arrayOfNulls':
+    case 'emptyArray':
+    case 'Array':
+      return typeInfoFromTypeName(`Array<${explicitGenerics[0] ?? argumentTypes[0] ?? 'Any?'}>`)
+    case 'intArrayOf':
+      return typeInfoFromTypeName('IntArray')
+    case 'longArrayOf':
+      return typeInfoFromTypeName('LongArray')
+    case 'doubleArrayOf':
+      return typeInfoFromTypeName('DoubleArray')
+    case 'floatArrayOf':
+      return typeInfoFromTypeName('FloatArray')
+    case 'booleanArrayOf':
+      return typeInfoFromTypeName('BooleanArray')
+    case 'charArrayOf':
+      return typeInfoFromTypeName('CharArray')
+    case 'sequenceOf':
+    case 'generateSequence':
+      return typeInfoFromTypeName(`Sequence<${explicitGenerics[0] ?? argumentTypes[0] ?? 'Any?'}>`)
+    case 'Pair':
+      return typeInfoFromTypeName(`Pair<${argumentTypes[0] ?? explicitGenerics[0] ?? 'A'}, ${argumentTypes[1] ?? explicitGenerics[1] ?? 'B'}>`)
+    case 'Result':
+      return typeInfoFromTypeName(`Result<${explicitGenerics[0] ?? argumentTypes[0] ?? 'T'}>`)
+    default:
+      break
+  }
+
+  const constructorType = typeInfoFromTypeName(callName)
+
+  if (constructorType?.symbol) {
+    return constructorType
+  }
+
+  const functionSymbol = localSymbols.value.find((symbol) => symbol.kind === 'fun' && symbol.name === callName && symbol.returnType)
+
+  return functionSymbol ? typeInfoFromTypeName(functionSymbol.returnType) : null
+}
+
+function inferCallArgumentTypes(expression: string, content: string, context: TypeInferenceContext = {}): string[] {
+  const args = expression.match(/^[A-Za-z_]\w*\s*(?:<[^>]*>)?\s*\(([\s\S]*)\)/)?.[1]
+
+  if (!args) {
+    return []
+  }
+
+  return splitTopLevel(args)
+    .map((argument) => inferExpressionType(argument, content, context))
+    .map((typeInfo) => (typeInfo ? typeDisplayName(typeInfo) : ''))
+    .filter(Boolean)
+}
+
+function inferMapEntryTypes(expression: string, content: string, context: TypeInferenceContext = {}): string[] {
+  const args = expression.match(/^[A-Za-z_]\w*\s*(?:<[^>]*>)?\s*\(([\s\S]*)\)/)?.[1]
+
+  if (!args) {
+    return []
+  }
+
+  const entry = splitTopLevel(args)[0]?.match(/^([\s\S]+?)\s+to\s+([\s\S]+)$/)
+
+  if (!entry) {
+    return []
+  }
+
+  return [entry[1], entry[2]]
+    .map((expressionPart) => inferExpressionType(expressionPart, content, context))
+    .map((typeInfo) => (typeInfo ? typeDisplayName(typeInfo) : ''))
+    .filter(Boolean)
+}
+
+function typeInfoFromTypeName(rawType: string): KotlinTypeInfo | null {
+  const parsed = parseKotlinType(rawType)
+
+  if (!parsed.baseName) {
+    return null
+  }
+
+  const categoryByType: Record<string, KotlinTypeCategory> = {
+    String: 'string',
+    CharSequence: 'string',
+    Char: 'char',
+    Boolean: 'boolean',
+    Byte: 'number',
+    Short: 'number',
+    Int: 'number',
+    Long: 'number',
+    Float: 'number',
+    Double: 'number',
+    Number: 'number',
+    List: 'list',
+    Collection: 'iterable',
+    Iterable: 'iterable',
+    MutableList: 'mutableList',
+    ArrayList: 'mutableList',
+    Set: 'set',
+    MutableSet: 'mutableSet',
+    HashSet: 'mutableSet',
+    LinkedHashSet: 'mutableSet',
+    Map: 'map',
+    MutableMap: 'mutableMap',
+    HashMap: 'mutableMap',
+    LinkedHashMap: 'mutableMap',
+    Entry: 'mapEntry',
+    Array: 'array',
+    IntArray: 'primitiveArray',
+    LongArray: 'primitiveArray',
+    DoubleArray: 'primitiveArray',
+    FloatArray: 'primitiveArray',
+    BooleanArray: 'primitiveArray',
+    CharArray: 'primitiveArray',
+    ByteArray: 'primitiveArray',
+    ShortArray: 'primitiveArray',
+    Sequence: 'sequence',
+    Pair: 'pair',
+    Result: 'result',
+    Unit: 'unit',
+  }
+  const symbol = localSymbols.value.find(
+    (item) => item.name === parsed.baseName && ['class', 'object', 'interface'].includes(item.kind),
+  )
+
+  return {
+    name: parsed.baseName,
+    category: symbol ? 'user' : categoryByType[parsed.baseName] ?? 'unknown',
+    symbol,
+    genericArguments: parsed.genericArguments,
+    nullable: parsed.nullable,
+  }
+}
+
+function parseKotlinType(rawType: string): { baseName: string; genericArguments: string[]; nullable: boolean } {
+  const normalized = rawType
+    .replace(/\b(?:out|in|vararg|noinline|crossinline)\s+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const nullable = /\?$/.test(normalized)
+  const nonNullable = normalized.replace(/\?$/, '').trim()
+  const baseMatch = nonNullable.match(/^([A-Za-z_][\w.]*)(?:\s*<([\s\S]*)>)?/)
+  const baseName = baseMatch?.[1]?.split('.').at(-1) ?? ''
+  const genericArguments = baseMatch?.[2]
+    ? splitTopLevel(baseMatch[2])
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : []
+
+  return { baseName, genericArguments, nullable }
+}
+
+function elementTypeInfo(typeInfo: KotlinTypeInfo): KotlinTypeInfo {
+  if (typeInfo.category === 'string') {
+    return typeInfoFromTypeName('Char') ?? unknownTypeInfo()
+  }
+
+  if (typeInfo.category === 'primitiveArray') {
+    const primitiveType = typeInfo.name.replace(/Array$/, '') || 'Int'
+
+    return typeInfoFromTypeName(primitiveType) ?? unknownTypeInfo()
+  }
+
+  return typeInfoFromTypeName(typeInfo.genericArguments[0] ?? 'Any?') ?? unknownTypeInfo()
+}
+
+function memberReturnType(member: SymbolMember): string {
+  return member.signature.match(/:\s*([^={]+)$/)?.[1]?.trim() ?? extractReturnType(member.signature)
+}
+
+function typeDisplayName(typeInfo: KotlinTypeInfo): string {
+  const generics = typeInfo.genericArguments.length > 0 ? `<${typeInfo.genericArguments.join(', ')}>` : ''
+
+  return `${typeInfo.name}${generics}${typeInfo.nullable ? '?' : ''}`
+}
+
+function unknownTypeInfo(): KotlinTypeInfo {
+  return {
+    name: 'Any',
+    category: 'unknown',
+    genericArguments: [],
+    nullable: false,
+  }
+}
+
+function splitTopLevel(value: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let parenDepth = 0
+  let bracketDepth = 0
+  let braceDepth = 0
+  let angleDepth = 0
+
+  for (const char of value) {
+    if (char === ',' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
+      result.push(current)
+      current = ''
+      continue
+    }
+
+    current += char
+
+    if (char === '(') {
+      parenDepth += 1
+    } else if (char === ')') {
+      parenDepth = Math.max(0, parenDepth - 1)
+    } else if (char === '[') {
+      bracketDepth += 1
+    } else if (char === ']') {
+      bracketDepth = Math.max(0, bracketDepth - 1)
+    } else if (char === '{') {
+      braceDepth += 1
+    } else if (char === '}') {
+      braceDepth = Math.max(0, braceDepth - 1)
+    } else if (char === '<') {
+      angleDepth += 1
+    } else if (char === '>') {
+      angleDepth = Math.max(0, angleDepth - 1)
+    }
+  }
+
+  if (current.trim()) {
+    result.push(current)
+  }
+
+  return result
+}
+
+const kotlinHoverTooltipSource: HoverTooltipSource = (view, pos) => {
+  const hoveredWord = wordAtPosition(view.state, pos)
+
+  if (!hoveredWord) {
+    return null
+  }
+
+  const symbol = findHoverSymbol(hoveredWord.text, view.state, hoveredWord.from)
+
+  if (!symbol) {
+    return null
+  }
+
+  return {
+    pos: hoveredWord.from,
+    end: hoveredWord.to,
+    above: false,
+    strictSide: true,
+    arrow: true,
+    clip: false,
+    create: () => ({
+      dom: createSymbolHoverElement(symbol),
+    }),
+  }
+}
+
+function wordAtPosition(state: EditorState, pos: number): { from: number; to: number; text: string } | null {
+  const line = state.doc.lineAt(pos)
+  const offset = pos - line.from
+  const left = line.text.slice(0, offset).match(/[A-Za-z_]\w*$/)?.[0] ?? ''
+  const right = line.text.slice(offset).match(/^[A-Za-z_]\w*/)?.[0] ?? ''
+  const text = `${left}${right}`
+
+  if (!text) {
+    return null
+  }
+
+  return {
+    from: pos - left.length,
+    to: pos + right.length,
+    text,
+  }
+}
+
+function findHoverSymbol(word: string, state: EditorState, from: number): ExportedSymbol | null {
+  const line = state.doc.lineAt(from)
+  const before = line.text.slice(0, from - line.from)
+  const memberExpression = getMemberAccessAtCursor(before, '')?.expression ?? ''
+
+  if (memberExpression) {
+    const ownerType = inferExpressionType(memberExpression, state.doc.toString(), { cursorPosition: from })
+    const owner = ownerType?.symbol
+    const member = owner ? dedupeSymbolMembers([...owner.members, ...syntheticDataClassMembers(owner)]).find((item) => item.name === word) : undefined
+    const stdlibMember = ownerType ? memberCatalogForType(ownerType).find((item) => item.label === word) : undefined
+
+    if (owner && member) {
+      return projectMemberToHoverSymbol(owner, member)
+    }
+
+    if (ownerType && stdlibMember) {
+      return kotlinMemberToHoverSymbol(stdlibMember, ownerType)
+    }
+  }
+
+  const sameFile = localSymbols.value.find((symbol) => symbol.fileId === activeFileId.value && symbol.name === word)
+
+  if (sameFile) {
+    return sameFile
+  }
+
+  const projectSymbol = localSymbols.value.find((symbol) => symbol.name === word || symbol.importPath.endsWith(`.${word}`))
+
+  if (projectSymbol) {
+    return projectSymbol
+  }
+
+  return kotlinDocToHoverSymbol(word)
+}
+
+function kotlinDocToHoverSymbol(word: string): ExportedSymbol | null {
+  const doc = kotlinStdlibDocs[word] ?? kotlinLanguageDocs[word]
+
+  if (!doc) {
+    return null
+  }
+
+  return {
+    fileId: `kotlin-doc-${word}`,
+    filePath: `Kotlin · ${doc.section}`,
+    packageName: 'kotlin',
+    importPath: word,
+    name: word,
+    kind: doc.kind,
+    signature: doc.signature,
+    parameters: extractFunctionParameters(doc.signature),
+    returnType: doc.returnType ?? '',
+    implementation: '',
+    documentation: doc.description,
+    members: [],
+  }
+}
+
+function projectMemberToHoverSymbol(owner: ExportedSymbol, member: SymbolMember): ExportedSymbol {
+  return {
+    ...owner,
+    kind: member.kind,
+    name: member.name,
+    importPath: `${owner.importPath}.${member.name}`,
+    signature: member.signature,
+    parameters: extractFunctionParameters(member.signature),
+    returnType: memberReturnType(member),
+    implementation: member.signature,
+    members: [],
+  }
+}
+
+function kotlinMemberToHoverSymbol(member: KotlinMemberInfo, ownerType: KotlinTypeInfo): ExportedSymbol {
+  const signature = specializeMemberSignature(member.signature, ownerType)
+  const returnType = specializeMemberSignature(member.returnType ?? kotlinMemberInfoReturnType(member), ownerType)
+  const documentation = member.description ?? kotlinMemberDescription(member, ownerType)
+
+  return {
+    fileId: 'kotlin-stdlib',
+    filePath: `Kotlin stdlib · ${typeDisplayName(ownerType)}`,
+    packageName: 'kotlin',
+    importPath: `${typeDisplayName(ownerType)}.${member.label}`,
+    name: member.label,
+    kind: member.type === 'property' ? 'val' : 'fun',
+    signature,
+    parameters: extractFunctionParameters(signature),
+    returnType,
+    implementation: '',
+    documentation,
+    members: [],
+  }
+}
+
+function kotlinMemberInfoReturnType(member: KotlinMemberInfo): string {
+  return member.returnType ?? member.signature.match(/:\s*([^={]+)$/)?.[1]?.trim() ?? extractReturnType(member.signature)
+}
+
+function resolveQualifierSymbol(qualifier: string | undefined, content = activeFile.value?.content ?? ''): ExportedSymbol | undefined {
+  if (!qualifier) {
+    return undefined
+  }
+
+  const directSymbol = localSymbols.value.find(
+    (symbol) => symbol.name === qualifier && ['class', 'object', 'interface'].includes(symbol.kind),
+  )
+
+  if (directSymbol) {
+    return directSymbol
+  }
+
+  return inferIdentifierType(qualifier, content)?.symbol
+}
+
+function createSymbolHoverElement(symbol: ExportedSymbol): HTMLElement {
+  const root = document.createElement('div')
+  root.className = 'cm-kotlingo-hover'
+
+  const signature = document.createElement('pre')
+  signature.className = 'cm-kotlingo-hover-signature'
+  signature.textContent = symbol.signature || `${symbol.kind} ${symbol.name}`
+  root.append(signature)
+
+  const meta = document.createElement('p')
+  meta.className = 'cm-kotlingo-hover-meta'
+  appendHoverChip(meta, symbol.kind)
+
+  if (symbol.returnType) {
+    appendHoverChip(meta, `returns ${symbol.returnType}`)
+  }
+
+  if (symbol.parameters.length > 0) {
+    appendHoverChip(meta, `${symbol.parameters.length} params`)
+  }
+
+  appendHoverChip(meta, symbol.filePath)
+  root.append(meta)
+
+  if (symbol.documentation) {
+    const doc = document.createElement('p')
+    doc.className = 'cm-kotlingo-hover-doc'
+    doc.textContent = symbol.documentation
+    root.append(doc)
+  }
+
+  if (symbol.parameters.length > 0) {
+    const title = document.createElement('p')
+    const params = document.createElement('div')
+    title.className = 'cm-kotlingo-hover-section-title'
+    title.textContent = ['class', 'data class', 'interface'].includes(symbol.kind)
+      ? 'constructor'
+      : 'parameters'
+    params.className = 'cm-kotlingo-hover-params'
+    symbol.parameters.forEach((parameter) => {
+      const row = document.createElement('code')
+      row.textContent = parameter
+      params.append(row)
+    })
+    root.append(title, params)
+  }
+
+  const hoverMembers = dedupeSymbolMembers([...symbol.members, ...syntheticDataClassMembers(symbol)])
+
+  if (hoverMembers.length > 0) {
+    const title = document.createElement('p')
+    const members = document.createElement('div')
+    title.className = 'cm-kotlingo-hover-section-title'
+    title.textContent = 'members'
+    members.className = 'cm-kotlingo-hover-members'
+    hoverMembers.slice(0, 8).forEach((member) => {
+      const row = document.createElement('code')
+      row.textContent = member.signature
+      members.append(row)
+    })
+    root.append(title, members)
+  }
+
+  if (symbol.implementation) {
+    const details = document.createElement('details')
+    const summary = document.createElement('summary')
+    const code = document.createElement('pre')
+
+    summary.textContent = 'Показать реализацию'
+    code.textContent = symbol.implementation
+    details.append(summary, code)
+    root.append(details)
+  }
+
+  return root
+}
+
+function appendHoverChip(container: HTMLElement, text: string) {
+  const chip = document.createElement('span')
+  chip.className = 'cm-kotlingo-hover-chip'
+  chip.textContent = text
+  container.append(chip)
 }
 
 function createDiagnosticsExtension(): Extension {
@@ -1063,14 +3195,247 @@ function setActiveFileContent(content: string) {
   }
 
   nodes.value = nodes.value.map((node) => (node.id === file.id ? { ...node, content } : node))
+  scheduleRealtimeDiagnostics(content)
+}
+
+function scheduleRealtimeDiagnostics(content: string, delay = 140) {
+  if (realtimeDiagnosticsTimer !== undefined) {
+    window.clearTimeout(realtimeDiagnosticsTimer)
+  }
+
+  realtimeDiagnosticsTimer = window.setTimeout(() => {
+    realtimeDiagnosticsTimer = undefined
+    diagnostics.value = buildRealtimeDiagnostics(content)
+  }, delay)
+}
+
+function buildRealtimeDiagnostics(content: string): RuntimeDiagnostic[] {
+  const file = activeFile.value
+  const filePath = activeFilePath.value
+
+  if (!file || !filePath) {
+    return []
+  }
+
+  return findUnresolvedMemberDiagnostics(content, file.name, filePath)
+}
+
+function findUnresolvedMemberDiagnostics(content: string, fileName: string, filePath: string): RuntimeDiagnostic[] {
+  const diagnostics: RuntimeDiagnostic[] = []
+  const memberAccessRegex = /\b([A-Za-z_]\w*)\s*(?:\?\.|!!\.|\.)\s*([A-Za-z_]\w*)\b/g
+  let match: RegExpExecArray | null
+
+  while ((match = memberAccessRegex.exec(content)) !== null) {
+    const receiverName = match[1]
+    const memberName = match[2]
+    const receiverOffset = match.index
+    const memberOffset = match.index + match[0].lastIndexOf(memberName)
+
+    if (
+      isLikelyNonRuntimeMemberAccess(content, receiverOffset, receiverName, memberName) ||
+      isOffsetInsideStringOrComment(content, receiverOffset)
+    ) {
+      continue
+    }
+
+    const receiverType = inferExpressionType(receiverName, content, { cursorPosition: memberOffset + memberName.length })
+
+    if (!receiverType || receiverType.category === 'unknown') {
+      continue
+    }
+
+    const availableMembers = memberNamesForType(receiverType)
+
+    if (availableMembers.has(memberName)) {
+      continue
+    }
+
+    const suggestion = closestMemberName(memberName, availableMembers)
+    const start = editorPositionFromOffset(content, memberOffset)
+    const end = editorPositionFromOffset(content, memberOffset + memberName.length)
+    const typeName = typeDisplayName(receiverType)
+
+    diagnostics.push({
+      fileName,
+      filePath,
+      severity: 'ERROR',
+      line: start.line + 1,
+      column: start.ch + 1,
+      interval: { start, end },
+      message: suggestion
+        ? `У типа ${typeName} нет свойства или метода ${memberName}. Возможно, вы имели в виду ${suggestion}.`
+        : `У типа ${typeName} нет свойства или метода ${memberName}.`,
+    })
+  }
+
+  return diagnostics
+}
+
+function isLikelyNonRuntimeMemberAccess(content: string, offset: number, receiverName: string, memberName: string): boolean {
+  const lineStart = content.lastIndexOf('\n', Math.max(0, offset - 1)) + 1
+  const lineEnd = content.indexOf('\n', offset)
+  const line = content.slice(lineStart, lineEnd >= 0 ? lineEnd : content.length)
+  const beforeAccess = line.slice(0, offset - lineStart)
+
+  return (
+    /^\s*(?:package|import)\s+/.test(line) ||
+    /^\s*\/\//.test(line) ||
+    /:\s*$/.test(beforeAccess) ||
+    (/^[A-Z]/.test(receiverName) && /^[A-Z]/.test(memberName))
+  )
+}
+
+function memberNamesForType(typeInfo: KotlinTypeInfo): Set<string> {
+  return new Set([
+    ...memberCatalogForType(typeInfo).map((member) => member.label),
+    ...commonAnyMembers.map((member) => member.label),
+    ...commonScopeMembers.map((member) => member.label),
+    ...(typeInfo.symbol ? dedupeSymbolMembers([...typeInfo.symbol.members, ...syntheticDataClassMembers(typeInfo.symbol)]).map((member) => member.name) : []),
+  ])
+}
+
+function closestMemberName(name: string, candidates: Set<string>): string {
+  let best = ''
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  candidates.forEach((candidate) => {
+    const distance = levenshteinDistance(name.toLocaleLowerCase('en'), candidate.toLocaleLowerCase('en'))
+
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = candidate
+    }
+  })
+
+  return bestDistance <= Math.max(2, Math.floor(name.length / 3)) ? best : ''
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+  const current = Array.from({ length: right.length + 1 }, () => 0)
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex
+
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const cost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + cost,
+      )
+    }
+
+    for (let index = 0; index < previous.length; index += 1) {
+      previous[index] = current[index]
+    }
+  }
+
+  return previous[right.length]
+}
+
+function editorPositionFromOffset(content: string, offset: number): { line: number; ch: number } {
+  const safeOffset = Math.max(0, Math.min(offset, content.length))
+  const before = content.slice(0, safeOffset)
+  const lineBreak = before.lastIndexOf('\n')
+  const line = before.split('\n').length - 1
+
+  return {
+    line,
+    ch: lineBreak >= 0 ? before.length - lineBreak - 1 : before.length,
+  }
+}
+
+function isOffsetInsideStringOrComment(content: string, offset: number): boolean {
+  let inLineComment = false
+  let inBlockComment = false
+  let inString = false
+  let inChar = false
+  let inTripleString = false
+
+  for (let index = 0; index < Math.min(offset, content.length); index += 1) {
+    const char = content[index]
+    const next = content[index + 1]
+    const previous = content[index - 1]
+
+    if (inLineComment) {
+      if (char === '\n') {
+        inLineComment = false
+      }
+      continue
+    }
+
+    if (inBlockComment) {
+      if (char === '*' && next === '/') {
+        inBlockComment = false
+        index += 1
+      }
+      continue
+    }
+
+    if (inTripleString) {
+      if (char === '"' && next === '"' && content[index + 2] === '"') {
+        inTripleString = false
+        index += 2
+      }
+      continue
+    }
+
+    if (inString) {
+      if (char === '"' && previous !== '\\') {
+        inString = false
+      }
+      continue
+    }
+
+    if (inChar) {
+      if (char === "'" && previous !== '\\') {
+        inChar = false
+      }
+      continue
+    }
+
+    if (char === '/' && next === '/') {
+      inLineComment = true
+      index += 1
+      continue
+    }
+
+    if (char === '/' && next === '*') {
+      inBlockComment = true
+      index += 1
+      continue
+    }
+
+    if (char === '"' && next === '"' && content[index + 2] === '"') {
+      inTripleString = true
+      index += 2
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === "'") {
+      inChar = true
+    }
+  }
+
+  return inLineComment || inBlockComment || inString || inChar || inTripleString
 }
 
 function completionType(kind: string): string {
   const types: Record<string, string> = {
     class: 'class',
+    'data class': 'class',
     interface: 'interface',
     object: 'constant',
     fun: 'function',
+    keyword: 'keyword',
+    modifier: 'keyword',
+    literal: 'constant',
     val: 'variable',
     var: 'variable',
     typealias: 'type',
@@ -1495,17 +3860,7 @@ function canMoveNode(node: SandboxNode, targetParentId: string): boolean {
 }
 
 function moveNodeToFolder(node: SandboxNode, targetParentId: string) {
-  const uniqueName = makeUniqueNodeName(targetParentId, nodes.value, node.name, node.id)
-
-  nodes.value = nodes.value.map((item) =>
-    item.id === node.id
-      ? {
-          ...item,
-          parentId: targetParentId,
-          name: uniqueName,
-        }
-      : item,
-  )
+  nodes.value = moveSandboxNodeToFolder(nodes.value, node.id, targetParentId).nodes
   selectedNodeId.value = node.id
   expandFolder(targetParentId)
 }
@@ -1579,17 +3934,21 @@ function commitRename() {
     return
   }
 
-  const parentId = node.parentId ?? ROOT_ID
-  const normalizedName = isFileNode(node) ? normalizeFileName(renameDraft.value) : normalizeFolderName(renameDraft.value)
-  const uniqueName = makeUniqueNodeName(parentId, nodes.value, normalizedName, node.id)
+  const nextProject = renameSandboxNode(nodes.value, node.id, renameDraft.value)
+  const renamedNode = nextProject.nodes.find((item) => item.id === node.id)
 
-  nodes.value = nodes.value.map((item) => (item.id === node.id ? { ...item, name: uniqueName } : item))
-  renameDraft.value = uniqueName
+  nodes.value = nextProject.nodes
+  renameDraft.value = renamedNode?.name ?? renameDraft.value
 }
 
 async function runProject() {
   if (runStatus.value === 'running') {
     return
+  }
+
+  if (realtimeDiagnosticsTimer !== undefined) {
+    window.clearTimeout(realtimeDiagnosticsTimer)
+    realtimeDiagnosticsTimer = undefined
   }
 
   runStatus.value = 'running'
@@ -1760,12 +4119,6 @@ function importStatusClass(status: ImportStatus): string {
   }
 
   return tagBase.beginner
-}
-
-function diagnosticClass(severity: string): string {
-  return severity === 'ERROR'
-    ? 'border-rose/35 bg-rose/10 text-rose'
-    : 'border-amber/35 bg-amber/10 text-amber'
 }
 
 function isKnownExternalImport(importPath: string): boolean {
@@ -1992,72 +4345,24 @@ function isStoredStateValid(state: StoredSandboxState): boolean {
         </div>
         </section>
 
-        <section :class="[layout.panel, 'grid gap-4 p-4']">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <p class="m-0 text-xs font-black uppercase tracking-wide text-muted">Run</p>
-              <h2 class="m-0 mt-1 text-xl font-black">Компилятор</h2>
-            </div>
-            <Terminal class="text-accent" :size="22" />
-          </div>
+        <SandboxRunPanel
+          v-model:selected-compiler-version="selectedCompilerVersion"
+          v-model:program-args="programArgs"
+          :compiler-version-options="compilerVersionOptions"
+          :run-status="runStatus"
+          :run-output="runOutput"
+          :last-run-at="lastRunAt"
+          :compiler-versions-error="compilerVersionsError"
+          :compiler-versions-loading="compilerVersionsLoading"
+          @run="runProject"
+        />
 
-          <div class="grid gap-3">
-            <AppSelect v-model="selectedCompilerVersion" :options="compilerVersionOptions" />
-            <label :class="[form.search, 'grid-cols-[20px_minmax(0,1fr)]']">
-              <Package :size="17" />
-              <InputText v-model="programArgs" :class="form.input" placeholder="args для main" />
-            </label>
-            <Button :class="[buttons.primary, 'w-full']" :disabled="runStatus === 'running'" @click="runProject">
-              <Loader2 v-if="runStatus === 'running'" class="animate-spin" :size="18" />
-              <Play v-else :size="18" />
-              <span>Запустить проект</span>
-            </Button>
-          </div>
-
-          <div class="grid gap-2">
-            <div class="flex items-center justify-between gap-2">
-              <Tag
-                :value="runStatus === 'running' ? 'running' : runStatus"
-                :class="runStatus === 'error' ? 'inline-flex min-h-7 items-center rounded-full bg-rose/12 px-3 text-xs font-black text-rose' : tagBase.beginner"
-              />
-              <span class="text-xs font-bold text-muted">{{ lastRunAt }}</span>
-            </div>
-            <pre class="m-0 max-h-64 min-h-36 overflow-auto rounded-card border border-line bg-app px-3 py-3 font-mono text-xs leading-5 text-ink">{{ runOutput }}</pre>
-          </div>
-
-          <p v-if="compilerVersionsError" class="m-0 text-xs font-bold leading-5 text-amber">
-            {{ compilerVersionsError }} Используется fallback {{ FALLBACK_KOTLIN_VERSION }}.
-          </p>
-          <p v-else-if="compilerVersionsLoading" class="m-0 text-xs font-bold text-muted">Загружаю версии Kotlin...</p>
-        </section>
-
-        <section :class="[layout.panel, 'grid gap-4 p-4']">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <p class="m-0 text-xs font-black uppercase tracking-wide text-muted">Diagnostics</p>
-              <h2 class="m-0 mt-1 text-xl font-black">{{ compilerErrorCount }} errors</h2>
-            </div>
-            <CheckCircle2 v-if="diagnostics.length === 0 && runStatus === 'success'" class="text-accent" :size="22" />
-            <AlertTriangle v-else class="text-amber" :size="22" />
-          </div>
-
-          <div v-if="diagnostics.length === 0" class="grid min-h-28 place-items-center rounded-card border border-line bg-app-soft p-4 text-center text-sm font-bold text-muted">
-            Диагностика появится после запуска.
-          </div>
-          <div v-else class="grid max-h-72 gap-2 overflow-auto">
-            <button
-              v-for="(diagnostic, index) in diagnostics"
-              :key="`${diagnostic.fileName}-${index}`"
-              :class="['rounded-card border p-3 text-left transition hover:bg-panel-soft', diagnosticClass(diagnostic.severity)]"
-              type="button"
-              @click="revealDiagnostic(diagnostic)"
-            >
-              <span class="block text-xs font-black uppercase tracking-wide">{{ diagnostic.severity }}</span>
-              <strong class="mt-1 block text-sm">{{ diagnostic.filePath }}{{ diagnostic.line ? `:${diagnostic.line}` : '' }}</strong>
-              <span class="mt-2 block text-sm leading-5 text-ink/85">{{ diagnostic.message }}</span>
-            </button>
-          </div>
-        </section>
+        <SandboxDiagnosticsPanel
+          :diagnostics="diagnostics"
+          :compiler-error-count="compilerErrorCount"
+          :run-status="runStatus"
+          @reveal="revealDiagnostic"
+        />
 
         <section :class="[layout.panel, 'grid gap-4 p-4']">
           <div class="flex items-center justify-between gap-3">
